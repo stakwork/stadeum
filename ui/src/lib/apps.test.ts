@@ -4,7 +4,7 @@ import { startFakeStack, type FakeStack } from "@/test/fake-stack";
 import { appHref, launcherApps, listApps } from "./apps";
 
 describe("launcherApps", () => {
-  const app = (name: string, title: string, pinned?: boolean) => ({ name, title, ...(pinned ? { pinned } : {}) });
+  const app = (name: string, title: string, pinned?: boolean) => ({ name, title, activeVersion: "v1", ...(pinned ? { pinned } : {}) });
 
   it("puts the assistant first, then the pinned apps, then the rest by title", () => {
     const apps = launcherApps([

@@ -33,23 +33,29 @@ const ASSISTANT = new Set(["strut/jamie", "strut/assistant"]);
  */
 const NOT_OPENED = new Set(["strut/views"]);
 
+/** Whether a person opens the app at all. */
+export const isOpened = (name: string) => !NOT_OPENED.has(name);
+
 const STRUT_APPS_TIMEOUT_MS = 5_000;
 
 export const appHref = (name: string) => (ASSISTANT.has(name) ? "/" : `/apps/${encodeURIComponent(name)}`);
 
 /** The assistant first, then the apps pinned as tabs, then the rest by title. */
-export function launcherApps(apps: StrutApp[]): App[] {
-  const rank = (a: StrutApp) => (ASSISTANT.has(a.name) ? 0 : a.pinned ? 1 : 2);
+export function launcherOrder<T extends Pick<StrutApp, "name" | "title" | "pinned">>(apps: T[]): T[] {
+  const rank = (a: T) => (ASSISTANT.has(a.name) ? 0 : a.pinned ? 1 : 2);
   return apps
-    .filter((a) => !NOT_OPENED.has(a.name))
-    .sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title) || a.name.localeCompare(b.name))
-    .map((a) => ({
-      name: a.name,
-      title: a.title,
-      ...(a.description ? { description: a.description } : {}),
-      href: appHref(a.name),
-      assistant: ASSISTANT.has(a.name),
-    }));
+    .filter((a) => isOpened(a.name))
+    .sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title) || a.name.localeCompare(b.name));
+}
+
+export function launcherApps(apps: StrutApp[]): App[] {
+  return launcherOrder(apps).map((a) => ({
+    name: a.name,
+    title: a.title,
+    ...(a.description ? { description: a.description } : {}),
+    href: appHref(a.name),
+    assistant: ASSISTANT.has(a.name),
+  }));
 }
 
 /**

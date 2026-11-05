@@ -2,9 +2,10 @@
 /**
  * A fake of the stadeum stack on one port, for tests and local runs:
  *   /bifrost  — gateway: /_plugin/* (Bearer) and /api/* (Basic)
- *   /strut    — strut: /health, /apps, /auth/ticket and the app page a
- *               ticket opens, /llm/delegations, /actors/:actor/secrets
- *               (strut specs/API.md)
+ *   /strut    — strut: /health, /apps (the list, each app's versions,
+ *               usage, what is live and the pin), /auth/ticket and the app
+ *               page a ticket opens, /llm/delegations,
+ *               /actors/:actor/secrets (strut specs/API.md)
  *   /neo4j    — HTTP discovery
  * Wire shapes follow docs/mothership-spec.md. The delegation PUT runs
  * Strut's own shape check and verifies the macaroon against the org key
@@ -56,6 +57,18 @@ export const SEEDED_APPS: FakeApp[] = [
   },
 ];
 
+/** What `GET /apps/:name/versions` and `/usage` read beyond the listing. */
+export interface FakeAppRecord {
+  versions: Record<string, { createdAt: string; source?: string }>;
+  /** Oldest first. Strut keeps every release. */
+  releases: Array<{ id: string; version: string; createdAt: string; by?: string }>;
+  /** `GET /apps/:name/usage`'s warnings; `GET /apps` counts the live version's. */
+  warnings: Array<{ kind: string; version: string; times: number; lastAt: string; message: string; fix: string }>;
+}
+
+const seededRecord = (): FakeAppRecord => ({ versions: { v1: { createdAt: "2026-11-05T12:00:00.000Z", source: "seed" } }, releases: [], warnings: [] });
+const versionNumber = (v: string) => Number(v.replace(/^v/, "")) || 0;
+
 export interface FakeState {
   customers: Array<{ id: string; name: string; created_at: string }>;
   vks: Array<{ id: string; name: string; value: string; customer_id: string; created_at: string; provider_configs: unknown[] }>;
@@ -66,6 +79,10 @@ export interface FakeState {
   secrets: Map<string, string>;
   /** `GET /apps`, in strut's order (by name). Starts as SEEDED_APPS. */
   apps: FakeApp[];
+  /** Each app's versions, releases and warnings, by name. */
+  appRecords: Map<string, FakeAppRecord>;
+  /** Set to make the next `PUT /apps/:name/active { release }` a 409 with this message. */
+  refuseRelease: string | null;
   /** Sign-in tickets strut minted: who each signs in, until when, whether spent. */
   tickets: Map<string, { actor: string; exp: number; used: boolean }>;
   /** Set to make strut's /health report a drain. */
@@ -91,6 +108,8 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     delegations: new Map(),
     secrets: new Map(),
     apps: SEEDED_APPS.map((a) => ({ ...a })),
+    appRecords: new Map(SEEDED_APPS.map((a) => [a.name, seededRecord()])),
+    refuseRelease: null,
     tickets: new Map(),
     drain: null,
     requests: [],
@@ -227,8 +246,14 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       return send(res, 200, { ticket, expiresAt: exp });
     }
     if (path === "/apps" && m === "GET") {
-      return send(res, 200, { apps: [...state.apps].sort((a, b) => a.name.localeCompare(b.name)) });
+      const listed = [...state.apps].sort((a, b) => a.name.localeCompare(b.name)).map((a) => {
+        const warnings = state.appRecords.get(a.name)?.warnings.filter((w) => w.version === a.activeVersion).length ?? 0;
+        return warnings ? { ...a, warnings } : a;
+      });
+      return send(res, 200, { apps: listed });
     }
+    const one = path.match(/^\/apps\/([^/]+)\/(versions|usage|active|pin)$/);
+    if (one) return appRoute(req, res, decodeURIComponent(one[1]!), one[2]!, body);
     if (path === "/llm/delegations" && m === "GET") {
       return send(res, 200, [...state.delegations.values()].map(({ actor, exp, delegationId }) => ({ actor, exp, delegationId })));
     }
@@ -262,6 +287,92 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     send(res, 404, { error: "not found" });
   }
 
+  /** One app's versions, usage, what is live and the pin (strut §14.5, §14.6). */
+  function appRoute(req: IncomingMessage, res: ServerResponse, name: string, what: string, body: any) {
+    const m = req.method;
+    const app = state.apps.find((a) => a.name === name);
+    const rec = state.appRecords.get(name);
+    if (!app || !rec) return send(res, 404, { error: `App "${name}" not found` });
+    const actor = typeof req.headers["x-strut-actor"] === "string" ? req.headers["x-strut-actor"] : undefined;
+    const seeded = rec.versions[app.activeVersion]?.source === "seed";
+    const release = (version: string) => {
+      const r = { id: `r${rec.releases.length + 1}`, version, createdAt: new Date().toISOString(), ...(actor ? { by: actor } : {}) };
+      rec.releases.push(r);
+      app.activeVersion = version;
+      app.live = r.id;
+      return r;
+    };
+    const cannotHold = () => send(res, 409, { error: `${name} is seeded by strut and always runs its committed version — it cannot be held` });
+
+    if (what === "versions" && m === "GET") {
+      return send(res, 200, {
+        name,
+        active: app.activeVersion,
+        versions: rec.versions,
+        ...(app.pinned ? { pinned: true } : {}),
+        live: app.live ?? "latest",
+        releases: rec.releases.map((r) => ({ ...r, lock: { workflows: {}, steps: {} } })),
+        behind: [],
+      });
+    }
+    if (what === "usage" && m === "GET") {
+      const zero = { calls: 0, errors: 0, bytes: 0, ms: 0 };
+      return send(res, 200, { app: name, hour: zero, day: zero, minutes: [], types: [], warnings: rec.warnings });
+    }
+    if (what === "active" && m === "PUT") {
+      const version = typeof body?.version === "string" && body.version ? body.version : undefined;
+      const rel = typeof body?.release === "string" && body.release ? body.release : undefined;
+      if (!version === !rel) return send(res, 400, { error: "one of version or release is required" });
+      if (seeded) return cannotHold();
+      if (version === "latest") {
+        const newest = Object.keys(rec.versions).sort((a, b) => versionNumber(b) - versionNumber(a))[0]!;
+        app.activeVersion = newest;
+        delete app.live;
+      } else if (version) {
+        if (!rec.versions[version]) return send(res, 404, { error: `version ${version} not found` });
+        release(version);
+      } else {
+        const r = rec.releases.find((x) => x.id === rel);
+        if (!r) return send(res, 404, { error: `release ${rel} not found` });
+        if (state.refuseRelease) {
+          const error = state.refuseRelease;
+          state.refuseRelease = null;
+          return send(res, 409, { error });
+        }
+        app.activeVersion = r.version;
+        app.live = r.id;
+      }
+      return send(res, 200, { ok: true, name, active: app.activeVersion, live: app.live ?? "latest" });
+    }
+    if (what === "pin" && m === "PUT") {
+      if (typeof body?.pinned !== "boolean") return send(res, 400, { error: "pinned is required: true or false" });
+      let made;
+      if (body.pinned) {
+        // Pinning holds an app that follows latest, at the version it shows; a seeded one is pinned and still follows.
+        if (!app.live && !seeded) made = release(app.activeVersion);
+        app.pinned = true;
+      } else delete app.pinned;
+      return send(res, 200, { ok: true, name, pinned: body.pinned, live: app.live ?? "latest", ...(made ? { release: made } : {}) });
+    }
+    send(res, 404, { error: "not found" });
+  }
+
+  /** Publish the next version of an app, as `POST /apps` would: live at once while it follows latest, a draft while held. */
+  function publish(name: string, title = name): string {
+    let app = state.apps.find((a) => a.name === name);
+    if (!app) {
+      app = { name, activeVersion: "", versions: [], title, grants: grants() };
+      state.apps.push(app);
+      state.appRecords.set(name, { versions: {}, releases: [], warnings: [] });
+    }
+    const rec = state.appRecords.get(name)!;
+    const version = `v${app.versions.length + 1}`;
+    rec.versions[version] = { createdAt: new Date().toISOString() };
+    app.versions.push(version);
+    if (!app.live) app.activeVersion = version;
+    return version;
+  }
+
   await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
   const { port: actual } = server.address() as AddressInfo;
   const base = `http://127.0.0.1:${actual}`;
@@ -274,6 +385,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     token,
     adminUser,
     adminPass,
+    publish,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }

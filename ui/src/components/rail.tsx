@@ -30,6 +30,8 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
   useEffect(() => setOpen(false), [path]);
 
   const is = (href: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
+  // The admin Apps page and an app's versions; an app's own item is only its frame.
+  const managingApps = path === "/apps" || /^\/apps\/[^/]+\/versions(\/|$)/.test(path);
 
   return (
     <>
@@ -65,7 +67,7 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
         {apps.length > 0 && (
           <Section label="Apps">
             {apps.map((a) => (
-              <Item key={a.href} href={a.href} active={is(a.href)}>
+              <Item key={a.href} href={a.href} active={path === a.href}>
                 {a.title}
               </Item>
             ))}
@@ -79,6 +81,9 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
             </Item>
             <Item href="/status" active={is("/status")}>
               Status
+            </Item>
+            <Item href="/apps" active={managingApps}>
+              Apps
             </Item>
           </Section>
         )}

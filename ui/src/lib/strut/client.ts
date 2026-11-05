@@ -15,6 +15,8 @@ export class StrutHttpError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    /** Strut's own `{ error }`, as it wrote it: what a person may read. */
+    public readonly detail?: string,
   ) {
     super(message);
     this.name = "StrutHttpError";
@@ -31,13 +33,15 @@ export class DelegationsUnsupportedError extends Error {
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 
-async function strutFetch(method: Method, path: string, body?: unknown, timeoutMs = STRUT_HTTP_TIMEOUT_MS): Promise<Response> {
+/** `actor`: who a write is for (`x-strut-actor`, beside the key): strut stamps it, e.g. as a release's `by`. */
+async function strutFetch(method: Method, path: string, body?: unknown, timeoutMs = STRUT_HTTP_TIMEOUT_MS, actor?: string): Promise<Response> {
   const token = requireSharedToken();
   return fetch(`${env.strutUrl()}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${token}`,
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(actor ? { "x-strut-actor": actor } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     cache: "no-store",
@@ -48,7 +52,15 @@ async function strutFetch(method: Method, path: string, body?: unknown, timeoutM
 const errorText = async (res: Response) => (await res.text().catch(() => "")).slice(0, 300);
 
 async function fail(method: Method, path: string, res: Response): Promise<never> {
-  throw new StrutHttpError(res.status, `${method} ${path} returned ${res.status}: ${await errorText(res)}`);
+  const text = await errorText(res);
+  let detail: string | undefined;
+  try {
+    const { error } = JSON.parse(text) as { error?: unknown };
+    if (typeof error === "string" && error) detail = error;
+  } catch {
+    // Not JSON: no message of strut's to show.
+  }
+  throw new StrutHttpError(res.status, `${method} ${path} returned ${res.status}: ${text}`, detail);
 }
 
 // ── health ──────────────────────────────────────────────────────────────
@@ -153,12 +165,20 @@ export interface StrutApp {
   name: string;
   title: string;
   description?: string;
+  /** The version people open. */
+  activeVersion: string;
   /** Set only on an app pinned as a tab (`PUT /apps/:name/pin`). */
   pinned?: boolean;
+  /** The live release's id, only while the app is held (§14.5). */
+  live?: string;
+  /** The live version's usage warnings in the last day (§14.6), when it has any. */
+  warnings?: number;
 }
 
 const isApp = (a: unknown): a is StrutApp =>
   !!a && typeof a === "object" && typeof (a as StrutApp).name === "string" && !!(a as StrutApp).name;
+
+const appPath = (name: string, rest = "") => `/apps/${encodeURIComponent(name)}${rest}`;
 
 /** `GET /apps`: every app in strut's workspace, as strut lists them. */
 export async function listApps(timeoutMs?: number): Promise<StrutApp[]> {
@@ -170,8 +190,95 @@ export async function listApps(timeoutMs?: number): Promise<StrutApp[]> {
     name: a.name,
     title: typeof a.title === "string" && a.title ? a.title : a.name,
     ...(typeof a.description === "string" && a.description ? { description: a.description } : {}),
+    activeVersion: typeof a.activeVersion === "string" ? a.activeVersion : "",
     ...(a.pinned === true ? { pinned: true } : {}),
+    ...(typeof a.live === "string" && a.live ? { live: a.live } : {}),
+    ...(typeof a.warnings === "number" && a.warnings > 0 ? { warnings: a.warnings } : {}),
   }));
+}
+
+/** `GET /apps/:name/versions`, without `behind` and the release locks, which stadeum never shows (strut's own Versions flyout doesn't). */
+export interface StrutAppVersions {
+  name: string;
+  /** The live version. */
+  active: string;
+  /** `source: "seed"`: strut makes this version live at every start, so it cannot be held. */
+  versions: Record<string, { createdAt: string; source?: string }>;
+  /** The live release's id, or `latest` while following. */
+  live: string;
+  /** Oldest first. `by` is the actor who made it live. */
+  releases: Array<{ id: string; version: string; createdAt: string; by?: string }>;
+  pinned?: boolean;
+}
+
+export async function getAppVersions(name: string): Promise<StrutAppVersions> {
+  const path = appPath(name, "/versions");
+  const res = await strutFetch("GET", path);
+  if (!res.ok) await fail("GET", path, res);
+  const d = (await res.json()) as Partial<StrutAppVersions> & { releases?: Array<Record<string, unknown>> };
+  if (typeof d.active !== "string" || !d.versions || typeof d.versions !== "object") throw new Error(`GET ${path} returned no versions`);
+  const versions: StrutAppVersions["versions"] = {};
+  for (const [v, info] of Object.entries(d.versions)) {
+    versions[v] = { createdAt: String(info?.createdAt ?? ""), ...(typeof info?.source === "string" ? { source: info.source } : {}) };
+  }
+  return {
+    name: d.name ?? name,
+    active: d.active,
+    versions,
+    live: typeof d.live === "string" && d.live ? d.live : "latest",
+    releases: (Array.isArray(d.releases) ? d.releases : []).map((r) => ({
+      id: String(r.id),
+      version: String(r.version),
+      createdAt: String(r.createdAt ?? ""),
+      ...(typeof r.by === "string" && r.by ? { by: r.by } : {}),
+    })),
+    ...(d.pinned === true ? { pinned: true } : {}),
+  };
+}
+
+/** One pattern strut's usage monitor caught, on the version that caused it (§14.6). */
+export interface StrutAppWarning {
+  kind: string;
+  version: string;
+  type?: string;
+  times: number;
+  lastAt: string;
+  message: string;
+  fix: string;
+}
+
+/** `GET /apps/:name/usage`: the last day's warnings. */
+export async function getAppUsage(name: string): Promise<{ warnings: StrutAppWarning[] }> {
+  const path = appPath(name, "/usage");
+  const res = await strutFetch("GET", path);
+  if (!res.ok) await fail("GET", path, res);
+  const { warnings } = (await res.json()) as { warnings?: unknown };
+  return { warnings: Array.isArray(warnings) ? (warnings as StrutAppWarning[]) : [] };
+}
+
+/** What people open: `{ version: "vN" }` (held there), `{ release: "rN" }` (an earlier release again), or `{ version: "latest" }` (every publish from now on). */
+export type LiveTarget = { version: string } | { release: string };
+
+/**
+ * `PUT /apps/:name/active`. A refusal throws a StrutHttpError whose
+ * `detail` is strut's message: 409 for a version that no longer builds, an
+ * app strut seeds, or a release whose lock names something gone.
+ */
+export async function setAppLive(name: string, target: LiveTarget, actor: string): Promise<{ active: string; live: string }> {
+  const path = appPath(name, "/active");
+  const res = await strutFetch("PUT", path, target, undefined, actor);
+  if (!res.ok) await fail("PUT", path, res);
+  const d = (await res.json()) as { active?: string; live?: string };
+  return { active: d.active ?? "", live: d.live ?? "latest" };
+}
+
+/** `PUT /apps/:name/pin`. Pinning an app that follows latest also holds it at its live version. */
+export async function setAppPinned(name: string, pinned: boolean, actor: string): Promise<{ pinned: boolean; live: string }> {
+  const path = appPath(name, "/pin");
+  const res = await strutFetch("PUT", path, { pinned }, undefined, actor);
+  if (!res.ok) await fail("PUT", path, res);
+  const d = (await res.json()) as { pinned?: boolean; live?: string };
+  return { pinned: d.pinned === true, live: d.live ?? "latest" };
 }
 
 // ── the frame ───────────────────────────────────────────────────────────
