@@ -128,7 +128,7 @@ order of the work, each step its own PR:
 | `stack/bootstrap/` | First boot: the org signing key and its registration with the gateway |
 | `ui/` | stadeum-ui: Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db`) |
 | `ui/src/lib/mothership/` | Each person's virtual key and delegation, minted, pushed to strut, renewed |
-| `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the frame's sign-in ticket |
+| `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the brand, the frame's sign-in ticket |
 | `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
 | `ops/` | stadeum-ops: the update and backup loop, driving `docker compose` and restic. No runtime dependencies |
 | `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |

@@ -1,8 +1,9 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { MothershipConfigError } from "@/lib/mothership/admin-credentials";
 import { startFakeStack, type FakeStack } from "@/test/fake-stack";
-import { embedUrl, getAppUsage, getAppVersions, health, listApps, setAppLive, setAppPinned, StrutHttpError } from "./client";
+import { brandProblem } from "@/test/strut-brand";
+import { BrandUnsupportedError, embedUrl, getAppUsage, getAppVersions, getBrand, health, listApps, putBrand, setAppLive, setAppPinned, StrutHttpError } from "./client";
 
 let fake: FakeStack;
 const saved = { ...process.env };
@@ -180,6 +181,87 @@ describe("an app's versions", () => {
     fake.state.appRecords.get("acme/dash")!.warnings.push(warning);
     expect(await getAppUsage("acme/dash")).toEqual({ warnings: [warning] });
     expect((await listApps()).find((a) => a.name === "acme/dash")?.warnings).toBe(1);
+  });
+});
+
+describe("the brand", () => {
+  afterEach(() => {
+    fake.state.brand = {};
+  });
+
+  it("starts empty: no brand, no styles", async () => {
+    configure();
+    expect(await getBrand()).toEqual({ brand: {}, styles: null });
+    expect(fake.state.requests).toContain("GET /strut/brand");
+  });
+
+  it("saves the whole brand and reads back what strut keeps, with each theme's variables", async () => {
+    configure();
+    const saved = await putBrand({ color: "#0D9488", colorDark: "#2dd4bf", radius: "1rem", font: "Georgia, serif" });
+    expect(saved.brand).toEqual({ color: "#0d9488", colorDark: "#2dd4bf", radius: "1rem", font: "Georgia, serif" });
+    expect(saved.styles?.light.variables).toMatchObject({ "--color-background-inverse": "#0d9488", "--color-text-inverse": "#0a0a0a" });
+    expect(saved.styles?.dark.variables).toMatchObject({ "--color-background-inverse": "#2dd4bf", "--border-radius-md": "1rem", "--font-sans": "Georgia, serif" });
+    expect(fake.state.requests).toContain("PUT /strut/brand");
+    expect(await getBrand()).toEqual(saved);
+  });
+
+  it("replaces it: a field left out or empty is unset, and {} resets", async () => {
+    configure();
+    await putBrand({ color: "#f80", radius: "0" });
+    expect((await getBrand()).brand).toEqual({ color: "#ff8800", radius: "0" });
+    expect((await putBrand({ radius: "0", font: "" })).brand).toEqual({ radius: "0" });
+    expect(await putBrand({})).toEqual({ brand: {}, styles: null });
+    expect(fake.state.brand).toEqual({});
+  });
+
+  it("refuses a bad field in strut's own words, and keeps the brand", async () => {
+    configure();
+    await putBrand({ color: "#0d9488" });
+    for (const [bad, said] of [
+      [{ color: "teal" }, "color is a hex color, #rrggbb"],
+      [{ radius: "1.5" }, "radius is a length in px, rem or em (0.5rem, 6px)"],
+      [{ font: "Georgia; color: red" }, 'font is a font-family list ("Avenir Next", system-ui, sans-serif)'],
+      [{ colorDark: "#12345" }, "colorDark is a hex color, #rrggbb"],
+      [{ radius: "10vh" }, "radius is a length in px, rem or em (0.5rem, 6px)"],
+    ] as const) {
+      const err = await putBrand(bad).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(StrutHttpError);
+      expect(err).toMatchObject({ status: 400, detail: said });
+    }
+    expect((await getBrand()).brand).toEqual({ color: "#0d9488" });
+  });
+
+  it("checks like strut: null and empty clear, a stranger field or a number is refused", () => {
+    expect(brandProblem({ color: null, colorDark: "", radius: "0", font: '"Avenir Next", system-ui' })).toBeUndefined();
+    expect(brandProblem({ radius: "6px" })).toBeUndefined();
+    expect(brandProblem({ primary: "#fff" })).toMatch(/^unknown field "primary"/);
+    expect(brandProblem({ radius: 6 })).toBe("radius is a string");
+    expect(brandProblem([])).toBe("the brand is { color?, colorDark?, radius?, font? }");
+    expect(brandProblem(undefined)).toBe("the brand is { color?, colorDark?, radius?, font? }");
+  });
+
+  it("sends only the brand's four fields", async () => {
+    configure();
+    const sneaky = { color: "#0d9488", primary: "#ff0000" } as Parameters<typeof putBrand>[0];
+    expect((await putBrand(sneaky)).brand).toEqual({ color: "#0d9488" });
+  });
+
+  it("refuses with a key strut does not hold", async () => {
+    configure({ SHARED_API_TOKEN: "wrong" });
+    await expect(getBrand()).rejects.toMatchObject({ status: 401 });
+    await expect(putBrand({})).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("knows a strut older than branding: a 404, or its web UI's page in place of JSON", async () => {
+    configure({ STRUT_URL: `${fake.base}/old-strut` });
+    await expect(getBrand()).rejects.toBeInstanceOf(BrandUnsupportedError);
+    configure();
+    const spa = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("<!doctype html><title>Strut</title>", { headers: { "Content-Type": "text/html" } }));
+    try {
+      await expect(getBrand()).rejects.toBeInstanceOf(BrandUnsupportedError);
+    } finally {
+      spa.mockRestore();
+    }
   });
 });
 
