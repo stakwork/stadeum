@@ -123,8 +123,10 @@ services:
   bifrost:
     <<: *common
     # PINNED: the gateway moves with a stadeum release that changes this
-    # pin (its version tags are stakgraph's releases).
-    image: ghcr.io/stakwork/stakgraph-gateway:${BIFROST_TAG:-v0.4.396}
+    # pin (its version tags are stakgraph's releases). v0.4.398 has the
+    # runtime price table (`PUT /_plugin/pricing`) stadeum-ui keeps Maple's,
+    # Numes' and added providers' prices in (docs/models.md).
+    image: ghcr.io/stakwork/stakgraph-gateway:${BIFROST_TAG:-v0.4.398}
     labels:
       stadeum.ops.backup: stop
     depends_on:
@@ -155,6 +157,29 @@ services:
     volumes:
       - bifrost:/app/data
     # Healthcheck is baked into the image (wget :8181/health).
+
+  maple:
+    <<: *common
+    # Maple's inference proxy (maple.ai): an OpenAI-compatible endpoint
+    # that attests Maple's enclave and encrypts every request to it. The
+    # gateway holds it as the custom provider `maple` once an admin sets
+    # Maple's key on the Models page (docs/models.md); until then nothing
+    # calls it. It reads each prompt in plaintext, so it stays on this
+    # network: no port, no route in the Caddyfile. It holds no key: the
+    # gateway sends Maple's on each request. No state, so no backup label;
+    # PINNED (Maple's version tags are immutable, amd64 + arm64): it moves
+    # with a stadeum release that changes this pin.
+    image: ghcr.io/mapleprivacylabs/maple-proxy:${MAPLE_PROXY_TAG:-0.4.5}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    environment:
+      # It binds loopback unless told otherwise.
+      MAPLE_HOST: 0.0.0.0
+      MAPLE_PORT: "8080"
+      # Nothing in a browser calls it; the image turns CORS on.
+      MAPLE_ENABLE_CORS: "false"
 
   strut-browser:
     <<: *common

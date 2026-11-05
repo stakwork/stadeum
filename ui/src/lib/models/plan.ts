@@ -1,4 +1,5 @@
 import { PROVIDERS } from "@/lib/mothership/constants";
+import type { GatewayPriceRow } from "@/lib/mothership/types";
 import type { StrutModelCatalog } from "@/lib/strut/client";
 
 /**
@@ -8,10 +9,18 @@ import type { StrutModelCatalog } from "@/lib/strut/client";
  * same provider its own way (`google` is bifrost's `gemini`).
  */
 
+/** USD per million tokens, as the admin typed it for a model strut has no rate for. */
+export interface TypedPrice {
+  input: number;
+  output: number;
+}
+
 export interface ModelSettings {
   /** The admin's list. Null until they save one. */
   models: string[] | null;
   defaultModel: string | null;
+  /** Prices the admin typed, by model name: an Other provider's models. */
+  prices: Record<string, TypedPrice>;
 }
 
 export interface ModelPlan {
@@ -77,26 +86,69 @@ export function grantsFor(models: string[] | null, gatewayProviders: string[]): 
 
 const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:~\-/]*$/;
 
-/** A canonical name an admin may put on the list: a provider stadeum offers and a plausible id. */
-export function isModelName(name: string): boolean {
+/** A canonical name an admin may put on the list: one of `providers` (strut's names) and a plausible id. */
+export function isModelName(name: string, providers: ReadonlySet<string>): boolean {
   const s = splitName(name);
-  return !!s && name.length <= 200 && PROVIDERS.some((p) => p.strut === s.provider) && MODEL_ID_RE.test(s.modelId.replace(/^~/, ""));
+  return !!s && name.length <= 200 && providers.has(s.provider) && MODEL_ID_RE.test(s.modelId.replace(/^~/, ""));
+}
+
+/** A typed price: blank is none; otherwise a number of dollars per million tokens, zero allowed. */
+function parsePrice(raw: string): number | null | "bad" {
+  const t = raw.trim().replace(/^\$/, "");
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 && n < 100_000 ? n : "bad";
 }
 
 /**
- * The Models form, checked: the ticked models plus one typed in, and the
- * default among them. Errors are what the admin reads.
+ * The Models form, checked: the ticked models plus one typed in (with its
+ * price, when given), and the default among them. Prices are kept for the
+ * models still allowed. Errors are what the admin reads.
  */
-export function parseModelsForm(input: { ticked: string[]; other: string; default: string }): ModelSettings | { error: string } {
+export function parseModelsForm(
+  input: { ticked: string[]; other: string; default: string; otherInput?: string; otherOutput?: string },
+  providers: ReadonlySet<string>,
+  prices: Record<string, TypedPrice> = {},
+): ModelSettings | { error: string } {
   const other = input.other.trim();
-  if (other && !isModelName(other)) {
+  if (other && !isModelName(other, providers)) {
     return { error: `“${other}” is not a model name stadeum knows. Write it as provider/id, e.g. openrouter/deepseek/deepseek-v4.` };
   }
   const models = unique([...input.ticked.map((t) => t.trim()).filter(Boolean), ...(other ? [other] : [])]);
-  const bad = models.find((m) => !isModelName(m));
+  const bad = models.find((m) => !isModelName(m, providers));
   if (bad) return { error: `“${bad}” is not a model name stadeum knows.` };
   if (models.length === 0) return { error: "Allow at least one model." };
   const defaultModel = input.default.trim();
   if (!models.includes(defaultModel)) return { error: "Choose the default from the allowed models." };
-  return { models, defaultModel };
+  const kept = Object.fromEntries(Object.entries(prices).filter(([n]) => models.includes(n)));
+  const [pin, pout] = [parsePrice(input.otherInput ?? ""), parsePrice(input.otherOutput ?? "")];
+  if (pin === "bad" || pout === "bad") return { error: "A price is dollars per million tokens: a number, 0 for free." };
+  if (other && (pin !== null || pout !== null)) {
+    if (pin === null || pout === null) return { error: "Give both prices, input and output, or neither." };
+    kept[other] = { input: pin, output: pout };
+  }
+  return { models, defaultModel, prices: kept };
+}
+
+/**
+ * The gateway's runtime price table (`PUT /_plugin/pricing`, which replaces
+ * it whole), keyed as the gateway sees a call: `<provider>/<model>`, which
+ * is strut's canonical name (`maple/gemma4-31b`, `numes/z-ai/glm-5.3`).
+ * Strut's catalog prices only models with a rate of their own (Maple's and
+ * Numes' tables); bifrost's datasheet prices the rest. A typed price wins.
+ */
+export function priceTable(catalog: StrutModelCatalog, prices: Record<string, TypedPrice>): Record<string, GatewayPriceRow> {
+  const table: Record<string, GatewayPriceRow> = {};
+  for (const m of catalog.models) {
+    const p = m.pricing;
+    if (!p) continue;
+    table[m.name] = {
+      input_per_mtok: p.inputTokenPrice,
+      output_per_mtok: p.outputTokenPrice,
+      ...(p.cacheReadPrice != null ? { cache_read_per_mtok: p.cacheReadPrice } : {}),
+      ...(p.cacheWritePrice != null ? { cache_write_per_mtok: p.cacheWritePrice } : {}),
+    };
+  }
+  for (const [name, p] of Object.entries(prices)) table[name] = { input_per_mtok: p.input, output_per_mtok: p.output };
+  return table;
 }

@@ -2,6 +2,7 @@ import { jsonClient } from "./http";
 import type {
   BifrostBudget,
   BifrostConfigResponse,
+  BifrostCustomProviderInput,
   BifrostKey,
   BifrostKeyInput,
   BifrostProvider,
@@ -85,6 +86,15 @@ export class BifrostClient {
 
   listProviders() {
     return this.request<ListProvidersResponse>("GET", `/api/providers`);
+  }
+
+  /** An OpenAI-compatible custom provider, without a key: add it with createProviderKey. */
+  createProvider(input: BifrostCustomProviderInput) {
+    return this.request<unknown>("POST", `/api/providers`, input);
+  }
+
+  deleteProvider(provider: string) {
+    return this.request<unknown>("DELETE", `/api/providers/${encodeURIComponent(provider)}`);
   }
 
   // ── provider keys (bifrost transports/v2.2.2 handlers/provider_keys.go) ──

@@ -7,7 +7,7 @@ import { buttonClass } from "@/components/button";
 import { Dot } from "@/components/state";
 import type { ModelRow } from "@/lib/models/apply";
 import type { ProviderState } from "@/lib/models/providers";
-import { removeKey, saveKey, saveModels, testKey, type Result } from "./actions";
+import { addProvider, removeKey, saveKey, saveModels, testKey, type Result } from "./actions";
 
 const small =
   "inline-flex h-8 items-center justify-center rounded-lg border border-rule-strong bg-surface px-3 text-[13px] font-medium text-ink transition-colors duration-150 hover:border-ink-3 disabled:pointer-events-none disabled:opacity-50";
@@ -67,6 +67,8 @@ function ProviderRow({ p }: { p: ProviderState }) {
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         <div className="flex min-w-[180px] flex-1 flex-col gap-0.5">
           <span className="text-[15px] font-medium text-ink">{p.label}</span>
+          {p.note && <span className="text-[13px] text-ink-2">{p.note}</span>}
+          {p.kind === "other" && p.baseUrl && <span className="font-mono text-[12.5px] text-ink-3">{p.baseUrl}</span>}
           <span className="font-mono text-[12.5px] text-ink-3">{p.preview || "—"}</span>
         </div>
         <span className="w-[150px] text-[13px]">
@@ -84,7 +86,7 @@ function ProviderRow({ p }: { p: ProviderState }) {
                 </button>
                 {confirming ? (
                   <button type="button" className={`${small} text-danger`} disabled={pending} onClick={() => run(() => removeKey(p.id))}>
-                    Remove {p.label}&rsquo;s key?
+                    {p.kind === "builtin" ? <>Remove {p.label}&rsquo;s key?</> : <>Remove {p.label}?</>}
                   </button>
                 ) : (
                   <button type="button" className={small} onClick={() => setConfirming(true)}>
@@ -131,7 +133,86 @@ export function Providers({ providers }: { providers: ProviderState[] }) {
       {providers.map((p) => (
         <ProviderRow key={p.id} p={p} />
       ))}
+      {/* A new list (a provider added or removed) starts the form afresh: the new row says how its key fared. */}
+      <AddProvider key={providers.map((p) => p.id).join(",")} />
     </ul>
+  );
+}
+
+/**
+ * Any provider with an OpenAI-compatible API: its name (which starts every
+ * one of its models' names), its address and its key. The gateway holds it
+ * as a custom provider.
+ */
+function AddProvider() {
+  const [open, setOpen] = useState(false);
+  const [state, action] = useActionState<Result, FormData>(async (prev, form) => {
+    const r = await addProvider(prev, form);
+    if (!r.error || r.error.startsWith("Added")) setOpen(false);
+    return r;
+  }, {});
+  return (
+    <li className="flex flex-col gap-3 px-5 py-4">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <div className="flex min-w-[180px] flex-1 flex-col gap-0.5">
+          <span className="text-[15px] font-medium text-ink">Another provider</span>
+          <span className="text-[13px] text-ink-2">Any provider with an OpenAI-compatible API.</span>
+        </div>
+        <button type="button" className={small} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+          Add a provider
+        </button>
+      </div>
+      {open && (
+        <form action={action} className="grid gap-3 md:grid-cols-[160px_1fr]">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="provider-name" className="text-[13px] font-medium text-ink">
+              Name
+            </label>
+            <input id="provider-name" name="name" required autoComplete="off" spellCheck={false} placeholder="together" className={field} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="provider-url" className="text-[13px] font-medium text-ink">
+              Address
+            </label>
+            <input
+              id="provider-url"
+              name="url"
+              type="url"
+              required
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="https://api.together.xyz/v1"
+              className={field}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5 md:col-span-2">
+            <label htmlFor="provider-key" className="text-[13px] font-medium text-ink">
+              API key
+            </label>
+            <input id="provider-key" name="key" type="password" required autoComplete="off" spellCheck={false} placeholder="Paste the key" className={field} />
+          </div>
+          <div className="flex flex-wrap gap-3 md:col-span-2">
+            <Submit className={`${buttonClass.primary} h-10`}>Add provider</Submit>
+            <button type="button" className={`${buttonClass.quiet} h-10`} onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+      <Said result={state} />
+    </li>
+  );
+}
+
+const dollars = (n: number) => n.toFixed(2);
+
+function PriceNote({ price }: { price?: { input: number; output: number } }) {
+  if (!price) return null;
+  if (price.input === 0 && price.output === 0) return <span className="text-[12.5px] text-ok">Free</span>;
+  return (
+    <span className="text-[12.5px] text-ink-3">
+      ${dollars(price.input)} in · ${dollars(price.output)} out per million tokens
+    </span>
   );
 }
 
@@ -140,7 +221,7 @@ export function Providers({ providers }: { providers: ProviderState[] }) {
  * pick. Saving changes every person's key in the gateway and what Jamie
  * offers.
  */
-export function ModelsForm({ groups }: { groups: Array<{ label: string; models: ModelRow[] }> }) {
+export function ModelsForm({ groups }: { groups: Array<{ label: string; prefix: string; models: ModelRow[] }> }) {
   const [state, action] = useActionState<Result, FormData>(saveModels, {});
   return (
     <form action={action} className="flex flex-col gap-5">
@@ -166,12 +247,20 @@ export function ModelsForm({ groups }: { groups: Array<{ label: string; models: 
                   {g.label}
                 </th>
               </tr>
+              {g.models.length === 0 && (
+                <tr className="border-t border-rule-soft">
+                  <td colSpan={3} className="px-5 py-3 text-[13px] text-ink-3">
+                    None yet. Allow one below, as {g.prefix}/&lt;model id&gt;, with its price.
+                  </td>
+                </tr>
+              )}
               {g.models.map((m) => (
                 <tr key={m.name} className="border-t border-rule-soft">
                   <td className="px-5 py-3">
                     <label htmlFor={`allow-${m.name}`} className="flex flex-col gap-0.5">
                       <span className="font-mono text-[13.5px] text-ink">{m.modelId}</span>
                       {m.alias && <span className="text-[12.5px] text-ink-3">“{m.alias}” for short</span>}
+                      <PriceNote price={m.price} />
                     </label>
                   </td>
                   <td className="px-5 py-3 text-center">
@@ -215,8 +304,24 @@ export function ModelsForm({ groups }: { groups: Array<{ label: string; models: 
             className={field}
           />
         </div>
+        <div className="flex w-[118px] flex-col gap-1.5">
+          <label htmlFor="other-input" className="text-[13px] font-medium text-ink">
+            $ in / M
+          </label>
+          <input id="other-input" name="otherInput" inputMode="decimal" autoComplete="off" placeholder="optional" className={field} />
+        </div>
+        <div className="flex w-[118px] flex-col gap-1.5">
+          <label htmlFor="other-output" className="text-[13px] font-medium text-ink">
+            $ out / M
+          </label>
+          <input id="other-output" name="otherOutput" inputMode="decimal" autoComplete="off" placeholder="optional" className={field} />
+        </div>
         <Submit className={`${buttonClass.primary} h-10`}>Save</Submit>
       </div>
+      <p className="text-[13px] text-ink-3">
+        A price is per million tokens, and only needed for a model the gateway cannot price itself (an added provider&rsquo;s).
+        Without one, its calls count as $0 against people&rsquo;s spending caps.
+      </p>
       <Said result={state} />
     </form>
   );

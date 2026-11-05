@@ -170,6 +170,8 @@ export interface StrutModel {
   name: string;
   /** The provider's default model. */
   default: boolean;
+  /** USD per million tokens, only where the model has its own rate (Maple, Numes): strut#542. Absent is unknown, not free. */
+  pricing?: { inputTokenPrice: number; outputTokenPrice: number; cacheReadPrice?: number; cacheWritePrice?: number };
 }
 
 export interface StrutModelCatalog {

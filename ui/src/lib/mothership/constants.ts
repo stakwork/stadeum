@@ -33,8 +33,44 @@ export const PROVIDERS = [
   { id: "openrouter", strut: "openrouter", label: "OpenRouter" },
 ] as const;
 
-/** Providers a VK may call, narrowed to what the gateway has configured. */
+/** Providers a VK may call when the gateway's list cannot be read. */
 export const DEFAULT_PROVIDERS: BifrostProvider[] = PROVIDERS.map((p) => p.id);
+
+/**
+ * Providers with an endpoint of their own that stadeum knows the address
+ * of. The gateway holds each as an OpenAI-compatible custom provider of
+ * the same name, which strut's model names start with (`maple/gemma4-31b`).
+ * `baseUrl` is the root bifrost appends `/v1/chat/completions` to.
+ */
+export const KNOWN_CUSTOM = [
+  {
+    id: "maple",
+    strut: "maple",
+    label: "Maple",
+    // The proxy in this stack (stack/stadeum.yml, `maple`): on the docker network, hence private.
+    baseUrl: "http://maple:8080",
+    note: "Confidential: open models in attested enclaves. The proxy on this box encrypts each request to them.",
+  },
+  {
+    id: "numes",
+    strut: "numes",
+    label: "Numes",
+    baseUrl: "https://api.numes.ai/api",
+    note: "A marketplace of open models, many of them free.",
+  },
+] as const;
+
+/**
+ * Names a custom provider may not take: bifrost's own providers (it refuses
+ * them, bifrost core `IsStandardProvider`, v1.10.1) and the ones stadeum
+ * already offers.
+ */
+export const RESERVED_PROVIDER_NAMES = new Set([
+  ...["anthropic", "azure", "bedrock", "bedrock_mantle", "cerebras", "cohere", "deepseek", "gemini", "groq", "mistral", "ollama"],
+  ...["opencode-go", "opencode-zen", "openai", "parasail", "perplexity", "sgl", "vertex", "openrouter", "elevenlabs", "huggingface"],
+  ...["nebius", "xai", "replicate", "vllm", "runway", "runware", "fireworks", "sarvam", "wafer", "github-copilot", "databricks", "typesafe"],
+  ...["google", "maple", "numes"],
+]);
 
 /** How long the gateway keeps its request log (prompts included); its image ships 365. */
 export const GATEWAY_LOG_RETENTION_DAYS = 60;

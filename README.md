@@ -186,8 +186,14 @@ admins only) and strut's apps.
   gateway refuses anything else) and writes `STRUT_MODELS` and
   `STRUT_DEFAULT_MODEL` to strut's settings, where Jamie's picker and the
   shipped workflows read them. The background pass repeats this every six
-  hours, with the gateway's 60-day log retention. `docs/models.md` has the
-  why.
+  hours, with the gateway's 60-day log retention. Maple (through the
+  `maple` proxy in the stack) and Numes are set up on their first key,
+  and "Another provider" adds any OpenAI-compatible API by name, address
+  and key: each is a custom provider in the gateway, its models named
+  `<provider>/<id>`. The gateway's price table (`PUT /_plugin/pricing`)
+  gets Maple's and Numes' rates from strut's catalog and an added
+  provider's from the price typed beside the model, so their calls count
+  against the caps. `docs/models.md` has the why.
 - Organisation → Branding (`/branding`, admins only) sets the look of every
   app strut serves: one color (and its dark-theme twin), the corners and
   the font. Strut keeps the brand and hands it to every app page as MCP

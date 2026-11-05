@@ -78,9 +78,36 @@ export interface VirtualKeyResponse {
   virtual_key: BifrostVirtualKey;
 }
 
+/** One provider of `GET /api/providers`. A custom one carries `custom_provider_config`. */
+export interface BifrostProviderEntry {
+  name: string;
+  provider_status?: string;
+  network_config?: { base_url?: string; allow_private_network?: boolean };
+  custom_provider_config?: { base_provider_type?: string } | null;
+}
+
 export interface ListProvidersResponse {
-  providers: Array<{ name: string; provider_status?: string }>;
+  providers: BifrostProviderEntry[];
   total: number;
+}
+
+/**
+ * `POST /api/providers` for an OpenAI-compatible custom provider. Its
+ * payload has no `keys`: a key sent here is dropped without an error, so
+ * the key is a second call (bifrost handlers/providers.go:125-136).
+ */
+export interface BifrostCustomProviderInput {
+  provider: string;
+  network_config: { base_url: string; allow_private_network?: boolean };
+  custom_provider_config: { base_provider_type: "openai" };
+}
+
+/** One row of the gateway's runtime price table (`PUT /_plugin/pricing`): USD per million tokens. */
+export interface GatewayPriceRow {
+  input_per_mtok: number;
+  output_per_mtok: number;
+  cache_read_per_mtok?: number;
+  cache_write_per_mtok?: number;
 }
 
 /**
