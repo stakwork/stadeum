@@ -132,6 +132,7 @@ async function main(argv: string[]): Promise<number> {
         ...(arg && !arg.startsWith("--") ? { previous: arg } : {}),
         confirmed: new Set((flag("--confirm") ?? "").split(",").filter(Boolean)),
         drainMinutes,
+        images: ops.images,
       }).catch((err) => {
         const at = new Date().toISOString();
         return { kind: "update" as const, outcome: "failed" as const, startedAt: at, endedAt: at, detail: `Applying the release failed: ${errorText(err)}` };

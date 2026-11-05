@@ -95,6 +95,19 @@ export interface Stack {
   up(services: string[], opts?: { start?: boolean; recreate?: boolean }): Promise<void>;
   stop(services: string[]): Promise<void>;
   tag(id: string, ref: string): Promise<void>;
+  /** The names (`repo:tag`) an image has here. */
+  names(id: string): Promise<string[]>;
+  /**
+   * Take a name away. The image goes with its last name, unless a container
+   * uses it. False when Docker refuses (or there is no such name).
+   */
+  untag(ref: string): Promise<boolean>;
+  /** Delete an image that has no name. False when Docker refuses: a container uses it. */
+  removeImage(id: string): Promise<boolean>;
+  /** The image IDs this machine's containers (any project, running or not) were made from. */
+  imagesInUse(): Promise<Set<string>>;
+  /** What deleting each image here would free: its layers no other image shares (`docker system df -v`). */
+  uniqueSizes(): Promise<Map<string, number>>;
   /** A one-off ops container (`compose run -d --rm`) running `args`: the hand-over that applies a release. */
   spawnSelf(args: string[]): Promise<void>;
   /** Whether that one-off is running. */
@@ -183,6 +196,14 @@ export function parseServices(config: ComposeConfig): ServiceDef[] {
     confirm: s.labels?.[UPGRADE_LABEL] === "confirm",
     binds: (s.volumes ?? []).filter((v) => v.type === "bind" && v.source).map((v) => v.source!),
   }));
+}
+
+/** Docker's sizes, `170.2GB` or `512.3kB` (powers of 1000), in bytes. */
+export function parseSize(s: string): number | undefined {
+  const m = /^([\d.]+)\s*([kMGT]?B)$/.exec(s.trim());
+  if (!m) return undefined;
+  const scale: Record<string, number> = { B: 1, kB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12 };
+  return Math.round(Number(m[1]) * scale[m[2]!]!);
 }
 
 /** `config --hash '*'`: a `service hash` line each. */
@@ -320,6 +341,37 @@ export class ComposeStack implements Stack {
   async tag(id: string, ref: string): Promise<void> {
     await must(this.exec, "docker", ["tag", id, ref]);
   }
+
+  async names(id: string): Promise<string[]> {
+    const r = await this.exec("docker", ["image", "inspect", id, "--format", "{{json .RepoTags}}"]);
+    return r.code === 0 ? ((JSON.parse(r.stdout.trim() || "null") as string[] | null) ?? []) : [];
+  }
+
+  async untag(ref: string): Promise<boolean> {
+    return (await this.exec("docker", ["image", "rm", ref])).code === 0;
+  }
+
+  async removeImage(id: string): Promise<boolean> {
+    return (await this.exec("docker", ["image", "rm", id])).code === 0;
+  }
+
+  async imagesInUse(): Promise<Set<string>> {
+    const ids = (await must(this.exec, "docker", ["ps", "-aq", "--no-trunc"])).trim().split("\n").filter(Boolean);
+    if (!ids.length) return new Set();
+    return new Set((await must(this.exec, "docker", ["inspect", "--format", "{{.Image}}", ...ids])).trim().split("\n").filter(Boolean));
+  }
+
+  async uniqueSizes(): Promise<Map<string, number>> {
+    const sizes = new Map<string, number>();
+    const r = await this.exec("docker", ["system", "df", "-v", "--format", "{{json .Images}}"]);
+    if (r.code !== 0) return sizes;
+    for (const row of JSON.parse(r.stdout.trim() || "[]") as Array<{ ID?: string; UniqueSize?: string }>) {
+      const n = row.UniqueSize ? parseSize(row.UniqueSize) : undefined;
+      if (row.ID && n !== undefined) sizes.set(row.ID, n);
+    }
+    return sizes;
+  }
+
 
   private get handover() {
     return `${this.project.name}-ops-handover`;

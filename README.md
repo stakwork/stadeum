@@ -109,7 +109,9 @@ with no port. An admin sets it up on two pages in stadeum-ui.
   in its files (Caddy, Redis, the gateway), except Neo4j's: a release that
   upgrades Neo4j waits, whole, until the admin presses **Upgrade Neo4j** on
   the Updates page, and ops backs up first. The admin can turn updates off,
-  check now, or update now.
+  check now, or update now. Old images go after each update: ops keeps what
+  runs and the one before it (`…:ops-previous`), and says in the history
+  what it removed and the space it freed.
 - **Backups.** In the same window, before the updates: drain strut, stop the
   services whose files would tear (Neo4j community has no online dump), and
   snapshot every volume and `.env` with restic, to S3 or S3-compatible

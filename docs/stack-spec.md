@@ -342,6 +342,30 @@ standing in for ghcr.io: a release that changes a Caddy route, a setting
 and a pin goes in; a broken one comes back off; one that moves Neo4j waits
 for Upgrade Neo4j, which backs up first.
 
+**Old images.** strut and strut-browser are 3.5 GB or more each, and every
+update leaves the image it replaced behind, so ops removes what it no
+longer needs: at the end of each update pass, and of each release's apply,
+whether it went in or rolled back (`ops/src/images.ts`). With Docker's
+containerd image store an image whose tag moved keeps no name at all, and
+labels do not tell strut's images from strut-browser's, so ops keeps a name
+on each image it wants:
+
+- the service's reference names what runs;
+- `<repository>:ops-previous` names what ran before it, kept for a rollback
+  by hand (`docker tag …:ops-previous …:stable`, then `compose up`);
+- `<repository>:ops-channel` names what the channel had at the last check:
+  a release not applied yet, or one held back. A held-back image stays while
+  the channel names it, so the nightly check finds it without downloading
+  it again, and goes once the channel moves on.
+
+An image goes only if ops moved one of those names off it, no container on
+the machine uses it (any project, running or stopped), and it has no name
+ops does not own. A release that moves a pin moves the old pin's name to
+`ops-previous` too, unless another project on the machine runs that image.
+Images ops never named are never touched. The update's history line says
+what went and the space it freed (each removed image's own layers, from
+`docker system df -v`).
+
 **The box needs no git checkout.** `scripts/install.sh` writes the stack
 files from stadeum-ops's image: on a fresh box the stable channel's, after
 that the release the box's ops runs, so running it again writes back what

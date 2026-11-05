@@ -6,6 +6,7 @@ import type { Container, ServiceDef, Stack } from "./compose.js";
 import type { OpsEvent } from "./contract.js";
 import { drainStrut, errorText, liftDrain, took, type Deps } from "./deps.js";
 import { differs, pick, writeFiles, type Files } from "./files.js";
+import { describePruned, type Images } from "./images.js";
 import { describeChanges, healthy, releaseGroup, short } from "./update.js";
 
 /**
@@ -113,6 +114,8 @@ export interface ApplyOptions {
   /** Image references an admin confirmed: a held service may move to these. */
   confirmed: ReadonlySet<string>;
   drainMinutes: number;
+  /** Old images: what moved is kept as `ops-previous`, and what nothing keeps goes at the end. */
+  images?: Images;
 }
 
 /**
@@ -210,13 +213,26 @@ export async function applyRelease(d: Deps, o: ApplyOptions): Promise<OpsEvent |
   const drain = gone.length > 0 || affected.some((n) => !ours.has(n));
   const drained = drain && (await drainStrut(d, `updating ${what}`, o.drainMinutes));
   const images = changes.length ? ` (${describeChanges(changes)})` : "";
+  /** Remove what nothing keeps now, and say so in the history line. */
+  const prune = async (e: OpsEvent): Promise<OpsEvent> => {
+    if (!o.images) return e;
+    const pruned = describePruned(await o.images.prune(await stack.services()));
+    return pruned ? { ...e, detail: `${e.detail} ${pruned}` } : e;
+  };
   try {
     await d.phase("updating", what);
     d.log(`updating ${what}`);
     writeFiles(stack.dir, plan.write);
     await stack.up(affected, { recreate: true });
     await healthy(d, affected);
-    return event("ok", `Updated ${what}${images}, in ${took(d.now().getTime() - startedAt.getTime())}.`, changes);
+    // What ran before each move is `ops-previous`; a pin the stack no longer names loses that name.
+    for (const s of current) {
+      const c = was.get(s.name);
+      const now = plan.next.find((n) => n.name === s.name);
+      if (!c || !now || !s.image || c.image === (await stack.imageId(now.image))) continue;
+      await o.images?.moved(s.name, s.image, c.image, plan.next.some((n) => n.image === s.image));
+    }
+    return await prune(event("ok", `Updated ${what}${images}, in ${took(d.now().getTime() - startedAt.getTime())}.`, changes));
   } catch (err) {
     const why = errorText(err);
     d.log(`release ${release} did not come up healthy (${why}); putting the previous one back`);
@@ -227,7 +243,12 @@ export async function applyRelease(d: Deps, o: ApplyOptions): Promise<OpsEvent |
       const back = [...affected.filter((n) => current.some((s) => s.name === n && !s.oneShot)), ...gone];
       await stack.up(back, { recreate: true });
       await healthy(d, back);
-      return event("rolled-back", `Release ${release} did not come up healthy, so the stack files and images it replaced were put back. ${why}`, changes);
+      // A pin pulled for this release and named by nothing now goes with its name.
+      for (const ref of missing) {
+        const service = plan.next.find((n) => n.image === ref)?.name ?? ref;
+        if (!current.some((s) => s.image === ref)) o.images?.candidate(await stack.imageId(ref), service, ref);
+      }
+      return await prune(event("rolled-back", `Release ${release} did not come up healthy, so the stack files and images it replaced were put back. ${why}`, changes));
     } catch (err2) {
       return event("failed", `Release ${release} did not come up healthy, and putting the previous one back failed too: ${errorText(err2)}. First: ${why}`, changes);
     }
