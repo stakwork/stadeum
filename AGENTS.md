@@ -16,7 +16,7 @@ work on it. Read the rules before adding anything.
 | **neo4j** | The graph strut keeps | Updated by anything but a person |
 | **bifrost** + **redis** (`ghcr.io/stakwork/stakgraph-gateway`) | Every model call: provider keys, a virtual key and a cap per person | Lets a call through without a valid delegation |
 | **stadeum-ui** (`ui/`) | Who people are (sign-in, members, roles), the org signing key's use, each person's delegation, the admin pages | Draws an app, or knows what a workflow or document is |
-| **ops** | The box's upkeep: image updates, backups | Has an open port |
+| **ops** (`ops/`) | The box's upkeep: image updates, backups, restores | Has an open port |
 | **caddy** | TLS and routing; the only published ports | Holds any credential but its certificates |
 | **bootstrap** | One shot at first boot: the org signing key | Runs again unasked |
 
@@ -35,7 +35,8 @@ work on it. Read the rules before adding anything.
    strut, never from a list in this repo.
 
 3. **Strut is reached only through its HTTP API**, as strut's
-   `specs/API.md` documents it, from one client module (`ui/src/lib/strut/`).
+   `specs/API.md` documents it, from one client module in each program
+   (`ui/src/lib/strut/`, `ops/src/strut.ts`).
    Never through its volumes, its files or its database. When strut lacks
    what stadeum needs, the fix is a strut change, never a workaround here.
 
@@ -45,6 +46,9 @@ work on it. Read the rules before adding anything.
      `STADEUM_ENCRYPTION_KEY`, and in the `org` volume `bootstrap` writes.
      Nothing else reads them.
    - The Docker socket is mounted in `ops` alone, which has no open port.
+     With it ops is the box: it reads every volume and `.env` to back them
+     up, and gets the backup credentials from stadeum-ui with the
+     deployment key, on the box's network only.
    - No deployment key or shared token ever reaches a browser. A person's
      browser holds only that person's short-lived credentials.
    - Strut's container holds neither the org key nor the Docker socket:
@@ -58,8 +62,9 @@ work on it. Read the rules before adding anything.
 6. **Off-the-shelf before custom.** Caddy, restic, Auth.js, Prisma: a
    maintained tool beats code of ours. Stadeum's own code is the glue
    nobody else can write. Its database holds people, invites, roles, the
-   org's settings, each person's gateway records and the status checks,
-   nothing more.
+   org's settings (the upkeep window and the backup destination among
+   them), each person's gateway records, the status checks and what ops
+   did, nothing more.
 
 7. **Pinned, moved on purpose, reversible.** Every image is pinned to a
    version or a channel (`stable`), never `latest`. An update can be rolled
@@ -96,12 +101,15 @@ order of the work, each step its own PR:
 2. Strut's own image in place of repo2graph, and Caddy in place of Traefik.
    Neo4j becomes the stock image strut needs, pinned, with no plugins.
    (Done.)
-3. Updates: `ops` follows `strut:stable` on a schedule the admin sets. It
-   turns on strut's drain (`PUT /drain`), waits for `idle`, pulls,
-   restarts, checks health, and rolls back on failure.
+3. Updates: `ops` follows `strut:stable` (and stadeum's own `stable`) in a
+   daily window the admin sets. It turns on strut's drain (`PUT /drain`),
+   waits for `idle`, pulls, restarts, checks health, and rolls back on
+   failure. (Done.)
 4. Backups: `ops` runs restic to the destination the admin picks. It covers
-   the Neo4j dump, strut's data, `stadeum.db`, the `org` volume and the
-   secrets, around the same drain. Restores are tested.
+   every volume (Neo4j's store, strut's data, `stadeum.db`, the `org`
+   volume, the gateway's) and `.env`, with what would tear stopped around
+   the same drain: Neo4j community has no online dump. Restores are tested
+   (`scripts/backup-restore-e2e.sh`). (Done.)
 5. Apps from strut's `GET /apps`, with the assistant (Jamie) the first.
 6. A custom domain. Caddy fetches the certificates. A new domain also needs
    its sign-in redirect URLs registered with Google and Microsoft, which
@@ -114,13 +122,16 @@ order of the work, each step its own PR:
 
 | Path | What |
 | --- | --- |
-| `stack/stadeum.yml` | The deployment (docker compose). `stack/dev.yml` overlays local mode: plain http on `*.localhost` |
+| `stack/stadeum.yml` | The deployment (docker compose), on published images. `stack/dev.yml` overlays local mode: plain http on `*.localhost`, stadeum-ui and ops built here |
 | `stack/caddy/Caddyfile` | The routes: `$HOST` → stadeum-ui, `strut.$HOST` → strut |
 | `stack/bootstrap/` | First boot: the org signing key and its registration with the gateway |
 | `ui/` | stadeum-ui: Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db`) |
 | `ui/src/lib/mothership/` | Each person's virtual key and delegation, minted, pushed to strut, renewed |
 | `ui/src/lib/strut/` | The strut client: delegations, the status check, the frame's sign-in ticket |
-| `scripts/` | `init-env.sh` (generates `.env`'s secrets), the gateway end-to-end check |
+| `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
+| `ops/` | stadeum-ops: the update and backup loop, driving `docker compose` and restic. No runtime dependencies |
+| `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |
+| `scripts/` | `init-env.sh` (generates `.env`'s secrets), the gateway end-to-end check, the backup-and-restore proof |
 | `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract) |
 
 ## Running
@@ -150,8 +161,10 @@ cd ui && npm run fake-stack    # fakes of bifrost, strut and neo4j on :4555
 cd ui && npm run dev
 ```
 
-Checks: `cd ui && npm run typecheck && npm run lint && npm test`, and
-`scripts/mothership-e2e.sh` for the gateway path end to end.
+Checks: `cd ui && npm run typecheck && npm run lint && npm test`,
+`cd ops && npm run typecheck && npm test`, `scripts/mothership-e2e.sh` for
+the gateway path end to end, and `scripts/backup-restore-e2e.sh` for a
+backup restored onto wiped volumes.
 
 ## Conventions
 

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { relativeTime } from "@/lib/format";
 import { governanceClient, pluginClient } from "@/lib/mothership/admin-credentials";
 import { BifrostHttpError } from "@/lib/mothership/http";
 import { macaroonOrgId } from "@/lib/mothership/keys";
@@ -15,6 +16,7 @@ export const CHECKS = [
   { name: "neo4j", label: "Knowledge graph" },
   { name: "bifrost", label: "Model gateway" },
   { name: "trust", label: "Organisation key" },
+  { name: "ops", label: "Upkeep" },
 ] as const;
 
 /** Apps can run when these pass; the graph only limits what they can find. */
@@ -25,7 +27,7 @@ export type CheckName = (typeof CHECKS)[number]["name"];
 /**
  * The containers (stack/stadeum.yml), each with the check that stands for
  * its health. stadeum-ui has no Docker socket, so a service it never talks
- * to (caddy, redis, strut-browser) has no check here.
+ * to (caddy, redis, strut-browser) has no check here; ops talks to it.
  */
 export const SERVICES: Array<{ service: string; label: string; check?: CheckName | "self" }> = [
   { service: "stadeum-ui", label: "Web app", check: "self" },
@@ -36,6 +38,7 @@ export const SERVICES: Array<{ service: string; label: string; check?: CheckName
   { service: "strut", label: "Workflow engine", check: "strut" },
   { service: "strut-browser", label: "Browser" },
   { service: "bootstrap", label: "Organisation key", check: "trust" },
+  { service: "ops", label: "Upkeep", check: "ops" },
 ];
 
 const TIMEOUT = 5_000;
@@ -118,11 +121,21 @@ async function checkNeo4j(): Promise<{ ok: boolean; detail: string }> {
   }
 }
 
+/** ops reports every half minute while idle (it has no port to probe). */
+async function checkOps(): Promise<{ ok: boolean; detail: string }> {
+  const row = await db.opsStatus.findUnique({ where: { id: "ops" } });
+  if (!row) return { ok: false, detail: "Not reported yet" };
+  const phase = (JSON.parse(row.state) as { phase?: string }).phase ?? "idle";
+  if (phase !== "idle") return { ok: true, detail: `Busy · ${phase.replace("-", " ")}` };
+  if (Date.now() - row.reportedAt.getTime() > 3 * 60_000) return { ok: false, detail: `Last reported ${relativeTime(row.reportedAt)}` };
+  return { ok: true, detail: "Reporting" };
+}
+
 /** Run every check and store the results. */
 export async function runChecks(): Promise<void> {
-  const [bt, strut, neo4j] = await Promise.all([checkBifrostAndTrust(), checkStrut(), checkNeo4j()]);
+  const [bt, strut, neo4j, ops] = await Promise.all([checkBifrostAndTrust(), checkStrut(), checkNeo4j(), checkOps()]);
   const checkedAt = new Date();
-  const results: Record<CheckName, { ok: boolean; detail: string }> = { ...bt, strut, neo4j };
+  const results: Record<CheckName, { ok: boolean; detail: string }> = { ...bt, strut, neo4j, ops };
   await db.$transaction(
     Object.entries(results).map(([name, r]) =>
       db.healthCheck.upsert({

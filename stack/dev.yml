@@ -17,9 +17,17 @@ services:
     environment:
       STRUT_PUBLIC_URL: http://strut.${HOST}
 
+  # Built from this checkout. ops never pulls a service that has a build,
+  # so locally it moves strut and strut-browser only.
   stadeum-ui:
+    image: stadeum-ui:dev
+    build: ../ui
     environment:
       AUTH_URL: http://${HOST}
       STRUT_PUBLIC_URL: http://strut.${HOST}
       # Password-less email sign-in, local only.
       STADEUM_DEV_LOGIN: "1"
+
+  ops:
+    image: stadeum-ops:dev
+    build: ../ops

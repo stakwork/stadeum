@@ -1,0 +1,101 @@
+name: promote images
+
+# Points a CHANNEL tag (`stable` by default) at stadeum's images for a commit
+# on main: ghcr.io/stakwork/stadeum-ui and ghcr.io/stakwork/stadeum-ops, each
+# the newest image published at or before that commit (publish-images.yml
+# builds an image only when its directory changed). A box's ops follows
+# `stable` in its nightly window. Nothing is rebuilt: the tags are copied by
+# digest. `latest` is every merge to main; a channel moves only when someone
+# runs this. Like strut's promote-image.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "The commit on main to promote (full or short sha)"
+        required: true
+      channel:
+        description: "The channel tag to move"
+        required: true
+        default: stable
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: promote-images
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the commit
+        id: what
+        env:
+          COMMIT: ${{ inputs.commit }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          # A channel is a name of its own: never `latest`, a version or a sha.
+          if [[ ! "$CHANNEL" =~ ^[a-z][a-z-]*$ || "$CHANNEL" == "latest" ]]; then
+            echo "::error::channel must be lowercase letters and dashes, and not 'latest' (got '$CHANNEL')"
+            exit 1
+          fi
+          full=$(git rev-parse --verify --quiet "${COMMIT}^{commit}") || {
+            echo "::error::no commit '$COMMIT' in this repository"
+            exit 1
+          }
+          if ! git merge-base --is-ancestor "$full" origin/main; then
+            echo "::error::$full is not on main: only main's images are published"
+            exit 1
+          fi
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Move the channel tags
+        env:
+          FULL: ${{ steps.what.outputs.full }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### \`$CHANNEL\` → ${FULL::7}"
+            echo
+            echo "| Image | From | Digest |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Find both before moving either, so a missing one moves neither.
+          declare -A from
+          for image in stadeum-ui stadeum-ops; do
+            # Main's own history (each push to it is a first-parent commit),
+            # newest first: the first one with an image is what this commit runs.
+            for sha in $(git rev-list --first-parent --max-count=200 "$FULL"); do
+              if docker buildx imagetools inspect "ghcr.io/stakwork/$image:${sha::7}" > /dev/null 2>&1; then
+                from[$image]=${sha::7}
+                break
+              fi
+            done
+            if [[ -z "${from[$image]:-}" ]]; then
+              echo "::error::no ghcr.io/stakwork/$image image at or before ${FULL::7}: run publish-images.yml on main first"
+              exit 1
+            fi
+          done
+          for image in stadeum-ui stadeum-ops; do
+            docker buildx imagetools create -t "ghcr.io/stakwork/$image:$CHANNEL" "ghcr.io/stakwork/$image:${from[$image]}"
+            digest=$(docker buildx imagetools inspect "ghcr.io/stakwork/$image:$CHANNEL" --format '{{json .Manifest.Digest}}' | tr -d '"')
+            echo "| ghcr.io/stakwork/$image:$CHANNEL | \`${from[$image]}\` | \`$digest\` |" >> "$GITHUB_STEP_SUMMARY"
+          done

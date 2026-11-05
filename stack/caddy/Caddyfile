@@ -8,6 +8,9 @@
 
 # stadeum-ui: sign-in, the person, the members, the admin pages.
 {$SCHEME}://{$HOST} {
+	# ops's routes (settings with the backup credentials, its status) are
+	# for the box's network only: never through here.
+	respond /api/ops/* 404
 	reverse_proxy stadeum-ui:3000
 }
 
