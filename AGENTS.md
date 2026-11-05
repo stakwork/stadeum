@@ -16,7 +16,7 @@ work on it. Read the rules before adding anything.
 | **neo4j** | The graph strut keeps | Updated by anything but a person |
 | **bifrost** + **redis** (`ghcr.io/stakwork/stakgraph-gateway`) | Every model call: provider keys, a virtual key and a cap per person | Lets a call through without a valid delegation |
 | **stadeum-ui** (`ui/`) | Who people are (sign-in, members, roles), the org signing key's use, each person's delegation, the admin pages | Draws an app, or knows what a workflow or document is |
-| **ops** (`ops/`) | The box's upkeep: stadeum's releases (its image carries the stack files), strut's updates, backups, restores | Has an open port |
+| **ops** (`ops/`) | The box's upkeep: stadeum's releases (its image carries the stack files), strut's updates, old images, backups, restores | Has an open port, or touches an image it never named |
 | **caddy** | TLS and routing; the only published ports | Holds any credential but its certificates |
 | **bootstrap** | One shot at first boot: the org signing key | Runs again unasked |
 

@@ -16,6 +16,12 @@
 #       Neo4j (the request the Updates page's button files) backs up first,
 #       then applies it.
 #
+# Old images go as they would on a box: after r2 the images r1 ran are
+# `ops-previous`; after r4, ops's r1 image (the one before the previous)
+# and r3's held-back one are gone. The box only ever has what it pulled:
+# each release is pushed and the registry's :stable moved, as
+# promote-images.yml moves ghcr's.
+#
 #   scripts/release-e2e.sh
 #
 # Each update is an admin's Update now, filed in stadeum-ui's database as
@@ -54,9 +60,12 @@ cleanup() {
   compose down -v --remove-orphans >/dev/null 2>&1 || true
   docker rm -f "$PROJECT-ops-handover" "$REGISTRY" >/dev/null 2>&1 || true
   # The containers wrote some of it (backups/, on Linux as root).
-  docker run --rm -v "$BOX:/box" --entrypoint sh "$REG/stadeum-ops:e2e-r1" -c 'rm -rf /box/* /box/.env' >/dev/null 2>&1 || true
+  docker run --rm -v "$BOX:/box" --entrypoint sh alpine:3 -c 'rm -rf /box/* /box/.env' >/dev/null 2>&1 || true
   rm -rf "$BOX" "$BUILD"
-  docker images --format '{{.Repository}}:{{.Tag}}' | grep -E "^$REG/(stadeum-ops|stadeum-ui|caddy):" | xargs -r docker rmi -f >/dev/null 2>&1 || true
+  docker images --format '{{.Repository}}:{{.Tag}}' | grep -E "^$REG/" | xargs -r docker rmi -f >/dev/null 2>&1 || true
+  docker images -q --filter label=stadeum.e2e | sort -u | xargs -r docker rmi -f >/dev/null 2>&1 || true
+  # The names ops gave images this machine has anyway (another stack's Caddy): only the names go.
+  docker images --format '{{.Repository}}:{{.Tag}}' | grep -E ':ops-(previous|channel)$' | xargs -r docker rmi >/dev/null 2>&1 || true
   docker rmi "$NEO4J_NEXT" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -112,31 +121,43 @@ context() {
 # edit FILE AWK: rewrite a file through awk.
 edit() { awk "$2" "$1" >"$1.new" && mv "$1.new" "$1"; }
 
+# channel IMAGE REV: push the build REV and move the registry's :stable to
+# it, as promote-images.yml moves ghcr's. The build's own name goes: the box
+# has only what it pulls.
+channel() {
+  docker push -q "$REG/$1:$2" >/dev/null
+  docker buildx imagetools create -t "$REG/$1:stable" "$REG/$1:$2" >/dev/null 2>&1
+  docker rmi "$REG/$1:$2" >/dev/null
+}
+
 # publish REV DIR [ui]: build stadeum-ops from DIR (and stadeum-ui, derived
-# from r1's) as REV, and move :stable to them.
+# from r1's) as REV, and move the channel to them.
 publish() {
   local rev=$1 dir=$2
   docker build -q -f "$dir/ops/Dockerfile" --build-arg "STADEUM_VERSION=$rev" \
-    --label "org.opencontainers.image.revision=$rev" -t "$REG/stadeum-ops:$rev" "$dir" >/dev/null
-  docker tag "$REG/stadeum-ops:$rev" "$REG/stadeum-ops:stable"
-  docker push -q "$REG/stadeum-ops:stable" >/dev/null
+    --label "org.opencontainers.image.revision=$rev" --label stadeum.e2e=ops -t "$REG/stadeum-ops:$rev" "$dir" >/dev/null
+  channel stadeum-ops "$rev"
   if [ "${3:-}" = ui ]; then
     printf 'FROM %s\nLABEL org.opencontainers.image.revision=%s\n' "$REG/stadeum-ui:e2e-r1" "$rev" |
       docker build -q -t "$REG/stadeum-ui:$rev" - >/dev/null
-    docker tag "$REG/stadeum-ui:$rev" "$REG/stadeum-ui:stable"
-    docker push -q "$REG/stadeum-ui:stable" >/dev/null
+    docker rmi "$REG/stadeum-ui:e2e-r1" >/dev/null 2>&1 || true
+    channel stadeum-ui "$rev"
   fi
   ok "published $rev"
 }
+
+# Which release an image is (its revision label), by name.
+rev_of() { docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$1" 2>/dev/null; }
+# The images of WHAT (ops or ui) from release REV this machine has.
+images_of() { docker images -q --filter "label=stadeum.e2e=$1" --filter "label=org.opencontainers.image.revision=$2" | sort -u; }
 
 say "A registry on $REG"
 docker run -d --name "$REGISTRY" -p "127.0.0.1:${REG#localhost:}:5000" registry:2 >/dev/null
 for _ in $(seq 1 20); do curl -fs "http://$REG/v2/" >/dev/null && break || sleep 1; done
 
 say "r1: this checkout"
-docker build -q --label org.opencontainers.image.revision=e2e-r1 -t "$REG/stadeum-ui:e2e-r1" "$ROOT/ui" >/dev/null
-docker tag "$REG/stadeum-ui:e2e-r1" "$REG/stadeum-ui:stable"
-docker push -q "$REG/stadeum-ui:stable" >/dev/null
+docker build -q --label org.opencontainers.image.revision=e2e-r1 --label stadeum.e2e=ui -t "$REG/stadeum-ui:e2e-r1" "$ROOT/ui" >/dev/null
+channel stadeum-ui e2e-r1
 publish e2e-r1 "$(context e2e-r1)"
 
 say "The box, from r1's ops image"
@@ -207,6 +228,7 @@ docker inspect --format '{{json .Config.Env}}' "$(compose ps -q stadeum-ui)" | g
 [ "$(image_of caddy)" = "$REG/caddy:2.11.8-e2e" ] && ok "Caddy moved to r2's pin, pulled by ops" || fail "caddy runs $(image_of caddy)"
 cmp -s "$BOX/stack/local.yml" "$BUILD/local.yml" && cmp -s "$BOX/.env" "$BUILD/env" && ok "local.yml and .env untouched" || fail "local.yml or .env changed"
 cmp -s "$BOX/stack/stadeum.yml" "$R2/stack/stadeum.yml" && cmp -s "$BOX/stack/caddy/Caddyfile" "$R2/stack/caddy/Caddyfile" && ok "the box has r2's stack files" || fail "the stack files are not r2's"
+[ "$(rev_of "$REG/stadeum-ops:ops-previous")" = e2e-r1 ] && [ "$(rev_of "$REG/stadeum-ui:ops-previous")" = e2e-r1 ] && ok "r1's images are kept as ops-previous" || fail "ops-previous: ops $(rev_of "$REG/stadeum-ops:ops-previous"), ui $(rev_of "$REG/stadeum-ui:ops-previous")"
 healthy
 
 say "r3: r2 with a broken Caddyfile"
@@ -221,7 +243,9 @@ echo "update: $result"
 case "$result" in rolled-back*) ok "rolled back" ;; *) fail "expected a rollback" ;; esac
 cmp -s "$BOX/stack/caddy/Caddyfile" "$R2/stack/caddy/Caddyfile" && cmp -s "$BOX/stack/stadeum.yml" "$R2/stack/stadeum.yml" && ok "r2's stack files are back" || fail "the stack files are not r2's"
 [ "$(revision ops)" = e2e-r2 ] && ok "ops runs r2's image again" || fail "ops runs $(revision ops)"
-[ "$(docker image inspect --format '{{.Id}}' "$REG/stadeum-ops:stable")" = "$(docker image inspect --format '{{.Id}}' "$REG/stadeum-ops:e2e-r2")" ] && ok "stadeum-ops:stable names r2's image on the box" || fail "the tag was not put back"
+[ "$(rev_of "$REG/stadeum-ops:stable")" = e2e-r2 ] && ok "stadeum-ops:stable names r2's image on the box" || fail "the tag was not put back"
+[ "$(rev_of "$REG/stadeum-ops:ops-channel")" = e2e-r3 ] && ok "r3's held-back image is kept as ops-channel" || fail "ops-channel: $(rev_of "$REG/stadeum-ops:ops-channel")"
+[ "$(rev_of "$REG/stadeum-ops:ops-previous")" = e2e-r1 ] && [ -n "$(images_of ops e2e-r1)" ] && ok "a rollback leaves ops-previous alone" || fail "ops-previous changed"
 [ "$(route)" = r2 ] && ok "Caddy serves r2's route" || fail "Caddy's route: $(route)"
 healthy
 
@@ -269,6 +293,13 @@ case "$result" in ok*) ok "applied" ;; *) fail "expected the upgrade to apply" ;
 ui "const e = await db.opsEvent.findFirst({ where: { kind: 'backup' }, orderBy: { createdAt: 'desc' } }); return e ? e.outcome + ' ' + e.detail : '-';" | grep -q '^ok Snapshot' && ok "a backup was taken first" || fail "no backup before the upgrade"
 [ "$(image_of neo4j)" = "$NEO4J_NEXT" ] && ok "Neo4j runs $NEO4J_NEXT" || fail "Neo4j runs $(image_of neo4j)"
 [ "$(revision ops)" = e2e-r4 ] && ok "ops runs r4" || fail "ops runs $(revision ops)"
+[ "$(rev_of "$REG/stadeum-ops:ops-previous")" = e2e-r2 ] && ok "r2's ops image is ops-previous" || fail "ops-previous: $(rev_of "$REG/stadeum-ops:ops-previous")"
+[ -z "$(images_of ops e2e-r1)" ] && ok "ops's r1 image, the one before the previous, is gone" || fail "ops's r1 image is still here"
+[ -z "$(images_of ops e2e-r3)" ] && ok "r3's held-back image is gone: the channel moved on" || fail "r3's image is still here"
+[ -n "$(images_of ui e2e-r1)" ] && ok "stadeum-ui's r1 image stays: it is still the one before r2's" || fail "stadeum-ui's r1 image went"
+removed=$(ui "const r = await db.opsEvent.findMany({ where: { kind: 'update', detail: { contains: 'Removed' } }, orderBy: { createdAt: 'asc' } }); return r.map((e) => e.detail.replace(/^.*(Removed)/, '\$1')).join(' | ');")
+echo "history: $removed"
+grep -q "(ops e2e-r1): .* freed" <<<"$removed" && grep -q "(ops e2e-r3): .* freed" <<<"$removed" && ok "the history says what went, and the space it freed" || fail "the history does not say what went and what it freed"
 healthy
 
 say "A release reached the box, came back off it, and waited for an admin"

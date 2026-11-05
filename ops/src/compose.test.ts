@@ -128,6 +128,28 @@ describe("driving compose", () => {
     expect(calls[0]).toEqual([...base, "stop", "--timeout", "120", "neo4j"]);
   });
 
+  it("reads what every container on the machine runs, what each image would free, and its names, and removes one by name or ID", async () => {
+    const calls: string[][] = [];
+    const exec: Exec = async (_cmd, args) => {
+      calls.push(args);
+      const out =
+        args[0] === "ps" ? "c1\nc2\n"
+        : args[0] === "inspect" ? "sha256:a\nsha256:b\n"
+        : args[0] === "system" ? '[{"ID":"sha256:a","UniqueSize":"1.5GB"},{"ID":"sha256:b","UniqueSize":"362.9kB"},{"ID":"sha256:c","UniqueSize":"0B"}]\n'
+        : args[1] === "inspect" ? '["ghcr.io/stakwork/strut:ops-previous"]\n'
+        : "";
+      return { code: args[1] === "rm" && args[2] === "in-use" ? 1 : 0, stdout: out, stderr: "" };
+    };
+    const s = new ComposeStack(parseProject(labels), exec);
+    expect(await s.imagesInUse()).toEqual(new Set(["sha256:a", "sha256:b"]));
+    expect(calls[0]).toEqual(["ps", "-aq", "--no-trunc"]);
+    expect(await s.uniqueSizes()).toEqual(new Map([["sha256:a", 1_500_000_000], ["sha256:b", 362_900], ["sha256:c", 0]]));
+    expect(await s.names("sha256:a")).toEqual(["ghcr.io/stakwork/strut:ops-previous"]);
+    expect(await s.untag("ghcr.io/stakwork/strut:ops-previous")).toBe(true);
+    expect(await s.removeImage("in-use")).toBe(false);
+    expect(calls.at(-1)).toEqual(["image", "rm", "in-use"]);
+  });
+
   it("hands over to a one-off ops container", async () => {
     const { s, calls } = stack();
     await s.spawnSelf(["hand-over", "sha256:old"]);

@@ -72,6 +72,12 @@ export class FakeStack implements Stack {
   registry = new Map<string, string>();
   /** ops image ID → the stack files it carries */
   releases = new Map<string, Files>();
+  /** image IDs on this box */
+  present = new Set<string>();
+  /** image IDs other things on the machine (another project) run */
+  otherContainers = new Set<string>();
+  /** what the image housekeeping did: ops's own names, untags, removals */
+  housekeeping: string[] = [];
   /** image IDs that do not come up healthy */
   unhealthy = new Set<string>();
   /** A service that does not come up on these files (a broken Caddyfile). */
@@ -88,6 +94,7 @@ export class FakeStack implements Stack {
       if (!d.oneShot) s.containers.set(d.name, id);
       s.tags.set(d.image, id);
       s.registry.set(d.image, id);
+      s.present.add(id);
     }
     return s;
   }
@@ -166,6 +173,7 @@ export class FakeStack implements Stack {
     return image ? { image, ...(hash ? { hash } : {}) } : undefined;
   }
   async imageId(ref: string) {
+    if (ref.startsWith("sha256:")) return this.present.has(ref) ? ref : undefined;
     return this.tags.get(ref);
   }
   async describe(id: string): Promise<ImageRef> {
@@ -176,7 +184,10 @@ export class FakeStack implements Stack {
     for (const s of services) {
       const ref = this.def(s).image;
       const id = this.registry.get(ref);
-      if (id) this.tags.set(ref, id);
+      if (id) {
+        this.tags.set(ref, id);
+        this.present.add(id);
+      }
     }
   }
   async pullImages(refs: string[]) {
@@ -185,6 +196,7 @@ export class FakeStack implements Stack {
       const id = this.registry.get(ref);
       if (!id) throw new Error(`${ref}: not found`);
       this.tags.set(ref, id);
+      this.present.add(id);
     }
   }
   async up(services: string[], opts: { start?: boolean; recreate?: boolean } = {}) {
@@ -213,8 +225,39 @@ export class FakeStack implements Stack {
     this.calls.push(`stop ${services.join(" ")}`);
   }
   async tag(id: string, ref: string) {
-    this.calls.push(`tag ${id} ${ref}`);
+    if (/:ops-(previous|channel)$/.test(ref)) this.housekeeping.push(`name ${ref} ${id}`);
+    else this.calls.push(`tag ${id} ${ref}`);
     this.tags.set(ref, id);
+    this.present.add(id);
+  }
+  inUse(id: string) {
+    return [...this.containers.values()].includes(id) || this.otherContainers.has(id);
+  }
+  async names(id: string) {
+    return [...this.tags].filter(([, v]) => v === id).map(([k]) => k);
+  }
+  async untag(ref: string) {
+    const id = this.tags.get(ref);
+    if (!id) return false;
+    const last = (await this.names(id)).length === 1;
+    if (last && this.inUse(id)) return false;
+    this.tags.delete(ref);
+    this.housekeeping.push(`untag ${ref}`);
+    if (last) this.present.delete(id);
+    return true;
+  }
+  async removeImage(id: string) {
+    if (this.inUse(id) || (await this.names(id)).length) return false;
+    this.present.delete(id);
+    this.housekeeping.push(`remove ${id}`);
+    return true;
+  }
+  async imagesInUse() {
+    return new Set([...this.containers.values(), ...this.otherContainers]);
+  }
+  /** Each image holds 1 GB of its own. */
+  async uniqueSizes() {
+    return new Map([...this.present].map((id) => [id, 1e9]));
   }
   async spawnSelf(args: string[]) {
     this.calls.push(`spawn ${args.join(" ")}`);

@@ -29,6 +29,8 @@ export interface Check {
   running?: string;
   /** The image ID its reference names after the pull. */
   available?: string;
+  /** The image ID its reference named before the pull. */
+  before?: string;
 }
 
 /** Strut's service name: a group with it in is drained first. */
@@ -52,11 +54,13 @@ export const isNewer = (c: Check) => !!c.available && c.available !== c.running;
 
 /** Pull and compare. Nothing that runs is touched. */
 export async function checkGroup(stack: Stack, services: ServiceDef[]): Promise<Check[]> {
+  const before = await Promise.all(services.map((s) => stack.imageId(s.image)));
   await stack.pull(services.map((s) => s.name));
   return Promise.all(
-    services.map(async (service) => {
+    services.map(async (service, i) => {
       const [running, available] = await Promise.all([stack.running(service.name), stack.imageId(service.image)]);
-      return { service, ...(running ? { running } : {}), ...(available ? { available } : {}) };
+      const was = before[i];
+      return { service, ...(running ? { running } : {}), ...(available ? { available } : {}), ...(was ? { before: was } : {}) };
     }),
   );
 }

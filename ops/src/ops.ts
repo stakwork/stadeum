@@ -2,6 +2,7 @@ import type { ServiceDef, Stack } from "./compose.js";
 import type { Destination, OpsEvent, OpsSettings, OpsStatus, ReleaseStatus, ServiceImage } from "./contract.js";
 import { backup } from "./backup.js";
 import { errorText, type Deps } from "./deps.js";
+import { describePruned, Images } from "./images.js";
 import { planRelease, upgrades, type Plan } from "./release.js";
 import type { ResticApi } from "./restic.js";
 import { Outbox, type StadeumApi } from "./stadeum.js";
@@ -67,10 +68,13 @@ export class Ops {
   private waiting = false;
   /** The held release last recorded in the history, so a hold is said once. */
   private heldSaid: string | null = null;
+  /** Old images: what ops keeps, and what it removes after an update. */
+  readonly images: Images;
 
   constructor(private readonly o: OpsDeps) {
     this.status = { phase: "idle", version: o.version, services: [] };
     this.outbox = new Outbox(o.stadeum, o.log);
+    this.images = new Images(o.stack, o.log);
     this.deps = { stack: o.stack, strut: o.strut, log: o.log, now: o.now, sleep: o.sleep, phase: (phase, detail) => this.report({ phase, detail }) };
   }
 
@@ -209,6 +213,9 @@ export class Ops {
     if (release?.problem) problems.push(`the release: ${release.problem}`);
     for (const p of problems) this.o.log(`check failed: ${p}`);
     await this.refresh(defs, [...groups.flatMap((g) => g.checks), ...(release?.checks ?? [])]);
+    for (const c of [...groups.flatMap((g) => g.checks), ...(release?.checks ?? [])]) {
+      await this.images.channel(c.service, c.available, c.before, c.running).catch((err) => this.o.log(`could not name ${c.service.name}'s channel image: ${errorText(err)}`));
+    }
     this.status.release = await this.releaseStatus(release);
     await this.report({ phase: "idle", checkedAt: this.o.now().toISOString(), ...(problems.length ? { detail: `Could not check ${problems.join("; ")}` } : {}) });
     return { groups, ...(release ? { release } : {}) };
@@ -252,10 +259,28 @@ export class Ops {
   async update(settings: OpsSettings, force: boolean, confirmed: ReadonlySet<string> = new Set()): Promise<HandOver | null> {
     const failed = new Set(settings.failedImages);
     const { groups, release } = await this.check(force ? new Set() : failed);
+    const events: OpsEvent[] = [];
     for (const { group, checks } of groups) {
       const event = await updateGroup(this.deps, group, checks, { force, failed, drainMinutes: settings.drainMinutes });
-      if (event) await this.outbox.record(event);
+      if (!event) continue;
+      events.push(event);
+      // What ran before is `ops-previous` now; a rollback keeps it all as it was.
+      if (event.outcome === "ok") {
+        for (const c of checks) if (c.running && c.available && c.running !== c.available) await this.images.moved(c.service.name, c.service.image, c.running, true);
+      }
     }
+    // Old images go at the end of the pass, before a release is handed over (its images are `ops-channel`):
+    // the ops it brings replaces this one, and what this one meant to remove would be forgotten.
+    if (!events.some((e) => e.outcome === "failed")) {
+      const pruned = describePruned(await this.images.prune(await this.o.stack.services()));
+      const last = events.at(-1);
+      if (pruned && last) last.detail = `${last.detail} ${pruned}`;
+      else if (pruned) {
+        const at = this.o.now().toISOString();
+        events.push({ kind: "update", outcome: "ok", startedAt: at, endedAt: at, detail: pruned });
+      }
+    }
+    for (const e of events) await this.outbox.record(e);
     await this.refresh();
     if (!release?.plan) return null;
     const moving = release.checks.filter(isNewer);
