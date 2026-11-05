@@ -128,17 +128,21 @@ async function findExactVirtualKey(client: BifrostClient, name: string, customer
   return exact.length ? pickOldest(exact) : null;
 }
 
-/** DEFAULT_PROVIDERS ∩ what the gateway has configured; all of them when unknown. */
+/**
+ * Every provider the gateway has: the built-ins it is configured with, in
+ * DEFAULT_PROVIDERS' order, then each custom one an admin added (Maple,
+ * Numes, Other) by name. All the built-ins when the list cannot be read.
+ */
 export async function desiredProviders(client: BifrostClient): Promise<BifrostProvider[]> {
-  let configured: Set<string>;
+  let names: string[];
   try {
-    const res = await client.listProviders();
-    configured = new Set((res.providers ?? []).map((p) => p.name));
+    names = ((await client.listProviders()).providers ?? []).map((p) => p.name);
   } catch {
     return DEFAULT_PROVIDERS;
   }
-  const desired = DEFAULT_PROVIDERS.filter((p) => configured.has(p));
-  return desired.length ? desired : DEFAULT_PROVIDERS;
+  const builtins = DEFAULT_PROVIDERS.filter((p) => names.includes(p));
+  const custom = names.filter((n) => !DEFAULT_PROVIDERS.includes(n)).sort();
+  return builtins.length || custom.length ? [...builtins, ...custom] : DEFAULT_PROVIDERS;
 }
 
 /** What every person's key may call: the org's model list, on the providers the gateway has. */

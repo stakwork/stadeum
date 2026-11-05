@@ -94,7 +94,9 @@ export const FAKE_MODEL_CATALOG = {
     { provider: "google", alias: "gemini", modelId: "gemini-3.8-flash", name: "google/gemini-3.8-flash", default: true, available: false },
     { provider: "openai", alias: "gpt", modelId: "gpt-5.6-luna", name: "openai/gpt-5.6-luna", default: true, available: false },
     { provider: "openrouter", alias: "kimi", modelId: "moonshotai/kimi-k3", name: "openrouter/moonshotai/kimi-k3", default: true, available: false },
-    { provider: "maple", alias: "maple", modelId: "gemma4-31b", name: "maple/gemma4-31b", default: true, available: false },
+    { provider: "maple", alias: "maple", modelId: "gemma4-31b", name: "maple/gemma4-31b", default: true, available: false, pricing: { inputTokenPrice: 0.8, outputTokenPrice: 2 } },
+    { provider: "maple", modelId: "gpt-oss-120b", name: "maple/gpt-oss-120b", default: false, available: false, pricing: { inputTokenPrice: 0.3, outputTokenPrice: 1.2 } },
+    { provider: "numes", alias: "numes", modelId: "z-ai/glm-5.3", name: "numes/z-ai/glm-5.3", default: true, available: false, pricing: { inputTokenPrice: 0, outputTokenPrice: 0 } },
   ],
   keyNames: { anthropic: "ANTHROPIC_API_KEY" },
 };
@@ -105,9 +107,20 @@ const redactKey = (k: FakeKey) => ({
   value: typeof k.value === "string" ? `${k.value.slice(0, 3)}****${k.value.slice(-4)}` : { ...k.value, value: k.value.value ? "****" : "" },
 });
 
+/** A custom provider bifrost holds (`POST /api/providers`). */
+export interface FakeCustomProvider {
+  base_url: string;
+  allow_private_network?: boolean;
+  base_provider_type: string;
+}
+
 export interface FakeState {
   /** Each provider's keys. Starts as the baked config.json's one empty env slot per provider. */
   providerKeys: Map<string, FakeKey[]>;
+  /** The custom providers an admin added, by name. Their keys are in providerKeys. */
+  customProviders: Map<string, FakeCustomProvider>;
+  /** The gateway's runtime price table (`PUT /_plugin/pricing`). Null: the gateway predates the route (404). */
+  pricing: Record<string, unknown> | null;
   /** The gateway's client config (`GET /api/config`'s `client_config`). */
   clientConfig: Record<string, unknown>;
   /** strut's deployment secret store (`PUT /secrets/:name`). */
@@ -147,6 +160,8 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     providerKeys: new Map(
       providers.map((p) => [p, [{ id: randomUUID(), name: `${p}-key-1`, value: { value: "", ref: `env.${p.toUpperCase()}_API_KEY`, type: "env" as const }, models: ["*"], weight: 1 }]]),
     ),
+    customProviders: new Map(),
+    pricing: {},
     clientConfig: { log_retention_days: 365, enable_logging: true, disable_content_logging: false, drop_excess_requests: false },
     deploymentSecrets: new Map(),
     customers: [],
@@ -217,6 +232,15 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
         const row = state.trust.get(decodeURIComponent(path.slice("/_plugin/trust/".length)));
         return row ? send(res, 200, row) : send(res, 404, "not found");
       }
+      if (path === "/_plugin/pricing") {
+        if (state.pricing === null) return send(res, 404, "not found");
+        if (m === "PUT") {
+          if (!body || typeof body !== "object" || Array.isArray(body)) return send(res, 400, { error: "body must be an object" });
+          state.pricing = body;
+          return send(res, 200, { ok: true, rows: Object.keys(body).length });
+        }
+        return send(res, 200, state.pricing);
+      }
       if (path === "/_plugin/agents" && m === "POST") {
         state.agents = body.agents;
         return send(res, 200, { written: { agents: body.agents.length, prompts: 0, tools: 0, skills: 0 } });
@@ -225,7 +249,43 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     }
     if (path.startsWith("/api/")) {
       if (req.headers.authorization !== basic) return send(res, 401, { error: "unauthorized" });
-      if (path === "/api/providers") return send(res, 200, { providers: providers.map((name) => ({ name })), total: providers.length });
+      const listed = () => [
+        ...providers.map((name) => ({ name })),
+        ...[...state.customProviders].map(([name, c]) => ({
+          name,
+          network_config: { base_url: c.base_url, ...(c.allow_private_network ? { allow_private_network: true } : {}) },
+          custom_provider_config: { base_provider_type: c.base_provider_type },
+        })),
+      ];
+      if (path === "/api/providers" && m === "GET") return send(res, 200, { providers: listed(), total: listed().length });
+      if (path === "/api/providers" && m === "POST") {
+        // Bifrost's create payload has no `keys`: a key sent here is dropped, without an error.
+        const name = body?.provider;
+        const cpc = body?.custom_provider_config;
+        if (!name) return send(res, 400, { error: "Missing provider" });
+        if (cpc && providers.concat(["gemini", "mistral", "groq"]).includes(name)) return send(res, 400, { error: "Custom provider cannot be same as a standard provider" });
+        if (!cpc?.base_provider_type) return send(res, 400, { error: "BaseProviderType is required when CustomProviderConfig is provided" });
+        const url = body?.network_config?.base_url ?? "";
+        const host = (() => { try { return new URL(url).hostname; } catch { return ""; } })();
+        if (!host) return send(res, 400, { error: "Invalid base URL" });
+        if (!host.includes(".") && !body.network_config.allow_private_network) return send(res, 400, { error: "Invalid base URL: private network address" });
+        if (state.customProviders.has(name) || state.providerKeys.has(name)) return send(res, 409, { error: `Provider ${name} already exists` });
+        state.customProviders.set(name, { base_url: url, allow_private_network: body.network_config.allow_private_network, base_provider_type: cpc.base_provider_type });
+        state.providerKeys.set(name, []);
+        return send(res, 200, { name });
+      }
+      const one = path.match(/^\/api\/providers\/([^/]+)$/);
+      if (one) {
+        const name = decodeURIComponent(one[1]!);
+        const c = state.customProviders.get(name);
+        if (!c && !providers.includes(name)) return send(res, 404, { error: `Provider not found: ${name}` });
+        if (m === "DELETE") {
+          state.customProviders.delete(name);
+          state.providerKeys.delete(name);
+          return send(res, 200, { message: "deleted" });
+        }
+        return send(res, 200, listed().find((p) => p.name === name));
+      }
       const keys = path.match(/^\/api\/providers\/([^/]+)\/keys(?:\/([^/]+))?(\/refresh-models)?$/);
       if (keys) return providerKeyRoute(res, m ?? "GET", decodeURIComponent(keys[1]!), keys[2] ? decodeURIComponent(keys[2]) : undefined, !!keys[3], body);
       if (path === "/api/config" && m === "GET") return send(res, 200, { client_config: state.clientConfig, framework_config: {}, auth_config: {} });
@@ -255,7 +315,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       }
       if (path === "/api/governance/virtual-keys" && m === "POST") {
         for (const pc of body.provider_configs) {
-          if (!providers.includes(pc.provider)) return send(res, 400, { error: `provider ${pc.provider} not configured` });
+          if (!providers.includes(pc.provider) && !state.customProviders.has(pc.provider)) return send(res, 400, { error: `provider ${pc.provider} not configured` });
           if (JSON.stringify(pc.key_ids) !== '["*"]') return send(res, 400, { error: "key_ids must be [\"*\"] here" });
         }
         const vk = {

@@ -1,18 +1,21 @@
 import { db } from "@/lib/db";
-import { governanceClient } from "@/lib/mothership/admin-credentials";
+import { governanceClient, pluginClient } from "@/lib/mothership/admin-credentials";
 import type { BifrostClient } from "@/lib/mothership/bifrost-client";
 import { withLock } from "@/lib/mothership/lock";
 import { desiredGrants, syncGrants } from "@/lib/mothership/virtual-key";
 import { getModelCatalog, putDeploymentSetting, type StrutModelCatalog } from "@/lib/strut/client";
-import { planModels, splitName, type ModelPlan, type ModelSettings } from "./plan";
+import { planModels, priceTable, splitName, type ModelPlan, type ModelSettings } from "./plan";
 import { keyedProviders, providerStates, type ProviderState } from "./providers";
 import { readModelSettings, saveModelSettings } from "./settings";
 
 /**
- * The org's models, carried out (docs/models.md): each person's virtual key
- * allows the list (the gateway enforces it), and strut gets the list and
- * the default as `STRUT_MODELS` and `STRUT_DEFAULT_MODEL` (what Jamie's
- * picker shows and what a turn runs on when nobody picks).
+ * The org's models, carried out (docs/models.md):
+ * - each person's virtual key allows the list (the gateway enforces it);
+ * - strut gets the list and the default as `STRUT_MODELS` and
+ *   `STRUT_DEFAULT_MODEL` (what Jamie's picker shows, and what a turn runs
+ *   on when nobody picks);
+ * - the gateway gets a price for each model its datasheet lacks (Maple's,
+ *   Numes', an Other provider's), so its calls count against the caps.
  */
 
 export interface ApplyResult {
@@ -22,6 +25,8 @@ export interface ApplyResult {
   failed: number;
   /** Strut took the list and the default. */
   strut: boolean;
+  /** The gateway took the price table. False on a gateway older than v0.4.398 (no `/_plugin/pricing`). */
+  prices: boolean;
 }
 
 /** Strut's names for its settings (strut src/steps/core/agent.ts, src/llm.ts). */
@@ -44,8 +49,21 @@ export function applyModels(): Promise<ApplyResult> {
         console.warn(`[models] virtual key ${vkId} not synced: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    return { updated, failed, strut: await pushToStrut(client) };
+    const strut = await pushToStrut(client);
+    return { updated, failed, strut, prices: await pushPrices() };
   });
+}
+
+/** The whole price table to the gateway. False when strut or the gateway does not answer, or the gateway has no such route. */
+async function pushPrices(): Promise<boolean> {
+  try {
+    const [catalog, settings] = await Promise.all([getModelCatalog(), readModelSettings()]);
+    await pluginClient().putPricing(priceTable(catalog, settings.prices));
+    return true;
+  } catch (err) {
+    console.warn(`[models] gateway prices not updated: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
 }
 
 /** `STRUT_DEFAULT_MODEL` and `STRUT_MODELS` to strut. False when strut or the gateway does not answer. */
@@ -84,6 +102,8 @@ export interface ModelRow {
   modelId: string;
   /** aieo's short name (`sonnet`), when the model has one. */
   alias?: string;
+  /** USD per million tokens, when stadeum sets the model's price: strut's own rate (Maple, Numes) or the admin's. */
+  price?: { input: number; output: number };
   allowed: boolean;
   isDefault: boolean;
 }
@@ -107,14 +127,19 @@ export async function modelsView(): Promise<ModelsView> {
       const known = catalog.models.filter((m) => m.provider === p.strut);
       const typed = (settings.models ?? [])
         .filter((n) => splitName(n)?.provider === p.strut && !known.some((m) => m.name === n))
-        .map((n) => ({ name: n, alias: undefined, modelId: splitName(n)!.modelId }));
-      const models = [...known, ...typed].map((m) => ({
-        name: m.name,
-        modelId: m.modelId,
-        ...(m.alias ? { alias: m.alias } : {}),
-        allowed: plan.allowed.includes(m.name),
-        isDefault: plan.default === m.name,
-      }));
+        .map((n) => ({ name: n, alias: undefined, modelId: splitName(n)!.modelId, pricing: undefined }));
+      const models = [...known, ...typed].map((m) => {
+        const typedPrice = settings.prices[m.name];
+        const price = typedPrice ?? (m.pricing ? { input: m.pricing.inputTokenPrice, output: m.pricing.outputTokenPrice } : undefined);
+        return {
+          name: m.name,
+          modelId: m.modelId,
+          ...(m.alias ? { alias: m.alias } : {}),
+          ...(price ? { price } : {}),
+          allowed: plan.allowed.includes(m.name),
+          isDefault: plan.default === m.name,
+        };
+      });
       return { provider: p, models };
     });
   return { providers, groups, plan };

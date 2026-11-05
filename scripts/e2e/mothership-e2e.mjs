@@ -11,7 +11,14 @@
 //   3. no delegation -> refused (Strut), and bifrost itself refuses a call
 //      with no VK or with a VK but no macaroon;
 //   4. a run over its cap is stopped by bifrost (402 run_cost_exceeded);
-//   5. a person over their delegation ceiling cannot start another call.
+//   5. a person over their delegation ceiling cannot start another call;
+//   6. an OpenAI-compatible provider the gateway holds as a custom provider
+//      (what the Models page adds for Maple, Numes and Other): its model,
+//      `<provider>/<id>`, is routed to it with the gateway's key, billed to
+//      the person, and priced from the gateway's runtime price table. For
+//      the run it sets strut's STRUT_MODELS (strut routes a provider aieo
+//      does not know only when the host lists its model) and then removes
+//      it; stadeum-ui writes the org's list back on its next pass.
 //
 // Provider: real when bifrost holds an Anthropic key (set on stadeum's
 // Models page); otherwise a fake Anthropic upstream served from this
@@ -42,6 +49,11 @@ const MODEL = process.env.E2E_MODEL || "claude-haiku-4-5";
 const FAKE_HOST = "fake-llm";
 const FAKE_PORT = 9999;
 const FAKE_KEY = `fake-upstream-${randomBytes(4).toString("hex")}`;
+// The custom provider of section 6, its model and its price (USD per million tokens).
+const COMPAT = "e2e-compat";
+const COMPAT_MODEL = `${COMPAT}/fake-1`;
+const COMPAT_KEY = `fake-compat-${randomBytes(4).toString("hex")}`;
+const COMPAT_PRICE = { input_per_mtok: 10, output_per_mtok: 30 };
 const ALICE = "alice@acme.test"; // delegated
 const BOB = "bob@acme.test"; // never delegated
 const CAROL = "carol@acme.test"; // delegated with a tiny ceiling
@@ -114,6 +126,7 @@ function startFakeUpstream() {
       try {
         body = JSON.parse(raw || "{}");
       } catch {}
+      if (req.url === "/v1/chat/completions") return openaiReply(req, res, body);
       upstreamSeen.push({
         path: req.url,
         xApiKey: req.headers["x-api-key"] ?? null,
@@ -141,6 +154,26 @@ function startFakeUpstream() {
     });
   });
   return new Promise((resolve) => server.listen(FAKE_PORT, "0.0.0.0", () => resolve(server)));
+}
+
+// The OpenAI-compatible upstream behind section 6's custom provider: bifrost
+// appends /v1/chat/completions to the provider's root.
+const compatSeen = [];
+function openaiReply(req, res, body) {
+  compatSeen.push({ authorization: req.headers.authorization ?? null, macaroonForwarded: "x-macaroon" in req.headers, model: body.model });
+  const usage = { prompt_tokens: 1000, completion_tokens: 100, total_tokens: 1100 };
+  const id = `chatcmpl-${randomUUID()}`;
+  if (body.stream) {
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    const chunk = (o) => res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created: 0, model: body.model, ...o })}\n\n`);
+    chunk({ choices: [{ index: 0, delta: { role: "assistant", content: "pong" }, finish_reason: null }] });
+    chunk({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
+    chunk({ choices: [], usage });
+    res.end("data: [DONE]\n\n");
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ id, object: "chat.completion", created: 0, model: body.model, choices: [{ index: 0, message: { role: "assistant", content: "pong" }, finish_reason: "stop" }], usage }));
 }
 
 let fakeKeyId = null;
@@ -263,9 +296,14 @@ const LLM_STEP = (id) => `  - id: ${id}\n    type: llm\n    config:\n      promp
 const ONE = `name: e2e-llm\ndescription: Phase 2 e2e. One LLM step.\nsteps:\n${LLM_STEP("ask")}`;
 const CEIL = `name: e2e-llm-ceiling\ndescription: Phase 2 e2e. One LLM step, run cap under carol's ceiling.\nsteps:\n${LLM_STEP("ask")}`;
 const TWO = `name: e2e-llm-capped\ndescription: Phase 2 e2e. Two LLM steps under a tiny run cap.\nsteps:\n${LLM_STEP("ask1")}${LLM_STEP("ask2")}`;
+const COMPAT_FLOW = `name: e2e-compat\ndescription: Models e2e. One LLM step on a custom provider.\nsteps:\n  - id: ask\n    type: llm\n    config:\n      prompt: "Reply with the single word: pong"\n      model: ${COMPAT_MODEL}\n`;
 
 // ── main ────────────────────────────────────────────────────────────────
 let server;
+// What section 6 changed, put back in `finally`.
+let compatAdded = false;
+let savedPricing = null;
+let strutModelsSet = false;
 try {
   section("setup");
   // A key's redacted value is a masked preview, or `{ value }` for an env slot ("" when unset).
@@ -419,6 +457,52 @@ try {
   check("carol's next run is stopped: her delegation ceiling is spent", c2.run.status !== "success" && c2Err.includes(cdel.delegationId));
   const cstate = await plugin("GET", `/_plugin/runs/${cdel.delegationId}/state`);
   show(`carol's delegation ${cdel.delegationId} state`, { cost_usd: cstate.cost_usd, max_cost_usd: cstate.max_cost_usd, steps: cstate.steps });
+
+  section("5. an OpenAI-compatible provider through the gateway, billed to alice");
+  if (!server) server = await startFakeUpstream();
+  // As the Models page adds one: the provider, then its key (bifrost drops a key sent with the provider).
+  await http("DELETE", `${BIFROST}/api/providers/${COMPAT}`, { headers: { Authorization: basic } });
+  await gov("POST", "/api/providers", {
+    provider: COMPAT,
+    network_config: { base_url: `http://${FAKE_HOST}:${FAKE_PORT}`, allow_private_network: true },
+    custom_provider_config: { base_provider_type: "openai" },
+  });
+  compatAdded = true;
+  await gov("POST", `/api/providers/${COMPAT}/keys`, { name: `${COMPAT}-key-1`, value: COMPAT_KEY, models: ["*"], weight: 1 });
+  savedPricing = await plugin("GET", "/_plugin/pricing");
+  await plugin("PUT", "/_plugin/pricing", { ...savedPricing, [COMPAT_MODEL]: COMPAT_PRICE });
+  // alice's key gets the provider, as stadeum-ui's grant sync does.
+  const akey = (await gov("GET", `/api/governance/virtual-keys/${vk.id}`)).virtual_key;
+  const carried = (akey.provider_configs ?? [])
+    .filter((pc) => pc.provider !== COMPAT)
+    .map((pc) => ({ id: pc.id, provider: pc.provider, allowed_models: pc.allowed_models ?? ["*"], key_ids: ["*"] }));
+  await gov("PUT", `/api/governance/virtual-keys/${vk.id}`, {
+    provider_configs: [...carried, { provider: COMPAT, allowed_models: ["fake-1"], key_ids: ["*"] }],
+  });
+  await ok("PUT", `${STRUT}/secrets/STRUT_MODELS`, { headers: strutAdmin, body: { value: JSON.stringify([COMPAT_MODEL]) } });
+  strutModelsSet = true;
+  await putWorkflow("e2e-compat", COMPAT_FLOW);
+
+  const compatBefore = compatSeen.length;
+  const x = await runAs("e2e-compat", as(ALICE));
+  show("run", { runId: x.runId, status: x.run.status, output: x.run.output?.text ?? x.run.output });
+  check(`alice's run on ${COMPAT_MODEL} succeeds`, x.run.status === "success", x.run.status === "success" ? "" : await errorsOf("e2e-compat", x));
+  const xcalls = compatSeen.slice(compatBefore);
+  show("upstream /v1/chat/completions calls", xcalls.map((c) => ({ model: c.model, auth: c.authorization === `Bearer ${COMPAT_KEY}` ? "the gateway's key" : c.authorization })));
+  check("the custom provider got the model id without its prefix, with the gateway's key", xcalls.length > 0 && xcalls.every((c) => c.model === "fake-1" && c.authorization === `Bearer ${COMPAT_KEY}`));
+  check("the macaroon is not forwarded to the custom provider", xcalls.every((c) => !c.macaroonForwarded));
+  const xlog = await eventually(async () =>
+    ((await gov("GET", "/api/logs?limit=50")).logs ?? []).find((l) => l.metadata?.["run-id"] === x.runId),
+  );
+  show("bifrost log for the run", xlog && { provider: xlog.provider, model: xlog.model, status: xlog.status, customer: xlog.customer_name });
+  check("bifrost logged the call under alice, on the custom provider", !!xlog && xlog.status === "success" && xlog.customer_name === ALICE && xlog.provider === COMPAT);
+  const xwant = (1000 * COMPAT_PRICE.input_per_mtok + 100 * COMPAT_PRICE.output_per_mtok) / 1e6;
+  const xrun = await eventually(async () => {
+    const st = await plugin("GET", `/_plugin/runs/${x.runId}/state`).catch(() => null);
+    return st && st.cost_usd > 0 ? st : null;
+  });
+  show("the run's spend at the gateway", { cost_usd: xrun?.cost_usd, priced_at: xwant });
+  check("the gateway priced it from its runtime price table", !!xrun && Math.abs(xrun.cost_usd - xwant) < 1e-9);
 } catch (err) {
   check("e2e script ran to completion", false, err.stack ?? String(err));
 } finally {
@@ -426,6 +510,9 @@ try {
     await http("DELETE", `${STRUT}/llm/delegations/${encodeURIComponent(who)}`, { headers: strutAdmin }).catch(() => {});
   }
   if (!REAL) await unwireFakeProvider();
+  if (compatAdded) await http("DELETE", `${BIFROST}/api/providers/${COMPAT}`, { headers: { Authorization: basic } }).catch(() => {});
+  if (savedPricing) await http("PUT", `${BIFROST}/_plugin/pricing`, { headers: { Authorization: `Bearer ${T}` }, body: savedPricing }).catch(() => {});
+  if (strutModelsSet) await http("DELETE", `${STRUT}/secrets/STRUT_MODELS`, { headers: strutAdmin }).catch(() => {});
   server?.close();
 }
 
