@@ -145,16 +145,47 @@ export async function pushActorSecret(actor: string, name: string, value: string
   }
 }
 
+// ── apps (strut specs/API.md §14) ───────────────────────────────────────
+
+/** One entry of `GET /apps`, the fields stadeum reads. */
+export interface StrutApp {
+  /** May carry a package prefix: `strut/jamie`, `acme/hvac/invoices`. */
+  name: string;
+  title: string;
+  description?: string;
+  /** Set only on an app pinned as a tab (`PUT /apps/:name/pin`). */
+  pinned?: boolean;
+}
+
+const isApp = (a: unknown): a is StrutApp =>
+  !!a && typeof a === "object" && typeof (a as StrutApp).name === "string" && !!(a as StrutApp).name;
+
+/** `GET /apps`: every app in strut's workspace, as strut lists them. */
+export async function listApps(timeoutMs?: number): Promise<StrutApp[]> {
+  const res = await strutFetch("GET", "/apps", undefined, timeoutMs);
+  if (!res.ok) await fail("GET", "/apps", res);
+  const { apps } = (await res.json()) as { apps?: unknown };
+  if (!Array.isArray(apps)) throw new Error("GET /apps returned no apps list");
+  return apps.filter(isApp).map((a) => ({
+    name: a.name,
+    title: typeof a.title === "string" && a.title ? a.title : a.name,
+    ...(typeof a.description === "string" && a.description ? { description: a.description } : {}),
+    ...(a.pinned === true ? { pinned: true } : {}),
+  }));
+}
+
 // ── the frame ───────────────────────────────────────────────────────────
 
 /**
- * Strut's UI for one person, to frame: `POST /auth/ticket { actor }` mints
- * a sign-in ticket (good once, for a minute), and the UI loaded with
- * `?ticket=` trades it for its own session cookie as that actor (strut
- * `specs/API.md` §13.1). Mint one per page load. The cookie reaches the
- * frame only because STRUT_PUBLIC_URL is a subdomain of stadeum-ui's site.
+ * One strut app for one person, to frame: `POST /auth/ticket { actor }`
+ * mints a sign-in ticket (good once, for a minute), and strut's UI loaded
+ * with `?ticket=` trades it for its own session cookie as that actor
+ * (strut `specs/API.md` §13.1), then shows the app's page alone (`solo=1`,
+ * §14.3). `input` is the app's own query, the deep link it reports back
+ * (`strut:location`). Mint one per page load. The cookie reaches the frame
+ * only because STRUT_PUBLIC_URL is a subdomain of stadeum-ui's site.
  */
-export async function embedUrl(actor: string, deepLink: { wf?: string; run?: string } = {}): Promise<string> {
+export async function embedUrl(actor: string, app: string, input?: string): Promise<string> {
   const res = await strutFetch("POST", "/auth/ticket", { actor });
   if (!res.ok) await fail("POST", "/auth/ticket", res);
   const { ticket } = (await res.json()) as { ticket?: unknown };
@@ -162,8 +193,9 @@ export async function embedUrl(actor: string, deepLink: { wf?: string; run?: str
 
   const url = new URL(`${env.strutPublicUrl()}/`);
   url.searchParams.set("ticket", ticket);
+  url.searchParams.set("app", app);
+  url.searchParams.set("solo", "1");
   url.searchParams.set("embed_origin", new URL(env.publicUrl()).origin);
-  if (deepLink.wf) url.searchParams.set("wf", deepLink.wf);
-  if (deepLink.run) url.searchParams.set("run", deepLink.run);
+  if (input) url.searchParams.set("input", input);
   return url.toString();
 }

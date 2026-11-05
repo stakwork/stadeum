@@ -2,8 +2,9 @@
 /**
  * A fake of the stadeum stack on one port, for tests and local runs:
  *   /bifrost  — gateway: /_plugin/* (Bearer) and /api/* (Basic)
- *   /strut    — strut: /health, /auth/ticket and the UI a ticket opens,
- *               /llm/delegations, /actors/:actor/secrets (strut specs/API.md)
+ *   /strut    — strut: /health, /apps, /auth/ticket and the app page a
+ *               ticket opens, /llm/delegations, /actors/:actor/secrets
+ *               (strut specs/API.md)
  *   /neo4j    — HTTP discovery
  * Wire shapes follow docs/mothership-spec.md. The delegation PUT runs
  * Strut's own shape check and verifies the macaroon against the org key
@@ -23,6 +24,38 @@ export interface FakeStackOptions {
   providers?: string[];
 }
 
+/** One entry of strut's `GET /apps` (specs/API.md §14, `AppListEntry`). */
+export interface FakeApp {
+  name: string;
+  activeVersion: string;
+  versions: string[];
+  title: string;
+  description?: string;
+  icon?: string;
+  grants: { workflows: string[]; steps: string[]; sqlite: boolean; automations: string[] };
+  publisher?: string;
+  owner?: string;
+  pinned?: boolean;
+  live?: string;
+}
+
+const grants = (workflows: string[] = [], steps: string[] = []) => ({ workflows, steps, sqlite: false, automations: [] });
+
+/** What strut seeds on every server: its component library and Jamie. */
+export const SEEDED_APPS: FakeApp[] = [
+  { name: "strut/views", activeVersion: "v1", versions: ["v1"], title: "strut views", icon: "layout-grid", grants: grants(), publisher: "strut" },
+  {
+    name: "strut/jamie",
+    activeVersion: "v1",
+    versions: ["v1"],
+    title: "Jamie",
+    description: "Jamie, the person's assistant.",
+    icon: "message-circle",
+    grants: grants(["orchestrator", "job", "builder"], ["conversation/list", "conversation/get"]),
+    publisher: "strut",
+  },
+];
+
 export interface FakeState {
   customers: Array<{ id: string; name: string; created_at: string }>;
   vks: Array<{ id: string; name: string; value: string; customer_id: string; created_at: string; provider_configs: unknown[] }>;
@@ -31,6 +64,8 @@ export interface FakeState {
   agents: unknown[];
   delegations: Map<string, { actor: string; exp: string; delegationId: string; apiKey: string; baseUrl: string }>;
   secrets: Map<string, string>;
+  /** `GET /apps`, in strut's order (by name). Starts as SEEDED_APPS. */
+  apps: FakeApp[];
   /** Sign-in tickets strut minted: who each signs in, until when, whether spent. */
   tickets: Map<string, { actor: string; exp: number; used: boolean }>;
   /** Set to make strut's /health report a drain. */
@@ -55,6 +90,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     agents: [],
     delegations: new Map(),
     secrets: new Map(),
+    apps: SEEDED_APPS.map((a) => ({ ...a })),
     tickets: new Map(),
     drain: null,
     requests: [],
@@ -177,9 +213,9 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     // The UI is served without the key; a ticket signs the page in, once.
     if (path === "/" && m === "GET") {
       const t = state.tickets.get(url.searchParams.get("ticket") ?? "");
-      if (!t || t.used || t.exp <= Date.now()) return html(res, embedPage(undefined, url.searchParams.get("wf")), 401);
+      if (!t || t.used || t.exp <= Date.now()) return html(res, embedPage(undefined, url.searchParams), 401);
       t.used = true;
-      return html(res, embedPage(t.actor, url.searchParams.get("wf")));
+      return html(res, embedPage(t.actor, url.searchParams, state.apps));
     }
     if (!keyed) return send(res, 401, { error: "unauthorized" });
     if (path === "/auth/ticket" && m === "POST") {
@@ -189,6 +225,9 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       const exp = Date.now() + 60_000;
       state.tickets.set(ticket, { actor, exp, used: false });
       return send(res, 200, { ticket, expiresAt: exp });
+    }
+    if (path === "/apps" && m === "GET") {
+      return send(res, 200, { apps: [...state.apps].sort((a, b) => a.name.localeCompare(b.name)) });
     }
     if (path === "/llm/delegations" && m === "GET") {
       return send(res, 200, [...state.delegations.values()].map(({ actor, exp, delegationId }) => ({ actor, exp, delegationId })));
@@ -263,12 +302,20 @@ function html(res: ServerResponse, body: string, status = 200) {
   res.end(body);
 }
 
-function embedPage(actor: string | undefined, wf: string | null): string {
+/** Strut's UI showing one app alone (`?app=<name>&solo=1`), as the frame opens it. */
+function embedPage(actor: string | undefined, q: URLSearchParams, apps: FakeApp[] = []): string {
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+  const name = q.get("app") ?? "";
+  const app = apps.find((a) => a.name === name);
+  const body = !actor
+    ? "<p>This sign-in link has expired. Reload the page from the app you opened it in to sign in again.</p>"
+    : !app
+      ? `<p>No app <code>${esc(name || "(none)")}</code>.</p>`
+      : `<h1 style="font-weight:600;font-size:18px">${esc(app.title)}</h1>
+<p>App: <code>${esc(app.name)}</code>${q.get("solo") === "1" ? " alone" : ""}, input <code>${esc(q.get("input") ?? "(none)")}</code></p>
+<p>Signed in as actor: <code>${esc(actor)}</code></p>
+<p>This page stands in for strut's app host. It was opened with a one-use sign-in ticket, not the shared token.</p>`;
   return `<!doctype html><meta charset="utf-8"><title>Strut (fake)</title>
 <style>body{font:15px system-ui;margin:0;padding:32px;color:#333;background:#fafafa}code{background:#eee;padding:2px 6px;border-radius:4px}</style>
-<h1 style="font-weight:600;font-size:18px">Strut web UI (fake)</h1>
-${actor ? `<p>Workflow: <code>${esc(wf ?? "(none)")}</code></p>
-<p>Signed in as actor: <code>${esc(actor)}</code></p>
-<p>This page stands in for strut's UI. It was opened with a one-use sign-in ticket, not the shared token.</p>` : "<p>This sign-in link has expired or was already used. Reload the page.</p>"}`;
+${body}`;
 }

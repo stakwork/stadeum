@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 
 /**
- * The Strut web UI, embedded for one person. Strut posts
- * `{type: "strut:location", params}` as the person navigates inside it;
- * mirroring `run` into our URL makes a reload or a shared link land on
- * the same run.
+ * A strut app's page, framed for one person. Strut posts
+ * `{type: "strut:location", params}` as the person moves inside the app;
+ * mirroring its `input` (the app's own deep link, e.g. `session=<id>`)
+ * into our URL makes a reload or a shared link land on the same place.
  */
 export function StrutFrame({ src, origin, title }: { src: string; origin: string; title: string }) {
   const [loaded, setLoaded] = useState(false);
@@ -20,17 +20,18 @@ export function StrutFrame({ src, origin, title }: { src: string; origin: string
       const data = e.data as { type?: string; params?: Record<string, string> } | null;
       if (data?.type !== "strut:location") return;
       const url = new URL(window.location.href);
-      const run = data.params?.run;
-      if (run) url.searchParams.set("run", run);
-      else url.searchParams.delete("run");
-      window.history.replaceState(null, "", url);
+      const input = data.params?.input;
+      if (input) url.searchParams.set("input", input);
+      else url.searchParams.delete("input");
+      if (url.href !== window.location.href) window.history.replaceState(window.history.state, "", url);
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [origin]);
 
   return (
-    <div className="relative h-[calc(100dvh-210px)] min-h-[480px] overflow-hidden rounded-2xl border border-rule bg-surface">
+    // `data-bleed`: the layout's <main> drops its padding and width cap around it.
+    <div data-bleed className="relative min-h-[420px] flex-1 overflow-hidden">
       {!loaded && (
         <p className="absolute inset-0 grid place-items-center text-[14.5px] text-ink-3">Opening {title}…</p>
       )}
@@ -38,7 +39,7 @@ export function StrutFrame({ src, origin, title }: { src: string; origin: string
         src={frameSrc}
         title={title}
         onLoad={() => frameSrc && setLoaded(true)}
-        className={`relative size-full transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 size-full transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
         allow="clipboard-write; microphone"
         referrerPolicy="no-referrer"
       />

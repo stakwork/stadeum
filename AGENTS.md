@@ -102,7 +102,8 @@ order of the work, each step its own PR:
 4. Backups: `ops` runs restic to the destination the admin picks. It covers
    the Neo4j dump, strut's data, `stadeum.db`, the `org` volume and the
    secrets, around the same drain. Restores are tested.
-5. Apps from strut's `GET /apps`, with the assistant (Jamie) the first.
+5. Apps from strut's `GET /apps`, with the assistant (Jamie) the first:
+   Jamie is the home. (Done.)
 6. A custom domain. Caddy fetches the certificates. A new domain also needs
    its sign-in redirect URLs registered with Google and Microsoft, which
    the admin page says.
@@ -119,7 +120,7 @@ order of the work, each step its own PR:
 | `stack/bootstrap/` | First boot: the org signing key and its registration with the gateway |
 | `ui/` | stadeum-ui: Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db`) |
 | `ui/src/lib/mothership/` | Each person's virtual key and delegation, minted, pushed to strut, renewed |
-| `ui/src/lib/strut/` | The strut client: delegations, the status check, the frame's sign-in ticket |
+| `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the frame's sign-in ticket |
 | `scripts/` | `init-env.sh` (generates `.env`'s secrets), the gateway end-to-end check |
 | `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract) |
 
