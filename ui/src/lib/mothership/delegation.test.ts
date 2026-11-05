@@ -14,7 +14,7 @@ beforeAll(async () => {
     SHARED_API_TOKEN: fake.token,
     BIFROST_URL: fake.bifrostUrl,
     BIFROST_ADMIN_PASS: "",
-    MCP_URL: fake.mcpUrl,
+    STRUT_URL: fake.strutUrl,
     STADEUM_ORG_SLUG: "acme",
     AUTH_URL: "http://localhost:3000",
   });
@@ -50,7 +50,7 @@ describe("ensureOrgTrust", () => {
 });
 
 describe("ensureDelegation", () => {
-  it("first person: customer, VK, mint, push; the fake lab verifies it against the trust registry", async () => {
+  it("first person: customer, VK, mint, push; the fake strut verifies it against the trust registry", async () => {
     const { user } = await admit("ada@acme.test", "Ada");
     expect(user?.role).toBe("admin");
     const r = await ensureDelegation(user!);
@@ -83,9 +83,9 @@ describe("ensureDelegation", () => {
     expect(r.status).toBe("pushed");
   });
 
-  it("never throws: an unreachable lab is recorded as failed", async () => {
+  it("never throws: an unreachable strut is recorded as failed", async () => {
     const user = await db.user.findUniqueOrThrow({ where: { email: "ada@acme.test" } });
-    fake.state.down.mcp = true;
+    fake.state.down.strut = true;
     try {
       const r = await ensureDelegation(user);
       expect(r.status).toBe("failed");
@@ -93,7 +93,7 @@ describe("ensureDelegation", () => {
       expect(row.delegationStatus).toBe("failed");
       expect(row.delegationError).toContain("503");
     } finally {
-      fake.state.down.mcp = false;
+      fake.state.down.strut = false;
     }
   });
 

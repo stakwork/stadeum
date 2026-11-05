@@ -14,33 +14,35 @@ person. Your data, keys and models stay in your account.
 
 | Path | What |
 | --- | --- |
-| `stack/` | `stadeum.yml` (docker compose): traefik, neo4j, repo2graph (Strut + mcp + stakgraph), bifrost + redis (LLM gateway), stadeum-ui |
+| `stack/` | `stadeum.yml` (docker compose): caddy, neo4j, strut + strut-browser, bifrost + redis (LLM gateway), stadeum-ui. `caddy/Caddyfile`: the routes |
 | `stack/bootstrap/` | First-boot setup: the org signing key and its registration with bifrost |
 | `ui/` | stadeum-ui: single sign-on, members, status, per-person model access, app launcher |
-| `scripts/` | Env setup, neo4j plugins, the end-to-end gateway check |
+| `scripts/` | Env setup, the end-to-end gateway check |
 | `docs/` | Stack and gateway specs |
 
 ## Run the stack
 
 ```bash
 scripts/init-env.sh            # .env with generated secrets; then fill in provider keys
-scripts/fetch-neo4j-plugins.sh # APOC core (lang3 stripped) + extended, GDS 2.9.0
+```
+
+```bash
 docker compose --env-file .env -f stack/stadeum.yml -f stack/dev.yml up -d --wait
 ```
 
-- `stack/dev.yml` is local mode: plain http on `localhost`, with the Strut lab at `http://repo2graph.localhost/lab/` and bifrost at `http://bifrost.localhost`.
-- Production: drop `-f stack/dev.yml` and set `HOST` and `ACME_EMAIL`. Traefik then serves `repo2graph.$HOST` and `bifrost.$HOST` over Let's Encrypt.
-- stadeum-ui is built from `ui/` and served at `$HOST` (`localhost` in dev).
+- `stack/dev.yml` is local mode: plain http, stadeum-ui at `http://stadeum.localhost` and strut at `http://strut.stadeum.localhost`, signed in with a password-less dev login.
+- Production: drop `-f stack/dev.yml` and set `HOST` and `ACME_EMAIL`. Caddy then serves `$HOST` (stadeum-ui) and `strut.$HOST` (strut) with certificates it fetches itself.
+- strut must stay at `strut.$HOST`: the same site as stadeum-ui, so the strut frame's session cookie reaches it.
+- bifrost, Neo4j and redis are internal: no port, no route.
 - `bootstrap` (a one-shot service) makes the org's macaroon signing key in the `org` volume and registers it with bifrost. Re-run it any time: `docker compose ... run --rm bootstrap`.
-- The mothership is mandatory: bifrost rejects any model call without a valid macaroon (401) or over a cap (402), and Strut refuses an LLM step with no person or no delegation. These are fixed on in `stack/stadeum.yml`.
-- Provider keys go to bifrost only. repo2graph gets a placeholder and routes its own model calls to bifrost, which refuses them.
+- The mothership is mandatory: bifrost rejects any model call without a valid macaroon (401) or over a cap (402), and strut refuses an LLM step with no person or no delegation. These are fixed on in `stack/stadeum.yml`.
+- Provider keys go to bifrost only. strut has none: it calls a model only through bifrost, on each person's delegation.
 - `scripts/mothership-e2e.sh` proves it end to end (a fake provider is used unless `ANTHROPIC_API_KEY` is set).
 
 ## Decisions
 
-- Containers run under docker compose, using the same images and settings
-  sphinx-swarm generates (source: sphinx-swarm `dd0f132d`). The Rust
-  orchestrator is not ported yet.
+- One compose file is the deployment, on stock images: strut's own, Caddy,
+  the stock Neo4j. `docs/stack-spec.md` has each service and why.
 - Lightning and legacy images (jarvis, boltwall, hermes, …) are stripped.
   Lightning can return later as an off-by-default compose profile.
 - No swarm dashboard. stadeum-ui is the only UI.
@@ -54,8 +56,8 @@ container), port 3000. The shell is vertical-neutral: sign-in, the person,
 Organisation (Members, Status; admins only), an Apps launcher and Recent activity.
 Everything else is an app from the registry in `ui/src/lib/apps.ts`
 (`{id, name, description, entry}`). v1 ships with no apps. An entry with
-`strutApp: { wf }` opens the Strut UI there instead, with a per-person
-`/mint-token` JWT.
+`strutApp: { wf }` frames strut's UI there instead, signed in as the person
+with a one-use ticket (`ui/src/lib/strut/client.ts`).
 
 - Sign-in: Microsoft Entra ID and Google when their `AUTH_*` vars are set;
   `STADEUM_DEV_LOGIN=1` adds a password-less email login for local work.
@@ -69,7 +71,7 @@ Everything else is an app from the registry in `ui/src/lib/apps.ts`
 - Config: `ui/.env.example`. Local run without the stack:
 
 ```bash
-cd ui && cp .env.example .env   # then set AUTH_SECRET, STADEUM_ENCRYPTION_KEY, STADEUM_DEV_LOGIN=1, URLs → 127.0.0.1:4555/{bifrost,mcp,neo4j}
+cd ui && cp .env.example .env   # then set AUTH_SECRET, STADEUM_ENCRYPTION_KEY, STADEUM_DEV_LOGIN=1, URLs → 127.0.0.1:4555/{bifrost,strut,neo4j}
 ```
 
 ```bash
@@ -77,7 +79,7 @@ cd ui && npm install && npx prisma migrate deploy
 ```
 
 ```bash
-cd ui && npm run fake-stack    # bifrost, mcp/Strut and neo4j fakes on :4555
+cd ui && npm run fake-stack    # bifrost, strut and neo4j fakes on :4555
 ```
 
 ```bash

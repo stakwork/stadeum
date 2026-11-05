@@ -37,7 +37,7 @@ beforeAll(async () => {
   Object.assign(process.env, {
     SHARED_API_TOKEN: fake.token,
     BIFROST_URL: fake.bifrostUrl,
-    MCP_URL: fake.mcpUrl,
+    STRUT_URL: fake.strutUrl,
     STADEUM_ORG_SLUG: "acme",
   });
 });

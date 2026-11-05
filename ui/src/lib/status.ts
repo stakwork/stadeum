@@ -1,9 +1,9 @@
 import { db } from "@/lib/db";
-import { env, labBase } from "@/lib/env";
+import { env } from "@/lib/env";
 import { governanceClient, pluginClient } from "@/lib/mothership/admin-credentials";
 import { BifrostHttpError } from "@/lib/mothership/http";
 import { macaroonOrgId } from "@/lib/mothership/keys";
-import { labHeaders } from "@/lib/mothership/strut-lab";
+import { health, StrutHttpError } from "@/lib/strut/client";
 
 /**
  * The status page's checks. Each one stores its last result and time, so
@@ -23,17 +23,18 @@ export const NEEDED_TO_RUN: CheckName[] = ["strut", "bifrost", "trust"];
 export type CheckName = (typeof CHECKS)[number]["name"];
 
 /**
- * The v1 containers (stack/stadeum.yml), each with the check that stands
- * for its health. stadeum-ui has no Docker socket, so a service it never
- * talks to (traefik, redis) has no check here.
+ * The containers (stack/stadeum.yml), each with the check that stands for
+ * its health. stadeum-ui has no Docker socket, so a service it never talks
+ * to (caddy, redis, strut-browser) has no check here.
  */
 export const SERVICES: Array<{ service: string; label: string; check?: CheckName | "self" }> = [
   { service: "stadeum-ui", label: "Web app", check: "self" },
-  { service: "load_balancer (traefik)", label: "Router" },
+  { service: "caddy", label: "Router" },
   { service: "neo4j", label: "Knowledge graph", check: "neo4j" },
   { service: "redis", label: "Cache" },
   { service: "bifrost", label: "Model gateway", check: "bifrost" },
-  { service: "repo2graph (Strut)", label: "Workflow engine", check: "strut" },
+  { service: "strut", label: "Workflow engine", check: "strut" },
+  { service: "strut-browser", label: "Browser" },
   { service: "bootstrap", label: "Organisation key", check: "trust" },
 ];
 
@@ -45,6 +46,7 @@ function terse(err: unknown): string {
     if (err.status === 0) return /timed out/.test(err.message) ? "Timed out" : "Unreachable";
     return `Answered ${err.status}`;
   }
+  if (err instanceof StrutHttpError) return `Answered ${err.status}`;
   const name = (err as Error)?.name;
   if (name === "TimeoutError" || name === "AbortError") return "Timed out";
   return "Unreachable";
@@ -91,13 +93,14 @@ async function checkBifrostAndTrust(): Promise<Record<"bifrost" | "trust", { ok:
   }
 }
 
+/** `GET /health` with the key. Strut answers a key it does not hold with `{ ok }` alone. */
 async function checkStrut(): Promise<{ ok: boolean; detail: string }> {
   try {
     const started = Date.now();
-    const res = await probe(`${labBase()}/llm/mothership`, { headers: labHeaders() });
+    const h = await health(TIMEOUT);
     const ms = Date.now() - started;
-    if (res.status === 404) return { ok: false, detail: "Delegation routes not mounted" };
-    if (!res.ok) return { ok: false, detail: `Answered ${res.status}` };
+    if (!h.workspace) return { ok: false, detail: "Key not accepted" };
+    if (h.drain) return { ok: false, detail: `Draining · ${h.drain.reason ?? "maintenance"}` };
     return { ok: true, detail: `Reachable · ${ms} ms` };
   } catch (err) {
     return { ok: false, detail: terse(err) };

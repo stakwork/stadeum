@@ -5,9 +5,9 @@ import { revalidatePath } from "next/cache";
 import { normaliseEmail } from "@/lib/access";
 import { db } from "@/lib/db";
 import { removeUser, setRole } from "@/lib/members";
-import { deleteDelegation } from "@/lib/mothership/strut-lab";
 import { isRole } from "@/lib/roles";
 import { requireAdmin } from "@/lib/session";
+import { deleteDelegation } from "@/lib/strut/client";
 
 export type FormState = { ok?: string; error?: string };
 

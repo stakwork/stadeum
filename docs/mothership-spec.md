@@ -6,9 +6,9 @@ How a signed-in person gets to run LLM steps on Strut. Extracted from Hive
 
 ## Topology and secrets
 
-- Bifrost gateway root: `http(s)://<host>:8181` (Hive `src/services/bifrost/resolve.ts:39-54`). In stadeum: `http://bifrost.sphinx:8181` on the network.
-- Strut lab: served by mcp at `<repo2graph>:3355/lab` (Hive `src/lib/utils/swarm.ts:22-30`, `strut-delegation.ts:137`).
-- ONE shared secret (`SHARED_API_TOKEN` in stadeum) is used as: bifrost provisioning token (Bearer on `/_plugin/*`), mcp `x-api-token`, and Strut `STRUT_API_KEY` (Bearer). Hive sends both `x-api-token` and `Authorization: Bearer` with it (`strut-delegation.ts:161-167`).
+- Bifrost gateway root: `http(s)://<host>:8181` (Hive `src/services/bifrost/resolve.ts:39-54`). In stadeum: `http://bifrost:8181` on the network.
+- Strut: its own image, `http://strut:3000` on the network (stadeum-ui's `STRUT_URL`). Hive reaches it inside mcp at `<repo2graph>:3355/lab` instead (Hive `src/lib/utils/swarm.ts:22-30`, `strut-delegation.ts:137`).
+- ONE shared secret (`SHARED_API_TOKEN` in stadeum) is used as: bifrost provisioning token (Bearer on `/_plugin/*`) and Strut `STRUT_API_KEY` (Bearer). Hive also sends it as mcp's `x-api-token` (`strut-delegation.ts:161-167`).
 
 ## Steps per (gateway, user)
 
@@ -41,23 +41,25 @@ How a signed-in person gets to run LLM steps on Strut. Extracted from Hive
 - Strut's shape check (`strut/src/mothership.ts:123-161`): v=1, no attenuations, inv.agents has `strut-agent`, max_steps 0, max_cost_usd>0, run_id set, valid exps.
 
 ### e. Push to Strut (`strut-delegation.ts:194-245,301-361`)
-- `PUT {lab}/llm/delegations/{encodeURIComponent(actor)}`, headers `Content-Type: application/json`, `x-api-token`, `Authorization: Bearer` (shared token), body `{macaroon, apiKey: vk.value, baseUrl: gatewayRoot}` (`baseUrl` = gateway ROOT, `^https?://`) → `{actor, exp, delegationId}`.
-- `GET {lab}/llm/delegations` lists (404 = mothership not mounted); `DELETE` removes; `GET /llm/mothership` → `{enabled:true}`.
+- `PUT {strut}/llm/delegations/{encodeURIComponent(actor)}`, headers `Content-Type: application/json`, `Authorization: Bearer` (shared token), body `{macaroon, apiKey: vk.value, baseUrl: gatewayRoot}` (`baseUrl` = gateway ROOT, `^https?://`) → `{actor, exp, delegationId}`.
+- `GET {strut}/llm/delegations` lists (404 = mothership not mounted); `DELETE` removes; `GET /llm/mothership` → `{enabled:true}`.
 - Renewal: re-push if missing or past half-life (`isPastHalfLife`, `:501`); re-mint within 15 days of exp.
 
 ## Strut side
 
-- Mothership routes mount only when `STRUT_MOTHERSHIP=1`; stored in `{STRUT_WORKSPACE}/mothership.json`, encrypted with `STRUT_SECRET_KEY` (`strut/src/server.ts:24-56`). Inside the stakgraph-mcp image, mcp hosts Strut — check how it sets these.
+- Mothership routes mount only when `STRUT_MOTHERSHIP=1`; stored in `{STRUT_WORKSPACE}/mothership.json`, encrypted with `STRUT_SECRET_KEY` (`strut/src/server.ts:24-56`). `stack/stadeum.yml` sets both flags and a `STRUT_SECRET_KEY` of its own.
 - `STRUT_MOTHERSHIP_REQUIRED=1` → LLM call with no principal or no delegation throws (`mothership.ts:299,304`).
-- Actor: `x-strut-actor` header is honoured only when `STRUT_API_KEY` is set and the Bearer matches (`auth.ts:73-77`). Behind mcp, mcp's own resolveActor reads a JWT `sub`.
+- Actor: `x-strut-actor` header is honoured only when `STRUT_API_KEY` is set and the Bearer matches (`auth.ts:73-77`). A browser session's actor is its sign-in ticket's (below).
 - Actor secrets: `PUT /actors/:actor/secrets/:NAME` `{value}` (`createStrut.ts:1558-1597`) — e.g. `GITHUB_TOKEN` for the code pack.
 - Runs: `POST /workflows/:name/run` `{input?, params?, runId?, callback?:{url}}` → `202 {runId}`; SSE `GET /workflows/:name/runs/:runId/stream` (ends with `event: done`); `GET …/events`, `GET …/runs/:runId`. Chat: `POST /chat`, `GET /chat/:id/stream?turn=`.
 
 ## Embedding the Strut UI
 
-- Hive: `POST {mcp}/mint-token` (`x-api-token`, `{expires_in:"8h", sub: actor}`) → JWT; iframe `{mcp}/lab/?key=<jwt>` (trailing slash required) (Hive `src/services/strut-embed.ts:45-136`).
-- Strut web moves `?key=` into sessionStorage and sends it as Bearer (`strut/web/src/api.ts:37-91`); `?embed_origin=` makes it post `{type:"strut:location", params:{wf,run,v,chat,elicit}}` to the parent (`web/src/embed.ts`).
-- Gotcha: a raw `?key=STRUT_API_KEY` gives the browser admin rights and NO actor. Use mcp's `/mint-token` JWT (actor = `sub`), or proxy through stadeum-ui injecting Bearer + `x-strut-actor`.
+- Stadeum: per page load, `POST {strut}/auth/ticket {actor}` (Bearer shared token) → `{ticket, expiresAt}`, a sign-in ticket good once for 60 s; iframe `{STRUT_PUBLIC_URL}/?ticket=<ticket>&embed_origin=<stadeum origin>[&wf=&run=]` (`ui/src/lib/strut/client.ts`). Strut's UI trades it at `POST /auth/session {ticket}` for its own `SameSite=Lax` session cookie as that actor and takes it off the URL (strut `specs/API.md` §13.1).
+- The cookie reaches the frame only when strut and stadeum-ui are the same site: `strut.$HOST` under `$HOST` (`stack/caddy/Caddyfile`).
+- `?embed_origin=` makes strut's UI post `{type:"strut:location", params:{wf,run,v,chat,elicit}}` to the parent (`web/src/embed.ts`).
+- Hive instead mints mcp's `POST {mcp}/mint-token` JWT and frames `{mcp}/lab/?key=<jwt>` (Hive `src/services/strut-embed.ts:45-136`).
+- Gotcha: a raw `?key=STRUT_API_KEY` gives the browser admin rights and NO actor. Never hand the key to a browser.
 
 ## gatekey
 
@@ -155,8 +157,8 @@ stadeum-ui starts only after it exits 0 (`depends_on: service_completed_successf
   (person ceiling = invocation `max_cost_usd`) and Strut's per-run link (run
   cap). bifrost's own `enforce_auth_on_inference: true` (baked config) also
   requires a VK.
-- **`baseUrl: http://bifrost.sphinx:8181` is right** for the delegation:
-  Strut runs inside repo2graph on the same network (UI hand-over question 1).
+- **`baseUrl: http://bifrost:8181` is right** for the delegation: strut
+  runs on the same network (UI hand-over question 1).
 - **Delegation ceiling must be at least Strut's run cap.** Strut gives every
   run a cap (workflow `maxRunCostUsd`, else `STRUT_RUN_MAX_COST_USD`, else
   $100; strut `src/mothership.ts:46,192-205`) and refuses a run whose cap is
@@ -172,5 +174,4 @@ stadeum-ui starts only after it exits 0 (`depends_on: service_completed_successf
 
 - Whether the gateway requires `realm_id` / the agent catalog before accepting a macaroon (Hive does both, best-effort).
 - Whether an empty `issuer_url` is rejected.
-- mcp's `/mint-token` and JWT→actor code (in stakgraph, not read).
 - `/_plugin/admin-credentials` exists only in the stakgraph-gateway wrapper image (which stadeum uses).

@@ -45,8 +45,3 @@ export const STRUT_DELEGATION_TTL_SECONDS = 60 * 24 * 60 * 60;
 
 /** Re-mint a delegation this close to its expiry. */
 export const STRUT_DELEGATION_RENEW_WITHIN_MS = 15 * 24 * 60 * 60 * 1000;
-
-export const STRUT_HTTP_TIMEOUT_MS = 10_000;
-
-/** Header naming the actor on stadeum-ui's server-side lab calls. */
-export const STRUT_ACTOR_HEADER = "x-strut-actor";
