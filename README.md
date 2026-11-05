@@ -10,6 +10,50 @@ documents into a knowledge graph, runs Strut workflows and apps on it, and
 routes every model call through a gateway with a key and a spending cap per
 person. Your data, keys and models stay in your account.
 
+## Install on a server
+
+On a fresh Ubuntu 22.04, 24.04 or 26.04, or Debian 12 or 13 VM, on any cloud:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo bash
+```
+
+Or clone the repo and run `sudo scripts/install.sh`, and the clone is the
+box's checkout. The script installs Docker from Docker's apt repository if
+it is missing, puts stadeum in `/opt/stadeum` and makes `.env`
+(`scripts/init-env.sh`). It asks for the domain, an email for Let's Encrypt
+and a Google or Microsoft sign-in, checks DNS, starts the stack and checks
+its certificates. Model keys go in afterwards, on Organisation → Models (the
+gateway keeps them, never `.env`). Run it again to update the checkout
+and restart with the same `.env`: it asks only for what `.env` lacks.
+
+- **DNS**, before it starts: two A records at the VM's public IPv4 address.
+  The script checks them and starts nothing until both point at the VM.
+
+  | Name | Type | Value |
+  | --- | --- | --- |
+  | `stadeum1.example.com` (`HOST`) | A | the VM's public IPv4 |
+  | `strut.stadeum1.example.com` | A | the same |
+
+- **Sign-in redirect URLs**, registered in each provider's OAuth client:
+  Google `https://$HOST/api/auth/callback/google`, Microsoft
+  `https://$HOST/api/auth/callback/microsoft-entra-id`.
+- **Ports** 80 and 443 (TCP, and 443 UDP) open to the internet in the
+  cloud's firewall or security group. Caddy fetches and renews the
+  certificates through them, and they are the only ports the stack
+  publishes.
+- **Sign in first**: the first person to sign in becomes admin.
+- A scripted install answers each question with `STADEUM_` and the `.env`
+  name, placed after `sudo` (which drops the environment). The full list is
+  at the top of `scripts/install.sh`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo STADEUM_HOST=stadeum1.example.com STADEUM_ACME_EMAIL=admin@example.com STADEUM_AUTH_GOOGLE_ID=… STADEUM_AUTH_GOOGLE_SECRET=… bash
+```
+
+- It refuses `STADEUM_DEV_LOGIN`: on a public host the password-less login
+  lets anyone sign in as anyone.
+
 ## Layout
 
 | Path | What |
@@ -19,7 +63,7 @@ person. Your data, keys and models stay in your account.
 | `ui/` | stadeum-ui: single sign-on, members, status, updates, backups, per-person model access, app launcher |
 | `ops/` | stadeum-ops: image updates and backups (the Docker socket's one holder, no port) |
 | `.github/workflows/` | Checks; stadeum's images, published from main and promoted to `stable` |
-| `scripts/` | Env setup, the end-to-end gateway check, the backup-and-restore proof |
+| `scripts/` | The server install, env setup, the end-to-end gateway check, the backup-and-restore proof |
 | `docs/` | Stack and gateway specs |
 
 ## Run the stack
