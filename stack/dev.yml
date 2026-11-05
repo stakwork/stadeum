@@ -1,0 +1,41 @@
+# Local dev override: plain http on the `web` entrypoint, no ACME, hosts under
+# *.localhost (repo2graph.localhost, bifrost.localhost, localhost for the UI).
+#
+#   docker compose --env-file .env -f stack/stadeum.yml -f stack/dev.yml up -d
+
+services:
+  load_balancer:
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=stadeum_sphinx-swarm
+      - --entrypoints.web.address=:80
+      - --ping=true
+    ports: !override
+      - "${HTTP_PORT:-80}:80"
+
+  bifrost:
+    labels:
+      traefik.http.routers.bifrost.rule: Host(`bifrost.localhost`)
+      traefik.http.routers.bifrost.entrypoints: web
+      traefik.http.routers.bifrost.tls: "false"
+      traefik.http.routers.bifrost.tls.certresolver: ""
+
+  repo2graph:
+    labels:
+      traefik.http.routers.repo2graph.rule: Host(`repo2graph.localhost`)
+      traefik.http.routers.repo2graph.entrypoints: web
+      traefik.http.routers.repo2graph.tls: "false"
+      traefik.http.routers.repo2graph.tls.certresolver: ""
+
+  stadeum-ui:
+    environment:
+      AUTH_URL: http://localhost
+      MCP_PUBLIC_URL: http://repo2graph.localhost
+      # Password-less email sign-in, local only.
+      STADEUM_DEV_LOGIN: "1"
+    labels:
+      traefik.http.routers.stadeum-ui.rule: Host(`localhost`)
+      traefik.http.routers.stadeum-ui.entrypoints: web
+      traefik.http.routers.stadeum-ui.tls: "false"
+      traefik.http.routers.stadeum-ui.tls.certresolver: ""

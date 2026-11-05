@@ -1,0 +1,9 @@
+{
+  "name": "stadeum-mothership-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Phase 2 proof: a Strut LLM step runs only as a delegated person, billed and capped in bifrost. Run via scripts/mothership-e2e.sh.",
+  "dependencies": {
+    "gatekey": "0.1.1"
+  }
+}

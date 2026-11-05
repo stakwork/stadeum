@@ -1,0 +1,320 @@
+# Stadeum stack. Spec: docs/stack-spec.md (sphinx-swarm dd0f132d).
+#
+#   scripts/init-env.sh                # once: generate .env
+#   scripts/fetch-neo4j-plugins.sh     # once: APOC + GDS into stack/neo4j/plugins
+#   docker compose --env-file .env -f stack/stadeum.yml up -d
+#
+# Local dev (plain http, *.localhost, no ACME): add `-f stack/dev.yml`.
+#
+# Only traefik publishes host ports. Every other service is reachable on the
+# `sphinx-swarm` network (docker name `stadeum_sphinx-swarm`) as
+# `<name>.sphinx`, like a swarm.
+
+name: stadeum
+
+x-common: &common
+  restart: unless-stopped
+
+networks:
+  # Own name so it never collides with a sphinx-swarm on the same host.
+  sphinx-swarm:
+    name: stadeum_sphinx-swarm
+
+volumes:
+  letsencrypt:
+  neo4j.sphinx:
+  redis.sphinx:
+  bifrost.sphinx:
+  repo2graph.sphinx:
+  repo2graph-sessions:
+  repo2graph-artifacts:
+  repo2graph-reqs:
+  repo2graph-lab-workspace:
+  # Org macaroon signing key (stack/bootstrap/org-identity.mjs writes it,
+  # stadeum-ui reads it). Contract: docs/mothership-spec.md.
+  org:
+  # stadeum-ui's SQLite database (people, invites, delegation state).
+  stadeum-ui.sphinx:
+
+services:
+  load_balancer:
+    <<: *common
+    image: traefik:v2.11.31
+    hostname: load_balancer.sphinx
+    networks: [sphinx-swarm]
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=stadeum_sphinx-swarm
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --certificatesresolvers.myresolver.acme.tlschallenge=true
+      - --certificatesresolvers.myresolver.acme.email=${ACME_EMAIL:-}
+      - --certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json
+      - --ping=true
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  neo4j:
+    <<: *common
+    image: neo4j:5.19.0
+    hostname: neo4j.sphinx
+    networks:
+      sphinx-swarm:
+        aliases: [neo4j.sphinx]
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?run scripts/init-env.sh}
+      NEO4J_apoc_uuid_enabled: "true"
+      # apoc.conf (sphinx-swarm neo4j.rs:276-294). The entrypoint writes every
+      # NEO4J_apoc_* var into conf/apoc.conf (sed -i + append), so it is set
+      # here rather than bind-mounted. `_` -> `.`, `__` -> `_`.
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_initializer_neo4j_1: "CREATE FULLTEXT INDEX titles_full_index IF NOT EXISTS FOR (n:Content) ON EACH [n.show_title, n.episode_title]"
+      NEO4J_apoc_initializer_neo4j_2: "CREATE FULLTEXT INDEX person_full_index IF NOT EXISTS FOR (n:Person) ON EACH [n.name]"
+      NEO4J_apoc_initializer_neo4j_3: "CREATE FULLTEXT INDEX topic_full_index IF NOT EXISTS FOR (n:Topic) ON EACH [n.name]"
+      NEO4J_apoc_initializer_neo4j_4: "CREATE FULLTEXT INDEX text_full_index IF NOT EXISTS FOR (n:Content) ON EACH [n.namespace]"
+      NEO4J_apoc_initializer_neo4j_5: "CREATE FULLTEXT INDEX data_bank_full_index IF NOT EXISTS FOR (n:Data_Bank) ON EACH [n.Data_Bank] OPTIONS { indexConfig: { `fulltext.analyzer`: 'english' }}"
+      NEO4J_apoc_initializer_neo4j_6: "CREATE FULLTEXT INDEX aliasEntityIndex IF NOT EXISTS FOR (n:Alias) ON EACH [n.entity]"
+      NEO4J_apoc_initializer_neo4j_7: "CREATE TEXT INDEX entity_lower_string_exact_index IF NOT EXISTS FOR (a:Alias) ON (a.entity_lower)"
+      NEO4J_apoc_initializer_neo4j_8: "CREATE TEXT INDEX name_lower_string_exact_index IF NOT EXISTS FOR (t:Topic) ON (t.name_lower)"
+      NEO4J_apoc_initializer_neo4j_9: "CREATE INDEX match_entity_namespace_alias_index IF NOT EXISTS FOR (a:Alias) ON (a.entity, a.namespace)"
+      NEO4J_apoc_initializer_neo4j_10: "CREATE INDEX match_all_alias_index IF NOT EXISTS FOR (a:Alias) ON (a.entity, a.namespace, a.replacement, a.context)"
+      NEO4J_apoc_initializer_neo4j_16: "CREATE FULLTEXT INDEX schema_full_index IF NOT EXISTS FOR (n:Schema) ON EACH [n.type]"
+      NEO4J_apoc_initializer_neo4j_17: "CREATE FULLTEXT INDEX query_full_index IF NOT EXISTS FOR (n:Query) ON EACH [n.query]"
+      NEO4J_apoc_initializer_neo4j_20: "CREATE VECTOR INDEX query_text_embeddings_vector_index IF NOT EXISTS FOR (n:Query) ON n.query_embeddings OPTIONS { indexConfig: { `vector.dimensions`: 384, `vector.similarity_function`: 'cosine' }}"
+      NEO4J_apoc_initializer_neo4j_21: "CREATE FULLTEXT INDEX name_full_index IF NOT EXISTS FOR (n:Data_Bank) ON EACH [n.name]"
+      # Swarm defaults are 6g/6g/8g/4g/1g; these are laptop defaults.
+      NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP_INITIAL:-1g}
+      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_MAX:-1g}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-1g}
+      NEO4J_db_memory_transaction_total_max: ${NEO4J_TX_TOTAL_MAX:-1g}
+      NEO4J_db_memory_transaction_max: ${NEO4J_TX_MAX:-512m}
+      NEO4J_db_checkpoint_iops_limit: ${NEO4J_CHECKPOINT_IOPS:-500}
+      NEO4J_server_default__listen__address: 0.0.0.0
+      NEO4J_server_bolt_listen__address: 0.0.0.0:7687
+      NEO4J_dbms_security_procedures_allowlist: apoc.*,gds.*,algo.*
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*,gds.*,algo.*
+      NEO4J_dbms_allow__upgrade: "true"
+      NEO4J_initial_dbms_default__database: neo4j
+      NEO4J_dbms_security_auth__minimum__password__length: "4"
+      # NEO4J_PLUGINS is not set: GDS 2.9.0 comes from the plugins dir
+      # (see docs/stack-spec.md, "Neo4j plugins").
+    volumes:
+      - neo4j.sphinx:/data
+      - ./neo4j/plugins:/plugins:ro
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_AUTH#neo4j/}\" 'RETURN 1' >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+  redis:
+    <<: *common
+    image: redis:7.4.2-alpine
+    hostname: redis.sphinx
+    networks:
+      sphinx-swarm:
+        aliases: [redis.sphinx]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis.sphinx:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bifrost:
+    <<: *common
+    image: ghcr.io/stakwork/stakgraph-gateway:${BIFROST_TAG:-latest}
+    hostname: bifrost.sphinx
+    networks:
+      sphinx-swarm:
+        aliases: [bifrost.sphinx]
+    depends_on:
+      redis: { condition: service_healthy }
+      neo4j: { condition: service_healthy }
+    # Do NOT set APP_PORT/APP_HOST: the wrapper (PID 1) listens on 8181 and
+    # runs bifrost-http on 127.0.0.1:8080 (sphinx-swarm bifrost.rs:140-146).
+    environment:
+      BIFROST_ADMIN_USER: admin
+      BIFROST_ADMIN_PASS: ${BIFROST_ADMIN_PASS:?run scripts/init-env.sh}
+      BIFROST_PROVISIONING_TOKEN: ${SHARED_API_TOKEN:?run scripts/init-env.sh}
+      BIFROST_PLUGIN_REDIS_URL: redis://redis.sphinx:6379/0
+      NEO4J_HTTP_URL: http://neo4j.sphinx:7474
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      # Empty = unset for bifrost's config.json (env.<NAME>).
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      # Mandatory mothership: an inference call without a valid macaroon is
+      # 401, and one over a macaroon/run cap is 402 (budgets only bite when
+      # macaroons are enforced; gateway internal/auth/config.go). Hard-coded
+      # so a stale .env cannot turn it off.
+      BIFROST_PLUGIN_ENFORCE_MACAROONS: "true"
+      BIFROST_PLUGIN_ENFORCE_BUDGETS: "true"
+    volumes:
+      - bifrost.sphinx:/app/data
+    # Healthcheck is baked into the image (wget :8181/health).
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.bifrost.loadbalancer.server.port: "8181"
+      traefik.http.routers.bifrost.rule: Host(`bifrost.${HOST:?set HOST in .env}`)
+      traefik.http.routers.bifrost.entrypoints: websecure
+      traefik.http.routers.bifrost.tls: "true"
+      traefik.http.routers.bifrost.tls.certresolver: myresolver
+
+  repo2graph:
+    <<: *common
+    image: ghcr.io/stakwork/stakgraph-mcp:${REPO2GRAPH_TAG:-latest}
+    # The linux/arm64 variant crash-loops (it ships only
+    # @anush008/tokenizers-linux-x64-gnu), so amd64
+    # is pinned; arm64 hosts run it under emulation.
+    platform: ${REPO2GRAPH_PLATFORM:-linux/amd64}
+    hostname: repo2graph.sphinx
+    networks:
+      sphinx-swarm:
+        aliases: [repo2graph.sphinx]
+    depends_on:
+      neo4j: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      PORT: "3355"
+      NEO4J_HOST: neo4j.sphinx:7687
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      SAGE_CONFIG_PATH: /root/sage_config.json
+      USE_STAGEHAND: "1"
+      PAT: ${GITHUB_REQUEST_TOKEN:-}
+      # mcp's gate for every route and /lab; also signs /mint-token JWTs and,
+      # with STRUT_SECRET_KEY unset, becomes the lab strut's STRUT_SECRET_KEY
+      # (mcp src/index.ts:92-94). Do NOT set STRUT_API_KEY here: the lab
+      # strut is gated by mcp (src/lab/mount.ts), not by strut's own key.
+      API_TOKEN: ${SHARED_API_TOKEN}
+      REDIS_URL: redis://redis.sphinx:6379
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      # Provider keys live only in bifrost. mcp refuses to build the lab
+      # without the LLM_PROVIDER key (mcp src/lab/concepts/services.ts:151),
+      # so it gets a non-secret placeholder, and LLM_GATEWAY_URL sends mcp's
+      # own (non-Strut) model calls to bifrost, which rejects them: no VK, no
+      # macaroon. Strut LLM steps use each person's delegation instead
+      # (apiKey = their VK, baseUrl = bifrost).
+      LLM_GATEWAY_URL: http://bifrost.sphinx:8181
+      ANTHROPIC_API_KEY: &no-key stadeum-placeholder-provider-keys-live-in-bifrost
+      OPENAI_API_KEY: *no-key
+      OPENROUTER_API_KEY: *no-key
+      GOOGLE_API_KEY: *no-key
+      XAI_API_KEY: *no-key
+      EXA_API_KEY: ${EXA_API_KEY:-}
+      STRUT_CHAT_MODEL: ${STRUT_CHAT_MODEL:-}
+      STRUT_LLM_MODEL: ${STRUT_LLM_MODEL:-}
+      SESSIONS_DIR: /usr/src/app/sessions
+      AGENT_ARTIFACTS_DIR: /usr/src/app/artifacts
+      REQS_DIR: /usr/src/app/reqs
+      STRUT_LAB_WORKSPACE: /usr/src/app/lab-workspace
+      # An LLM step with no actor, or an actor with no delegation, throws
+      # (strut src/mothership.ts:299-305). Hard-coded like bifrost's flags.
+      STRUT_MOTHERSHIP_REQUIRED: "1"
+    volumes:
+      - repo2graph.sphinx:/root
+      - repo2graph-sessions:/usr/src/app/sessions
+      - repo2graph-artifacts:/usr/src/app/artifacts
+      - repo2graph-reqs:/usr/src/app/reqs
+      - repo2graph-lab-workspace:/usr/src/app/lab-workspace
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3355/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.repo2graph.loadbalancer.server.port: "3355"
+      traefik.http.routers.repo2graph.rule: Host(`repo2graph.${HOST}`)
+      traefik.http.routers.repo2graph.entrypoints: websecure
+      traefik.http.routers.repo2graph.tls: "true"
+      traefik.http.routers.repo2graph.tls.certresolver: myresolver
+
+  # One-shot: org signing key + bifrost trust registration. Idempotent;
+  # re-run with `docker compose ... run --rm bootstrap`.
+  bootstrap:
+    image: node:22.20.0-alpine
+    restart: "no"
+    networks: [sphinx-swarm]
+    depends_on:
+      bifrost: { condition: service_healthy }
+    environment:
+      BIFROST_URL: http://bifrost.sphinx:8181
+      SHARED_API_TOKEN: ${SHARED_API_TOKEN}
+      STADEUM_ENCRYPTION_KEY: ${STADEUM_ENCRYPTION_KEY:?run scripts/init-env.sh}
+      STADEUM_ORG_SLUG: ${STADEUM_ORG_SLUG:-org}
+      STADEUM_ISSUER_URL: ${STADEUM_ISSUER_URL:-}
+      STADEUM_ORG_KEY_FILE: /org/org-key.json
+    volumes:
+      - ./bootstrap:/bootstrap:ro
+      - org:/org
+    command: ["node", "/bootstrap/org-identity.mjs"]
+
+  stadeum-ui:
+    <<: *common
+    build: ../ui
+    hostname: stadeum-ui.sphinx
+    networks:
+      sphinx-swarm:
+        aliases: [stadeum-ui.sphinx]
+    depends_on:
+      repo2graph: { condition: service_healthy }
+      bifrost: { condition: service_healthy }
+      bootstrap: { condition: service_completed_successfully }
+    environment:
+      PORT: "3000"
+      DATABASE_URL: file:/data/stadeum.db
+      MCP_URL: http://repo2graph.sphinx:3355
+      # What the browser loads a hosted Strut app from.
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-https://repo2graph.${HOST}}
+      BIFROST_URL: http://bifrost.sphinx:8181
+      BIFROST_ADMIN_USER: admin
+      BIFROST_ADMIN_PASS: ${BIFROST_ADMIN_PASS}
+      NEO4J_HTTP_URL: http://neo4j.sphinx:7474
+      SHARED_API_TOKEN: ${SHARED_API_TOKEN}
+      # Sign-in. AUTH_URL is stadeum-ui's public origin.
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_URL: ${AUTH_URL:-https://${HOST}}
+      AUTH_TRUST_HOST: "true"
+      AUTH_MICROSOFT_ENTRA_ID_ID: ${AUTH_MICROSOFT_ENTRA_ID_ID:-}
+      AUTH_MICROSOFT_ENTRA_ID_SECRET: ${AUTH_MICROSOFT_ENTRA_ID_SECRET:-}
+      AUTH_MICROSOFT_ENTRA_ID_ISSUER: ${AUTH_MICROSOFT_ENTRA_ID_ISSUER:-}
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
+      STADEUM_DEV_LOGIN: ${STADEUM_DEV_LOGIN:-}
+      STADEUM_ALLOWED_DOMAINS: ${STADEUM_ALLOWED_DOMAINS:-}
+      STADEUM_ORG_NAME: ${STADEUM_ORG_NAME:-}
+      # Org identity written by `bootstrap` (docs/mothership-spec.md).
+      STADEUM_ORG_SLUG: ${STADEUM_ORG_SLUG:-org}
+      STADEUM_ENCRYPTION_KEY: ${STADEUM_ENCRYPTION_KEY}
+      STADEUM_ORG_KEY_FILE: /org/org-key.json
+    volumes:
+      - org:/org:ro
+      - stadeum-ui.sphinx:/data
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.stadeum-ui.loadbalancer.server.port: "3000"
+      traefik.http.routers.stadeum-ui.rule: Host(`${HOST}`)
+      traefik.http.routers.stadeum-ui.entrypoints: websecure
+      traefik.http.routers.stadeum-ui.tls: "true"
+      traefik.http.routers.stadeum-ui.tls.certresolver: myresolver
