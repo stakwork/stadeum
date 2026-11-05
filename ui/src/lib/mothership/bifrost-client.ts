@@ -1,10 +1,14 @@
 import { jsonClient } from "./http";
 import type {
   BifrostBudget,
+  BifrostConfigResponse,
+  BifrostKey,
+  BifrostKeyInput,
   BifrostProvider,
   BifrostRateLimit,
   CreateCustomerResponse,
   ListCustomersResponse,
+  ListProviderKeysResponse,
   ListProvidersResponse,
   ListVirtualKeysResponse,
   VirtualKeyResponse,
@@ -82,7 +86,45 @@ export class BifrostClient {
   listProviders() {
     return this.request<ListProvidersResponse>("GET", `/api/providers`);
   }
+
+  // ── provider keys (bifrost transports/v2.2.2 handlers/provider_keys.go) ──
+
+  listProviderKeys(provider: string) {
+    return this.request<ListProviderKeysResponse>("GET", keysPath(provider));
+  }
+
+  createProviderKey(provider: string, key: BifrostKeyInput) {
+    return this.request<BifrostKey>("POST", keysPath(provider), key);
+  }
+
+  /** Bifrost REPLACES the key with this one: send every field. */
+  updateProviderKey(provider: string, keyId: string, key: BifrostKeyInput) {
+    return this.request<BifrostKey>("PUT", keysPath(provider, keyId), key);
+  }
+
+  deleteProviderKey(provider: string, keyId: string) {
+    return this.request<unknown>("DELETE", keysPath(provider, keyId));
+  }
+
+  /** Lists the provider's models with this key, and returns the key with the outcome as its `status`. */
+  checkProviderKey(provider: string, keyId: string) {
+    return this.request<BifrostKey>("POST", `${keysPath(provider, keyId)}/refresh-models`);
+  }
+
+  // ── client config (handlers/config.go) ──
+
+  getConfig() {
+    return this.request<BifrostConfigResponse>("GET", `/api/config`);
+  }
+
+  /** Bifrost copies most client fields from the body as sent: pass the whole section read from getConfig. */
+  updateClientConfig(clientConfig: BifrostConfigResponse["client_config"]) {
+    return this.request<unknown>("PUT", `/api/config`, { client_config: clientConfig });
+  }
 }
+
+const keysPath = (provider: string, keyId?: string) =>
+  `/api/providers/${encodeURIComponent(provider)}/keys${keyId ? `/${encodeURIComponent(keyId)}` : ""}`;
 
 function buildQuery(params: Record<string, string | number | undefined | null>): string {
   const usp = new URLSearchParams();

@@ -29,7 +29,7 @@ export function jsonClient(opts: JsonClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? BIFROST_HTTP_TIMEOUT_MS;
 
-  return async function request<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<T> {
+  return async function request<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<T> {
     let response: Response;
     try {
       response = await fetchImpl(`${baseUrl}${path}`, {

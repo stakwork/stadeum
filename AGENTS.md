@@ -130,15 +130,16 @@ order of the work, each step its own PR:
 | `ui/src/lib/mothership/` | Each person's virtual key and delegation, minted, pushed to strut, renewed |
 | `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the brand, the frame's sign-in ticket |
 | `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
+| `ui/src/lib/models/` | The Models page's work: each provider's key in the gateway, the org's model list and default, carried to every person's virtual key and to strut |
 | `ops/` | stadeum-ops: the update and backup loop, driving `docker compose` and restic. No runtime dependencies |
 | `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |
 | `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the checkout, `.env`, the DNS check, the stack), `init-env.sh` (generates `.env`'s secrets), the gateway end-to-end check, the backup-and-restore proof |
-| `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract) |
+| `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract), `models.md` (who picks a model, where the keys live) |
 
 ## Running
 
 ```bash
-scripts/init-env.sh            # .env with generated secrets; then fill in provider keys
+scripts/init-env.sh            # .env with generated secrets; provider keys go in on the Models page
 ```
 
 ```bash

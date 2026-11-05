@@ -14,8 +14,9 @@
 #   2. clones stadeum into /opt/stadeum, or uses the clone it runs from, and
 #      updates it; makes .env with scripts/init-env.sh;
 #   3. asks for what .env still lacks: the domain, an email for Let's
-#      Encrypt, a sign-in provider and, the first time, a model key and the
-#      org's name;
+#      Encrypt, a sign-in provider and, the first time, the org's name.
+#      Model keys are not asked for: an admin sets them on the Models page,
+#      which writes them to the gateway and nowhere else (docs/models.md);
 #   4. checks that DNS points $HOST and strut.$HOST at this machine, which
 #      the certificates need, and starts nothing until it does;
 #   5. starts the stack, checks that both names answer over https, and says
@@ -37,7 +38,7 @@
 #   STADEUM_AUTH_GOOGLE_ID, STADEUM_AUTH_GOOGLE_SECRET
 #   STADEUM_AUTH_MICROSOFT_ENTRA_ID_ID, STADEUM_AUTH_MICROSOFT_ENTRA_ID_SECRET,
 #   STADEUM_AUTH_MICROSOFT_ENTRA_ID_ISSUER (the issuer URL, or the tenant ID)
-#   STADEUM_ANTHROPIC_API_KEY, STADEUM_ORG_NAME (optional)
+#   STADEUM_ORG_NAME (optional)
 #   STADEUM_SKIP_DNS_CHECK=1  start without the DNS check, when a load
 #                             balancer or proxy sits in front of the box
 #
@@ -356,7 +357,6 @@ configure() {
     [ "$TTY" = 1 ] || die "no sign-in provider: pass STADEUM_AUTH_GOOGLE_ID and STADEUM_AUTH_GOOGLE_SECRET, or Microsoft's STADEUM_AUTH_MICROSOFT_ENTRA_ID_*."
     note "one sign-in provider is needed: a server has no other way in"
   done
-  optional ANTHROPIC_API_KEY "Anthropic API key, for the models (Enter to skip)" any secret
   optional STADEUM_ORG_NAME "Your organisation's name, shown beside the logo (Enter to skip)" any
 }
 
@@ -518,7 +518,8 @@ finish() {
   say "  Keep ports 80 and 443 (TCP, and 443 UDP) open to the internet, in the cloud's"
   say "  firewall or security group: Caddy renews the certificates through them."
   say "  Sign in first: the first person to sign in becomes admin."
-  say "  Then set up backups: Organisation → Backups."
+  say "  Then set the model keys and the models people may use: Organisation → Models."
+  say "  And set up backups: Organisation → Backups."
   say ""
   say "  The settings are in $ENV_FILE. Run this again to update the checkout and restart with them."
   [ "$ok" = 1 ] || exit 1

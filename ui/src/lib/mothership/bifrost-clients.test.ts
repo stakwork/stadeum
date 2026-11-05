@@ -43,10 +43,14 @@ describe("BifrostClient", () => {
 
   it("ensureVk creates with key_ids [*] for each provider and reuses it", async () => {
     const c = await ensureCustomer(gov, "ada-0f3c");
-    const first = await ensureVk(gov, "ada-0f3c", c.id, ["anthropic", "openai"]);
+    const all = [
+      { provider: "anthropic", allowed_models: ["*"] },
+      { provider: "openai", allowed_models: ["*"] },
+    ];
+    const first = await ensureVk(gov, "ada-0f3c", c.id, all);
     expect(first.created).toBe(true);
     expect(first.virtualKey.value).toMatch(/^sk-bf-/);
-    const again = await ensureVk(gov, "ada-0f3c", c.id, ["anthropic", "openai"]);
+    const again = await ensureVk(gov, "ada-0f3c", c.id, all);
     expect(again.created).toBe(false);
     expect(again.virtualKey.id).toBe(first.virtualKey.id);
   });

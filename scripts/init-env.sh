@@ -38,4 +38,4 @@ set_if_empty STADEUM_ENCRYPTION_KEY "$(openssl rand -hex 32)"
 set_if_empty AUTH_SECRET "$(openssl rand -base64 32)"
 chmod 600 "$ENV_FILE"
 
-echo "provider keys are left blank: fill them in $ENV_FILE"
+echo "wrote $ENV_FILE: once the stack is up, an admin sets the provider keys on the Models page"

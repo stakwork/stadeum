@@ -21,9 +21,10 @@ curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/insta
 Or clone the repo and run `sudo scripts/install.sh`, and the clone is the
 box's checkout. The script installs Docker from Docker's apt repository if
 it is missing, puts stadeum in `/opt/stadeum` and makes `.env`
-(`scripts/init-env.sh`). It asks for the domain, an email for Let's Encrypt,
-a Google or Microsoft sign-in and an optional model key, checks DNS, starts
-the stack and checks its certificates. Run it again to update the checkout
+(`scripts/init-env.sh`). It asks for the domain, an email for Let's Encrypt
+and a Google or Microsoft sign-in, checks DNS, starts the stack and checks
+its certificates. Model keys go in afterwards, on Organisation → Models (the
+gateway keeps them, never `.env`). Run it again to update the checkout
 and restart with the same `.env`: it asks only for what `.env` lacks.
 
 - **DNS**, before it starts: two A records at the VM's public IPv4 address.
@@ -68,7 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/insta
 ## Run the stack
 
 ```bash
-scripts/init-env.sh            # .env with generated secrets; then fill in provider keys
+scripts/init-env.sh            # .env with generated secrets
 ```
 
 ```bash
@@ -82,8 +83,8 @@ docker compose --env-file .env -f stack/stadeum.yml -f stack/dev.yml up -d --wai
 - bifrost, Neo4j and redis are internal: no port, no route.
 - `bootstrap` (a one-shot service) makes the org's macaroon signing key in the `org` volume and registers it with bifrost. Re-run it any time: `docker compose ... run --rm bootstrap`.
 - The mothership is mandatory: bifrost rejects any model call without a valid macaroon (401) or over a cap (402), and strut refuses an LLM step with no person or no delegation. These are fixed on in `stack/stadeum.yml`.
-- Provider keys go to bifrost only. strut has none: it calls a model only through bifrost, on each person's delegation.
-- `scripts/mothership-e2e.sh` proves it end to end (a fake provider is used unless `ANTHROPIC_API_KEY` is set).
+- An admin sets each provider's key on the Models page, which writes it to bifrost only, and picks the models people may use and the default (`docs/models.md`). strut has no key: it calls a model only through bifrost, on each person's delegation.
+- `scripts/mothership-e2e.sh` proves it end to end (a fake provider is used unless bifrost holds an Anthropic key).
 
 ## Updates and backups
 
@@ -137,8 +138,8 @@ works.
 
 Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db` in the
 container), port 3000. The shell is vertical-neutral: sign-in, the person,
-Organisation (Members, Status, Apps, Branding, Updates, Backups; admins
-only) and strut's apps.
+Organisation (Members, Status, Apps, Models, Branding, Updates, Backups;
+admins only) and strut's apps.
 
 - Apps: `ui/src/lib/apps.ts` reads strut's `GET /apps` through the strut
   client (`ui/src/lib/strut/client.ts`) and orders them: the assistant,
@@ -168,6 +169,18 @@ only) and strut's apps.
   client with the deployment key, the admin named as the actor. The states
   and wording are strut's (`ui/src/lib/app-versions.ts`, ported from its
   `web/src/app-versions.ts`). A seeded app (Jamie) is read-only.
+- Organisation → Models (`/models`, admins only, `ui/src/lib/models/`):
+  each provider's key, pasted once and written to bifrost's config store
+  and nowhere else (it replaces the provider's empty `env.*` slot under its
+  name, so it survives restarts), with bifrost's check of it. Then the
+  models people may use, from strut's `GET /llm/models`, and the default.
+  Until an admin saves a list, every catalog model of a provider with a key
+  is allowed. Saving narrows every person's virtual key to the list (the
+  gateway refuses anything else) and writes `STRUT_MODELS` and
+  `STRUT_DEFAULT_MODEL` to strut's settings, where Jamie's picker and the
+  shipped workflows read them. The background pass repeats this every six
+  hours, with the gateway's 60-day log retention. `docs/models.md` has the
+  why.
 - Organisation → Branding (`/branding`, admins only) sets the look of every
   app strut serves: one color (and its dark-theme twin), the corners and
   the font. Strut keeps the brand and hands it to every app page as MCP

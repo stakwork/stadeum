@@ -157,6 +157,57 @@ export async function pushActorSecret(actor: string, name: string, value: string
   }
 }
 
+// ── models (strut src/llm.ts) ───────────────────────────────────────────
+
+/** One model of `GET /llm/models`: aieo's catalog, as strut lists it. */
+export interface StrutModel {
+  /** aieo's provider: `anthropic`, `google`, `openrouter`, … */
+  provider: string;
+  /** The friendly name (`sonnet`), when the model has one. */
+  alias?: string;
+  modelId: string;
+  /** Canonical `provider/id`: what a workflow's `model` takes. */
+  name: string;
+  /** The provider's default model. */
+  default: boolean;
+}
+
+export interface StrutModelCatalog {
+  /** The deployment's default chat model, canonical. */
+  default: string;
+  models: StrutModel[];
+}
+
+const isModel = (m: unknown): m is StrutModel =>
+  !!m &&
+  typeof m === "object" &&
+  typeof (m as StrutModel).provider === "string" &&
+  typeof (m as StrutModel).modelId === "string" &&
+  typeof (m as StrutModel).name === "string";
+
+/** `GET /llm/models`: the models strut knows. Stadeum keeps no list of its own. */
+export async function getModelCatalog(): Promise<StrutModelCatalog> {
+  const res = await strutFetch("GET", "/llm/models");
+  if (!res.ok) await fail("GET", "/llm/models", res);
+  const data = (await res.json()) as { default?: unknown; models?: unknown };
+  return {
+    default: typeof data.default === "string" ? data.default : "",
+    models: Array.isArray(data.models) ? data.models.filter(isModel).map((m) => ({ ...m, default: !!m.default })) : [],
+  };
+}
+
+/**
+ * `PUT /secrets/:name { value }`: one of strut's deployment settings, such
+ * as `STRUT_DEFAULT_MODEL`, which strut reads from its secret store before
+ * its env. Throws on failure; never logs the value.
+ */
+export async function putDeploymentSetting(name: string, value: string): Promise<void> {
+  if (!SECRET_NAME_RE.test(name)) throw new Error(`invalid setting name ${name}`);
+  const path = `/secrets/${name}`;
+  const res = await strutFetch("PUT", path, { value });
+  if (!res.ok) await fail("PUT", path, res);
+}
+
 // ── apps (strut specs/API.md §14) ───────────────────────────────────────
 
 /** One entry of `GET /apps`, the fields stadeum reads. */

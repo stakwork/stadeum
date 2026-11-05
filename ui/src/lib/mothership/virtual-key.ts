@@ -1,5 +1,7 @@
 import { db } from "@/lib/db";
 import { decryptField, encryptField } from "@/lib/crypto";
+import { grantsFor, type Grant } from "@/lib/models/plan";
+import { readModelSettings } from "@/lib/models/settings";
 import type { BifrostClient, ProviderConfigInput } from "./bifrost-client";
 import { BifrostHttpError } from "./http";
 import { governanceClient } from "./admin-credentials";
@@ -15,8 +17,9 @@ import type { BifrostCustomer, BifrostProvider, BifrostProviderConfig, BifrostVi
 /**
  * One Bifrost customer + virtual key per person, both named after the
  * actor. Ported from Hive `reconciler.ts:288-573` (ensureCustomer,
- * ensureVirtualKey, desiredProviders, topUpProviderGrants) and
- * `reconciler.ts:736-754`.
+ * ensureVirtualKey, desiredProviders) and `reconciler.ts:736-754`. What a
+ * key may call follows the org's model list (`desiredGrants`,
+ * docs/models.md), kept in step by `syncGrants`.
  */
 
 export interface VirtualKeyResult {
@@ -48,9 +51,9 @@ export function ensureVirtualKey(user: { id: string; actor: string }): Promise<V
       }
     }
 
-    const providers = await desiredProviders(client);
+    const grants = await desiredGrants(client);
     const customer = await ensureCustomer(client, user.actor);
-    const { virtualKey, created } = await ensureVk(client, user.actor, customer.id, providers);
+    const { virtualKey, created } = await ensureVk(client, user.actor, customer.id, grants);
     const data = {
       customerId: customer.id,
       vkId: virtualKey.id,
@@ -91,14 +94,14 @@ export async function ensureVk(
   client: BifrostClient,
   name: string,
   customerId: string,
-  providers: BifrostProvider[],
+  grants: Grant[],
 ): Promise<{ virtualKey: BifrostVirtualKey; created: boolean }> {
   const existing = await findExactVirtualKey(client, name, customerId);
   if (existing) {
     try {
-      await topUpProviderGrants(client, existing, providers);
+      await syncGrants(client, existing, grants);
     } catch (err) {
-      console.warn(`[mothership] VK provider top-up failed for ${name}: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`[mothership] VK grant sync failed for ${name}: ${err instanceof Error ? err.message : String(err)}`);
     }
     return { virtualKey: existing, created: false };
   }
@@ -107,7 +110,7 @@ export async function ensureVk(
       name,
       description: `stadeum ${name}`,
       customer_id: customerId,
-      provider_configs: providers.map((provider) => ({ provider, allowed_models: ["*"], key_ids: ["*"] })),
+      provider_configs: grants.map((g) => ({ ...g, key_ids: ["*"] })),
     });
     return { virtualKey: created.virtual_key, created: true };
   } catch (err) {
@@ -138,19 +141,36 @@ export async function desiredProviders(client: BifrostClient): Promise<BifrostPr
   return desired.length ? desired : DEFAULT_PROVIDERS;
 }
 
-/** Grant any missing providers. The PUT replaces the whole set, so existing configs are re-sent. */
-async function topUpProviderGrants(client: BifrostClient, vk: BifrostVirtualKey, desired: BifrostProvider[]) {
+/** What every person's key may call: the org's model list, on the providers the gateway has. */
+export async function desiredGrants(client: BifrostClient): Promise<Grant[]> {
+  const [providers, settings] = await Promise.all([desiredProviders(client), readModelSettings()]);
+  return grantsFor(settings.models, providers);
+}
+
+const sameModels = (a: string[] | undefined, b: string[]) =>
+  (a ?? []).length === b.length && [...(a ?? [])].sort().join("\n") === [...b].sort().join("\n");
+
+/**
+ * Make the key's provider configs say exactly `grants`. The PUT replaces the
+ * whole set, so a kept provider is re-sent with its id. `false` when the key
+ * already matched. Skipped (false) for an empty set, which would leave a key
+ * that can call nothing, and for configs that came back without ids.
+ */
+export async function syncGrants(client: BifrostClient, vk: BifrostVirtualKey, grants: Grant[]): Promise<boolean> {
   const existing = vk.provider_configs;
-  if (!Array.isArray(existing) || existing.some((pc) => pc.id == null)) return;
-  const have = new Set(existing.map((pc) => pc.provider));
-  const missing = desired.filter((p) => !have.has(p));
-  if (!missing.length) return;
+  if (!grants.length || !Array.isArray(existing) || existing.some((pc) => pc.id == null)) return false;
+  const byProvider = new Map(existing.map((pc) => [pc.provider, pc]));
+  const matches =
+    existing.length === grants.length &&
+    grants.every((g) => sameModels(byProvider.get(g.provider)?.allowed_models, g.allowed_models));
+  if (matches) return false;
   await client.updateVirtualKey(vk.id, {
-    provider_configs: [
-      ...existing.map(carryProviderConfig),
-      ...missing.map((provider) => ({ provider, allowed_models: ["*"], key_ids: ["*"] })),
-    ],
+    provider_configs: grants.map((g) => {
+      const kept = byProvider.get(g.provider);
+      return kept ? { ...carryProviderConfig(kept), allowed_models: g.allowed_models } : { ...g, key_ids: ["*"] };
+    }),
   });
+  return true;
 }
 
 function carryProviderConfig(pc: BifrostProviderConfig): ProviderConfigInput {

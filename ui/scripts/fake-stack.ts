@@ -6,5 +6,9 @@
 import { startFakeStack } from "../src/test/fake-stack";
 
 const port = Number(process.env.FAKE_STACK_PORT ?? 4555);
-const fake = await startFakeStack({ token: process.env.SHARED_API_TOKEN ?? "fake-shared-token" }, port);
+// The five providers the real gateway has, each with its empty env key slot.
+const fake = await startFakeStack(
+  { token: process.env.SHARED_API_TOKEN ?? "fake-shared-token", providers: ["anthropic", "openai", "gemini", "xai", "openrouter"] },
+  port,
+);
 console.log(`fake stack on ${fake.base}  (bifrost ${fake.bifrostUrl}, strut ${fake.strutUrl}, neo4j ${fake.neo4jUrl})`);
