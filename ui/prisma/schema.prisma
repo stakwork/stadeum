@@ -1,0 +1,73 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A person who can sign in. The first one becomes admin.
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  /// admin | member (lib/roles.ts)
+  role      String   @default("member")
+  /// Stable Strut actor and Bifrost customer name: `<email-local>-<id>`.
+  actor     String   @unique
+  createdAt DateTime @default(now())
+  lastSeenAt DateTime?
+
+  mothership MothershipUser?
+  invitesSent Invite[] @relation("InvitedBy")
+}
+
+model Invite {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  role        String    @default("member")
+  invitedById String?
+  invitedBy   User?     @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+}
+
+/// The one org this install serves: its macaroon signing key and trust state.
+model Org {
+  id                  String    @id @default("org")
+  macaroonOrgId       String?
+  orgPubkey           String?
+  /// AES-256-GCM, see lib/crypto.ts
+  orgPrivkeyEnc       String?
+  bifrostAdminUser    String?
+  bifrostAdminPassEnc String?
+  trustedPubkey       String?
+  trustRegisteredAt   DateTime?
+  updatedAt           DateTime  @updatedAt
+}
+
+/// Per-person mothership identity: ed25519 key, Bifrost customer + VK, delegation.
+model MothershipUser {
+  userId           String    @id
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userPubkey       String?
+  userPrivkeyEnc   String?
+  customerId       String?
+  vkId             String?
+  vkValueEnc       String?
+  delegationId     String?
+  delegationExp    DateTime?
+  /// fresh | pushed | unsupported | failed | not-configured
+  delegationStatus String?
+  delegationError  String?
+  checkedAt        DateTime?
+}
+
+/// Last result of each status-page check.
+model HealthCheck {
+  name      String   @id
+  ok        Boolean
+  detail    String
+  checkedAt DateTime
+}

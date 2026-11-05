@@ -1,0 +1,253 @@
+@import "tailwindcss";
+
+/* Warm paper and ink. Neutrals do the work; clay is the one accent.
+   Moss = ready, ochre = needs attention. Red is kept for destructive actions. */
+:root {
+  --paper: #f6f4ee;
+  --surface: #ffffff;
+  --raised: #ece8de;
+  --ink: #1b1a17;
+  --ink-2: #4a463e;
+  --ink-3: #5f5b52;
+  --rule: #e4e0d6;
+  --rule-soft: #efece4;
+  --rule-strong: #d6d1c4;
+  --dash: #cfc9ba;
+  --accent: #23436b;
+  --accent-hover: #152b47;
+  --accent-soft: #e6ecf3;
+  --accent-ink: #ffffff;
+  --ok: #2f6b4f;
+  --ok-soft: #e3efe8;
+  --warn: #8a5a12;
+  --warn-soft: #fbf7ee;
+  --neutral-soft: #f2eee4;
+  --danger: #9b3b2a;
+  --shadow: 0 1px 2px rgb(27 26 23 / 0.04), 0 8px 24px rgb(27 26 23 / 0.05);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+    --paper: #161513;
+    --surface: #1f1e1b;
+    --raised: #2a2824;
+    --ink: #eeebe4;
+    --ink-2: #c9c4b9;
+    --ink-3: #a19b8f;
+    --rule: #34322d;
+    --rule-soft: #2b2925;
+    --rule-strong: #46433c;
+    --dash: #55514a;
+    --accent: #9db7d9;
+    --accent-hover: #bfd0e7;
+    --accent-soft: #24303f;
+    --accent-ink: #12161c;
+    --ok: #82bf9f;
+    --ok-soft: #1f2f27;
+    --warn: #d9a75a;
+    --warn-soft: #2c2519;
+    --neutral-soft: #2a2824;
+    --danger: #e08470;
+    /* Elevation in the dark comes from lighter surfaces, not shadow. */
+    --shadow: none;
+    color-scheme: dark;
+  }
+
+/* No explicit choice (System): follow the OS. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #161513;
+    --surface: #1f1e1b;
+    --raised: #2a2824;
+    --ink: #eeebe4;
+    --ink-2: #c9c4b9;
+    --ink-3: #a19b8f;
+    --rule: #34322d;
+    --rule-soft: #2b2925;
+    --rule-strong: #46433c;
+    --dash: #55514a;
+    --accent: #9db7d9;
+    --accent-hover: #bfd0e7;
+    --accent-soft: #24303f;
+    --accent-ink: #12161c;
+    --ok: #82bf9f;
+    --ok-soft: #1f2f27;
+    --warn: #d9a75a;
+    --warn-soft: #2c2519;
+    --neutral-soft: #2a2824;
+    --danger: #e08470;
+    /* Elevation in the dark comes from lighter surfaces, not shadow. */
+    --shadow: none;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-rule-soft: var(--rule-soft);
+  --color-dash: var(--dash);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --font-serif: var(--font-newsreader), "Iowan Old Style", Georgia, serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --shadow-soft: var(--shadow);
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html {
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--paper);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 22%, transparent);
+}
+
+/* Elements marked data-own-ring draw their own (see the sign-in Dev switch). */
+:focus-visible:not([data-own-ring]) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Rendered markdown from run outputs. */
+.prose-run p {
+  margin: 0 0 0.75em;
+}
+.prose-run p:last-child {
+  margin-bottom: 0;
+}
+.prose-run ol,
+.prose-run ul {
+  margin: 0 0 0.75em;
+  padding-left: 1.4em;
+}
+.prose-run ol {
+  list-style: decimal;
+}
+.prose-run ul {
+  list-style: disc;
+}
+.prose-run li {
+  margin: 0.3em 0;
+}
+.prose-run strong {
+  font-weight: 600;
+}
+.prose-run code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--raised);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.prose-run h1,
+.prose-run h2,
+.prose-run h3 {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  margin: 1em 0 0.4em;
+}
+
+/* A new event arriving in a live run: it comes from below and settles. */
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.arrive {
+  animation: arrive 220ms var(--ease-out-soft);
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes arrive {
+    from {
+      opacity: 0;
+    }
+  }
+}
+
+/* A menu opens from its trigger: a short fade and settle from 96%. */
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+.menu-pop:not([hidden]) {
+  animation: pop 150ms var(--ease-out-soft);
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-pop:not([hidden]) {
+    animation-name: arrive;
+  }
+}
+
+/* Sign-in in dark mode: one deep-navy surface with the Converge panel,
+   ivory text. Scoped by overriding the tokens the page already uses. */
+:root[data-theme="dark"] .signin-page {
+    --paper: #0f1d30;
+    --surface: transparent;
+    --ink: #ece9e2;
+    --ink-2: #c9d2de;
+    --ink-3: #9fb0c6;
+    --rule-strong: rgb(236 233 226 / 0.22);
+    --art: #1c3656;
+    --knob: #ece9e2;
+  }
+  :root[data-theme="dark"] .signin-page [data-ink-button] {
+    color: #1b1a17;
+  }
+
+@media (prefers-color-scheme: dark) {
+
+  :root:not([data-theme="light"]) .signin-page {
+    --paper: #0f1d30;
+    --surface: transparent;
+    --ink: #ece9e2;
+    --ink-2: #c9d2de;
+    --ink-3: #9fb0c6;
+    --rule-strong: rgb(236 233 226 / 0.22);
+    --art: #1c3656;
+    --knob: #ece9e2;
+  }
+  :root:not([data-theme="light"]) .signin-page [data-ink-button] {
+    color: #1b1a17;
+  }
+}
+
+/* A theme change recolours at once: transitions are held off for one frame. */
+:root[data-theme-switching] *,
+:root[data-theme-switching] *::before,
+:root[data-theme-switching] *::after {
+  transition: none !important;
+}
