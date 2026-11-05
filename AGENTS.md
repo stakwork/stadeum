@@ -132,7 +132,7 @@ order of the work, each step its own PR:
 | `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
 | `ops/` | stadeum-ops: the update and backup loop, driving `docker compose` and restic. No runtime dependencies |
 | `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |
-| `scripts/` | `init-env.sh` (generates `.env`'s secrets), the gateway end-to-end check, the backup-and-restore proof |
+| `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the checkout, `.env`, the DNS check, the stack), `init-env.sh` (generates `.env`'s secrets), the gateway end-to-end check, the backup-and-restore proof |
 | `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract) |
 
 ## Running
