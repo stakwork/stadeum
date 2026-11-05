@@ -114,13 +114,10 @@ services:
       # Its agent catalog and evals, over Neo4j's HTTP Cypher endpoint.
       NEO4J_HTTP_URL: http://neo4j:7474
       NEO4J_PASSWORD: ${NEO4J_PASSWORD}
-      # The provider keys live here and nowhere else. Empty = unset for
-      # bifrost's config.json (env.<NAME>).
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
-      XAI_API_KEY: ${XAI_API_KEY:-}
+      # No provider key comes from here. An admin sets each on stadeum's
+      # Models page, which writes it to bifrost's config store (the bifrost
+      # volume) and nowhere else: docs/models.md. Its baked config.json's
+      # env.<NAME> slots stay empty until then.
       # Mandatory mothership: an inference call without a valid macaroon is
       # 401, and one over a macaroon/run cap is 402 (budgets only bite when
       # macaroons are enforced; gateway internal/auth/config.go). Hard-coded
@@ -184,9 +181,17 @@ services:
       STRUT_PUBLIC_URL: https://strut.${HOST}
       # Optional: web search when a call is routed through the gateway.
       EXA_API_KEY: ${EXA_API_KEY:-}
+      # The org's model (docs/models.md). Strut's shipped workflows (job,
+      # orchestrator, builder) pin none of their own (strut/host-config.json),
+      # so they run on STRUT_DEFAULT_MODEL, which stadeum-ui keeps in strut's
+      # settings from the Models page. This value is only what strut uses
+      # until stadeum-ui first sets it.
+      STRUT_HOST_CONFIG: /config/host-config.json
+      STRUT_DEFAULT_MODEL: anthropic/claude-sonnet-5-5
     volumes:
       - strut-workspace:/data/workspace
       - strut-models:/data/models
+      - ./strut/host-config.json:/config/host-config.json:ro
     healthcheck:
       test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:3000/health"]
       interval: 10s

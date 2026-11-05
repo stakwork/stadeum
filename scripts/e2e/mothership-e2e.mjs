@@ -13,8 +13,8 @@
 //   4. a run over its cap is stopped by bifrost (402 run_cost_exceeded);
 //   5. a person over their delegation ceiling cannot start another call.
 //
-// Provider: real when E2E_REAL_PROVIDER=1 (ANTHROPIC_API_KEY set in .env, so
-// bifrost holds it); otherwise a fake Anthropic upstream served from this
+// Provider: real when bifrost holds an Anthropic key (set on stadeum's
+// Models page); otherwise a fake Anthropic upstream served from this
 // container, wired into bifrost's anthropic provider for the run and removed
 // afterwards. Exit code 0 only if every assertion passed.
 
@@ -36,7 +36,8 @@ const BIFROST = "http://bifrost:8181";
 const STRUT = "http://strut:3000";
 const T = must("SHARED_API_TOKEN");
 const ADMIN_PASS = must("BIFROST_ADMIN_PASS");
-const REAL = process.env.E2E_REAL_PROVIDER === "1";
+// Set in main: whether bifrost holds an Anthropic key.
+let REAL = false;
 const MODEL = process.env.E2E_MODEL || "claude-haiku-4-5";
 const FAKE_HOST = "fake-llm";
 const FAKE_PORT = 9999;
@@ -267,7 +268,10 @@ const TWO = `name: e2e-llm-capped\ndescription: Phase 2 e2e. Two LLM steps under
 let server;
 try {
   section("setup");
-  show("provider", REAL ? "real (bifrost's ANTHROPIC_API_KEY)" : `fake upstream http://${FAKE_HOST}:${FAKE_PORT} (no real key in .env)`);
+  // A key's redacted value is a masked preview, or `{ value }` for an env slot ("" when unset).
+  const anthropicKeys = (await gov("GET", "/api/providers/anthropic/keys")).keys ?? [];
+  REAL = anthropicKeys.some((k) => (typeof k.value === "string" ? k.value : k.value?.value));
+  show("provider", REAL ? "real (the Anthropic key bifrost holds)" : `fake upstream http://${FAKE_HOST}:${FAKE_PORT} (bifrost holds no Anthropic key)`);
   show("model", MODEL);
 
   const creds = await plugin("GET", "/_plugin/admin-credentials");

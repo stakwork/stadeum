@@ -1,11 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- request bodies are arbitrary JSON in a test fake */
 /**
  * A fake of the stadeum stack on one port, for tests and local runs:
- *   /bifrost  — gateway: /_plugin/* (Bearer) and /api/* (Basic)
+ *   /bifrost  — gateway: /_plugin/* (Bearer) and /api/* (Basic): customers,
+ *               virtual keys, each provider's keys and their check, the
+ *               client config (bifrost transports/v2.2.2 handlers)
  *   /strut    — strut: /health, /apps (the list, each app's versions,
  *               usage, what is live and the pin), /auth/ticket and the app
- *               page a ticket opens, /llm/delegations,
- *               /actors/:actor/secrets (strut specs/API.md)
+ *               page a ticket opens, /llm/delegations, /llm/models,
+ *               /secrets/:name, /actors/:actor/secrets (strut specs/API.md)
  *   /neo4j    — HTTP discovery
  * Wire shapes follow docs/mothership-spec.md. The delegation PUT runs
  * Strut's own shape check and verifies the macaroon against the org key
@@ -69,7 +71,44 @@ export interface FakeAppRecord {
 const seededRecord = (): FakeAppRecord => ({ versions: { v1: { createdAt: "2026-11-05T12:00:00.000Z", source: "seed" } }, releases: [], warnings: [] });
 const versionNumber = (v: string) => Number(v.replace(/^v/, "")) || 0;
 
+/** One provider key as bifrost stores it: a plain value, or a slot read from an env variable. */
+export interface FakeKey {
+  id: string;
+  name: string;
+  value: string | { value: string; ref: string; type: "env" };
+  models: string[];
+  weight: number;
+  status?: string;
+  description?: string;
+}
+
+/** strut's `GET /llm/models` (aieo's aliases, strut src/llm.ts `listModelOptions`). */
+export const FAKE_MODEL_CATALOG = {
+  default: "anthropic/claude-sonnet-5-5",
+  models: [
+    { provider: "anthropic", alias: "sonnet", modelId: "claude-sonnet-5-5", name: "anthropic/claude-sonnet-5-5", default: true, available: false },
+    { provider: "anthropic", alias: "opus", modelId: "claude-opus-5-5", name: "anthropic/claude-opus-5-5", default: false, available: false },
+    { provider: "google", alias: "gemini", modelId: "gemini-3.8-flash", name: "google/gemini-3.8-flash", default: true, available: false },
+    { provider: "openai", alias: "gpt", modelId: "gpt-5.6-luna", name: "openai/gpt-5.6-luna", default: true, available: false },
+    { provider: "openrouter", alias: "kimi", modelId: "moonshotai/kimi-k3", name: "openrouter/moonshotai/kimi-k3", default: true, available: false },
+    { provider: "maple", alias: "maple", modelId: "gemma4-31b", name: "maple/gemma4-31b", default: true, available: false },
+  ],
+  keyNames: { anthropic: "ANTHROPIC_API_KEY" },
+};
+
+/** What bifrost's GET shows of a key: a masked preview, never the value. */
+const redactKey = (k: FakeKey) => ({
+  ...k,
+  value: typeof k.value === "string" ? `${k.value.slice(0, 3)}****${k.value.slice(-4)}` : { ...k.value, value: k.value.value ? "****" : "" },
+});
+
 export interface FakeState {
+  /** Each provider's keys. Starts as the baked config.json's one empty env slot per provider. */
+  providerKeys: Map<string, FakeKey[]>;
+  /** The gateway's client config (`GET /api/config`'s `client_config`). */
+  clientConfig: Record<string, unknown>;
+  /** strut's deployment secret store (`PUT /secrets/:name`). */
+  deploymentSecrets: Map<string, string>;
   customers: Array<{ id: string; name: string; created_at: string }>;
   vks: Array<{ id: string; name: string; value: string; customer_id: string; created_at: string; provider_configs: unknown[] }>;
   trust: Map<string, { org_id: string; pubkey: string; issuer_url: string; revocation_poll_seconds: number }>;
@@ -100,6 +139,11 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
   const basic = `Basic ${Buffer.from(`${adminUser}:${adminPass}`).toString("base64")}`;
 
   const state: FakeState = {
+    providerKeys: new Map(
+      providers.map((p) => [p, [{ id: randomUUID(), name: `${p}-key-1`, value: { value: "", ref: `env.${p.toUpperCase()}_API_KEY`, type: "env" as const }, models: ["*"], weight: 1 }]]),
+    ),
+    clientConfig: { log_retention_days: 365, enable_logging: true, disable_content_logging: false, drop_excess_requests: false },
+    deploymentSecrets: new Map(),
     customers: [],
     vks: [],
     trust: new Map(),
@@ -176,6 +220,16 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     if (path.startsWith("/api/")) {
       if (req.headers.authorization !== basic) return send(res, 401, { error: "unauthorized" });
       if (path === "/api/providers") return send(res, 200, { providers: providers.map((name) => ({ name })), total: providers.length });
+      const keys = path.match(/^\/api\/providers\/([^/]+)\/keys(?:\/([^/]+))?(\/refresh-models)?$/);
+      if (keys) return providerKeyRoute(res, m ?? "GET", decodeURIComponent(keys[1]!), keys[2] ? decodeURIComponent(keys[2]) : undefined, !!keys[3], body);
+      if (path === "/api/config" && m === "GET") return send(res, 200, { client_config: state.clientConfig, framework_config: {}, auth_config: {} });
+      if (path === "/api/config" && m === "PUT") {
+        const cc = body?.client_config;
+        if (!cc || typeof cc !== "object") return send(res, 400, { error: "Invalid request payload" });
+        if (!(cc.log_retention_days >= 1)) return send(res, 400, { error: "log_retention_days must be at least 1" });
+        state.clientConfig = cc;
+        return send(res, 200, { status: "success" });
+      }
       if (path === "/api/governance/customers" && m === "GET") {
         const q = url.searchParams.get("search") ?? "";
         const customers = state.customers.filter((c) => c.name.includes(q));
@@ -213,9 +267,54 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       if (vkMatch) {
         const vk = state.vks.find((v) => v.id === decodeURIComponent(vkMatch[1]!));
         if (!vk) return send(res, 404, { error: "not found" });
-        if (m === "PUT") vk.provider_configs = body.provider_configs;
+        if (m === "PUT") {
+          // Bifrost replaces the set; a config sent without an id is a new one and gets one.
+          let next = Math.max(0, ...vk.provider_configs.map((pc: any) => pc.id ?? 0)) + 1;
+          vk.provider_configs = body.provider_configs.map((pc: any) => ({ ...pc, id: pc.id ?? next++, allow_all_keys: JSON.stringify(pc.key_ids) === '["*"]' }));
+        }
         return send(res, 200, { virtual_key: vk });
       }
+    }
+    send(res, 404, { error: "not found" });
+  }
+
+  /** `/api/providers/:p/keys[/:id[/refresh-models]]`. A key "works" when its value starts with `sk-good`. */
+  function providerKeyRoute(res: ServerResponse, m: string, provider: string, id: string | undefined, refresh: boolean, body: any) {
+    const list = state.providerKeys.get(provider);
+    if (!list) return send(res, 404, { error: `Provider not found: ${provider}` });
+    // Bifrost answers `keys: null` for a provider with none.
+    if (!id && m === "GET") return send(res, 200, { keys: list.length ? list.map(redactKey) : null, total: list.length });
+    if (!id && m === "POST") {
+      if (typeof body?.value !== "string" || !body.value) return send(res, 400, { error: "Key value must not be empty" });
+      if ([...state.providerKeys.values()].flat().some((k) => k.name === body.name)) {
+        return send(res, 409, { error: "API key names must be unique across providers. Choose a different name" });
+      }
+      const key: FakeKey = { id: randomUUID(), name: body.name, value: body.value, models: body.models ?? [], weight: body.weight ?? 1 };
+      list.push(key);
+      return send(res, 200, redactKey(key));
+    }
+    const key = list.find((k) => k.id === id);
+    if (!key) return send(res, 404, { error: "Provider key not found" });
+    if (refresh && m === "POST") {
+      const value = typeof key.value === "string" ? key.value : key.value.value;
+      Object.assign(
+        key,
+        value.startsWith("sk-good")
+          ? { status: "success", description: "" }
+          : { status: "list_models_failed", description: 'provider API error: {"code":"invalid-argument","error":"Incorrect API key provided."}' },
+      );
+      return send(res, 200, redactKey(key));
+    }
+    if (m === "GET") return send(res, 200, redactKey(key));
+    if (m === "PUT") {
+      // Bifrost replaces the key with the body (mergeUpdatedKey): fields left out are lost.
+      if (typeof body?.value !== "string" || !body.value) return send(res, 400, { error: "Key value must not be empty" });
+      Object.assign(key, { name: body.name, value: body.value, models: body.models ?? [], weight: body.weight ?? 0, status: undefined, description: undefined });
+      return send(res, 200, redactKey(key));
+    }
+    if (m === "DELETE") {
+      list.splice(list.indexOf(key), 1);
+      return send(res, 200, { message: "deleted" });
     }
     send(res, 404, { error: "not found" });
   }
@@ -278,6 +377,13 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
         state.delegations.set(who, { actor: who, exp: shape.exp, delegationId: shape.delegationId, apiKey: body.apiKey, baseUrl: body.baseUrl });
         return send(res, 200, { actor: who, exp: shape.exp, delegationId: shape.delegationId });
       }
+    }
+    if (path === "/llm/models" && m === "GET") return send(res, 200, FAKE_MODEL_CATALOG);
+    const setting = path.match(/^\/secrets\/([A-Za-z_][A-Za-z0-9_]*)$/);
+    if (setting && m === "PUT") {
+      if (typeof body?.value !== "string" || !body.value) return send(res, 400, { error: "value (non-empty string) is required" });
+      state.deploymentSecrets.set(setting[1]!, body.value);
+      return send(res, 200, { ok: true, name: setting[1] });
     }
     const sec = path.match(/^\/actors\/([^/]+)\/secrets\/([^/]+)$/);
     if (sec && m === "PUT") {

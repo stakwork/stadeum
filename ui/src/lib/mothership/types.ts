@@ -1,6 +1,7 @@
 /** Wire shapes, ported from Hive `src/services/bifrost/types.ts`. */
 
-export type BifrostProvider = "anthropic" | "openai" | "openrouter" | "gemini" | "xai";
+/** A provider as bifrost names it: one of PROVIDERS, or one an admin added. */
+export type BifrostProvider = string;
 
 export interface BifrostBudget {
   id?: string;
@@ -80,6 +81,41 @@ export interface VirtualKeyResponse {
 export interface ListProvidersResponse {
   providers: Array<{ name: string; provider_status?: string }>;
   total: number;
+}
+
+/**
+ * One provider key as `GET /api/providers/:p/keys` returns it: redacted.
+ * `value` is a masked preview, or `{ value, ref, type }` for a key read
+ * from an env variable (`value` is "" when that variable is unset).
+ */
+export interface BifrostKey {
+  id: string;
+  name: string;
+  value?: string | { value?: string; ref?: string; type?: string };
+  models?: string[];
+  weight?: number;
+  /** bifrost's last list-models call with the key: `success` or `list_models_failed`. */
+  status?: string;
+  /** Why that call failed, in the provider's words. */
+  description?: string;
+}
+
+export interface ListProviderKeysResponse {
+  keys: BifrostKey[];
+  total: number;
+}
+
+/** What stadeum writes to a key: the whole key, since bifrost's PUT replaces it. */
+export interface BifrostKeyInput {
+  name: string;
+  value: string;
+  models: string[];
+  weight: number;
+}
+
+/** `GET /api/config`: only the client section, which stadeum reads back whole. */
+export interface BifrostConfigResponse {
+  client_config: Record<string, unknown> & { log_retention_days?: number };
 }
 
 export interface BifrostAdminCreds {

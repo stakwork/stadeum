@@ -19,8 +19,25 @@ export const DEFAULT_CUSTOMER_RATE_LIMIT: BifrostRateLimit = {
   request_reset_duration: "1m",
 };
 
+/**
+ * The providers an admin sets a key for on the Models page: bifrost's name,
+ * strut's (aieo's) name for the same provider, and what a person reads.
+ * Each is in the gateway's baked config.json, with one key slot read from
+ * an env variable that stadeum no longer sets.
+ */
+export const PROVIDERS = [
+  { id: "anthropic", strut: "anthropic", label: "Anthropic" },
+  { id: "openai", strut: "openai", label: "OpenAI" },
+  { id: "gemini", strut: "google", label: "Google" },
+  { id: "xai", strut: "xai", label: "xAI" },
+  { id: "openrouter", strut: "openrouter", label: "OpenRouter" },
+] as const;
+
 /** Providers a VK may call, narrowed to what the gateway has configured. */
-export const DEFAULT_PROVIDERS: BifrostProvider[] = ["anthropic", "openai", "openrouter", "gemini", "xai"];
+export const DEFAULT_PROVIDERS: BifrostProvider[] = PROVIDERS.map((p) => p.id);
+
+/** How long the gateway keeps its request log (prompts included); its image ships 365. */
+export const GATEWAY_LOG_RETENTION_DAYS = 60;
 
 export const BIFROST_HTTP_TIMEOUT_MS = 15_000;
 

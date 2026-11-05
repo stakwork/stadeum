@@ -95,9 +95,11 @@ checked".
 - Volume `/app/data`.
 - Env: `BIFROST_ADMIN_USER=admin`, `BIFROST_ADMIN_PASS` (bcrypted on first
   boot into `/app/data`), `BIFROST_PROVISIONING_TOKEN=${SHARED_API_TOKEN}`,
-  `BIFROST_PLUGIN_REDIS_URL`, `NEO4J_HTTP_URL`, `NEO4J_PASSWORD`, and the
-  provider keys (OPENAI/ANTHROPIC/OPENROUTER/GOOGLE/XAI): the only place they
-  live.
+  `BIFROST_PLUGIN_REDIS_URL`, `NEO4J_HTTP_URL`, `NEO4J_PASSWORD`. No
+  provider key: an admin sets each on stadeum's Models page, which writes it
+  to bifrost's config store, the only place it lives (`docs/models.md`).
+- stadeum-ui keeps bifrost's request log (prompts included) 60 days, not the
+  image's 365, through bifrost's `PUT /api/config`.
 - `BIFROST_PLUGIN_ENFORCE_MACAROONS` and `BIFROST_PLUGIN_ENFORCE_BUDGETS` are
   fixed `true`: a call without a valid macaroon is a 401, one over a cap a
   402. `docs/mothership-spec.md` has the contract.
@@ -132,6 +134,11 @@ checked".
   bifrost's flags.
 - No provider keys and no `LLM_PROVIDER`: strut calls a model only through
   bifrost, on the caller's delegation, so it boots and runs with none.
+- `STRUT_HOST_CONFIG` (`stack/strut/host-config.json`) takes the model pin
+  off strut's shipped workflows (job, orchestrator, builder), so they run on
+  `STRUT_DEFAULT_MODEL`: the org default, which stadeum-ui writes to strut's
+  settings with the allowed list (`STRUT_MODELS`). The env value is only
+  what strut uses before stadeum-ui first sets it (`docs/models.md`).
   `EXA_API_KEY` is optional (web search on a routed call; without it a routed
   call has `web_fetch` only).
 - `STRUT_PUBLIC_URL=https://strut.${HOST}`: the base of the links strut hands

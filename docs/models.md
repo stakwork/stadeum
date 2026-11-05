@@ -6,7 +6,9 @@ It was written against stadeum `main` 30a7c61, strut `main` 5c3fb86,
 stakgraph's aieo 0.2.7, and the gateway: bifrost `transports/v2.2.2`
 with `core` v1.10.1. "Live" means a read-only call to the local dev
 stack's bifrost. Evan ruled on its questions the same day: see
-"Rulings" at the end.
+"Rulings" at the end. Work items 1 and 3 are built in the same PR
+(stakwork/stadeum#7); "Built so far" under "Work items" says what that
+covers.
 
 Refs: `strut …` is stakwork/strut. `aieo …` is
 stakgraph `mcp/src/aieo/src/`. `gateway …` is stakgraph `gateway/`.
@@ -34,7 +36,7 @@ stakgraph `mcp/src/aieo/src/`. `gateway …` is stakgraph `gateway/`.
    change and a price door in the gateway. Confidentiality is kept:
    Maple's proxy is still the only hop to the enclave.
 
-## What is true today
+## What was true when this was written
 
 | Fact | Where |
 | --- | --- |
@@ -113,28 +115,33 @@ A Models page under Organisation, beside Members, Status and Apps
 (`ui/src/components/rail.tsx:78-85`).
 
 1. **Providers.** The page lists what the gateway has. Each provider
-   shows its key's last four characters and a Test button. "Add a
-   provider" offers Anthropic, OpenAI, Google, xAI, OpenRouter, Numes,
-   Maple, or "Other (OpenAI-compatible)". The admin pastes the key; Other
-   also asks for a name and a base URL. Then Save.
+   shows bifrost's masked preview of its key, whether the key works, and
+   Set, Test and Remove. Built: Anthropic, OpenAI, Google, xAI and
+   OpenRouter. With item 6: Numes, Maple, and "Other
+   (OpenAI-compatible)", which also asks for a name and a base URL.
    - **Where the call goes.** stadeum-ui calls the gateway's admin API
      with the credentials it already holds
      (`ui/src/lib/mothership/admin-credentials.ts`):
      - a built-in provider: the pasted key **replaces** the empty
-       `env.*` slot instead of sitting beside it, so each provider has
-       one live key. That is a `DELETE` of the slot and a
-       `POST /api/providers/{p}/keys {name, value, models: ["*"]}`, the
-       two calls the e2e already makes (`mothership-e2e.mjs:155,159`);
+       `env.*` slot in place, under the slot's name:
+       `PUT /api/providers/{p}/keys/{id} {name, value, models, weight}`.
+       An update keeps the key's stored config hash (bifrost
+       `handlers/provider_keys.go:656`), so bifrost keeps it at every
+       restart while its config.json is unchanged; a deleted slot comes
+       back empty at the next start (`lib/config.go`,
+       `reconcileProviderKeys`). A provider with no slot gets a `POST`;
      - Numes or Other: `POST /api/providers {provider, keys, network_config: {base_url}, custom_provider_config: {base_provider_type: "openai"}}`;
      - Maple: the same, with `base_url: http://maple:8080` and
        `allow_private_network: true`.
    - **No restart.** Bifrost's config store holds the change, as the
      e2e already shows.
    - **The key** is never written to stadeum's database or to strut. To
-     rotate it, add the new key and delete the old one.
-   - **Test** sends one short call through the gateway as the admin, on
-     their own delegation. That is the path every call takes, so a green
-     Test means people can use the provider.
+     rotate it, paste the new one over it.
+   - **Test** asks bifrost to list the provider's models with the key
+     (`POST /api/providers/{p}/keys/{id}/refresh-models`): no model call,
+     no cost. Bifrost answers `success`, or `list_models_failed` with the
+     provider's own reason, which the row shows. Saving a key runs it too.
+     Checked live: a bad xAI key came back "Incorrect API key provided."
 2. **Models.** For each provider the page shows the models in strut's
    catalog (`GET /llm/models`, with prices and context windows).
    - **Adding a provider allows its catalog models at once**, so "paste
@@ -146,8 +153,10 @@ A Models page under Organisation, beside Members, Status and Apps
      with an optional price per million tokens. A blank price shows as
      "free: no cap applies".
    - **One model is starred as the org default.** Until the admin picks
-     one, it is the first provider's default model.
-3. **Save reconciles**, as it does on sign-in today:
+     one, it is strut's own default when its provider has a key, else a
+     keyed provider's default model.
+3. **Save carries it out at once**, and the upkeep pass repeats it a
+   minute after start and every six hours:
    - every person's VK gets `allowed_models` per provider from
      `Org.models`;
    - strut gets `STRUT_MODELS` and `STRUT_DEFAULT_MODEL` through
@@ -269,7 +278,7 @@ In order, one PR each.
 
 | # | Repo | What | Needs |
 | --- | --- | --- | --- |
-| 1 | stadeum | The Models page, providers and keys: list, add (the five built-ins, replacing the empty `env.*` slot), Test, delete, all through the gateway's admin API. The provider list becomes what the gateway has, not a fixed five (`types.ts:3`, `constants.ts:23`, `virtual-key.ts:128-139`). The provider-key rows leave `.env.example` and `stadeum.yml`. Bifrost's log retention is set to 60 days on the pass that registers trust; check that `restart_required` stays false | — |
+| 1 | stadeum | The Models page, providers and keys: list, add (the five built-ins, replacing the empty `env.*` slot), Test, delete, all through the gateway's admin API. The provider list becomes what the gateway has, not a fixed five (`types.ts:3`, `constants.ts:23`, `virtual-key.ts:128-139`). The provider-key rows leave `.env.example` and `stadeum.yml`. Bifrost's log retention is set to 60 days on the upkeep pass | — |
 | 2 | strut | `STRUT_MODELS`. `/llm/models` lists every model aieo knows, with price and context. The builder chat's default reads `STRUT_DEFAULT_MODEL` (`createStrut.ts:1218`). Jamie drops a remembered pick that is no longer listed. The gateway's "model not allowed" is explained in plain words | — |
 | 3 | stadeum | Allowed models and the org default: `Org.models` and `Org.defaultModel` (a migration). Each VK's `allowed_models` comes from them. Stadeum pushes `STRUT_MODELS` and `STRUT_DEFAULT_MODEL`, and adds `stack/strut/host-config.json` (`model: null` for job, orchestrator and builder) as `STRUT_HOST_CONFIG` | 2 |
 | 4 | strut, with aieo inside | Routed OpenAI-compatible providers (Maple, Numes, any name) on the gateway's `/openai/v1`. `llm.ts` asks the hook for every provider; the `BASE_URL_ENV` special case goes. If aieo has not moved yet, the aieo half lands in stakgraph, with a strut bump | the aieo move |
@@ -277,6 +286,28 @@ In order, one PR each.
 | 6 | stadeum | Numes, Maple and Other on the page. The `maple` service in every stack (`stadeum.yml`). Price rows pushed from strut's catalog. `mothership-e2e.sh` gains a fake OpenAI-compatible provider whose calls are billed per person | 3, 4, 5 |
 
 Items 1, 2 and 5 can run at the same time.
+
+**Built so far**, in stakwork/stadeum#7 beside this plan:
+- **Item 1**: the page, its gateway calls, the 60-day log, and the
+  provider keys out of `.env`. The gateway e2e asks bifrost whether it
+  holds an Anthropic key instead of reading `.env`.
+- **Item 3**: `Org.models` and `Org.defaultModel`; every person's key
+  narrowed to the list; `STRUT_MODELS` and `STRUT_DEFAULT_MODEL` written
+  to strut; the host config. Strut's settings read falls back to env
+  (`capabilities.ts:72-85` at strut 2fe953a), so the compose value of
+  `STRUT_DEFAULT_MODEL` holds until stadeum first writes it.
+- **Until strut ships item 2**, Jamie's picker still offers "Default" and
+  nothing else. That default is now the admin's.
+- **Maple's proxy service lands with item 6**, beside the page that turns
+  Maple on. Strut cannot route a Maple call through the gateway before
+  item 4.
+- **Checked against the real bifrost** (the local stack, v2.2.2), on an
+  empty xAI slot, then restored: a pasted key replaces the slot in place
+  (same id and name, now `plain_text`), only a masked preview comes back,
+  the check reaches the provider, and a remove leaves `keys: null`.
+- **The retention write** also writes out defaults the GET leaves unset
+  (`prefer_idp`, `headers`, 3600) and the deprecated mirrors of
+  `enforce_auth_on_inference`. That changes no behavior.
 
 ## Rulings
 
