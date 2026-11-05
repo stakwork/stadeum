@@ -332,6 +332,68 @@ export async function setAppPinned(name: string, pinned: boolean, actor: string)
   return { pinned: d.pinned === true, live: d.live ?? "latest" };
 }
 
+// ── the brand (strut specs/API.md §14.12) ───────────────────────────────
+
+/** The look of every app on the box. A field left out is the kit's own. */
+export interface StrutBrand {
+  /** `#rrggbb`: primary buttons, switches, the selected item, focus rings. */
+  color?: string;
+  /** The same in the dark theme. Each color falls back to the other. */
+  colorDark?: string;
+  /** `0`, or a length in px, rem or em. */
+  radius?: string;
+  /** A font-family list. */
+  font?: string;
+}
+
+/** What strut's host sends every app page: each theme's MCP Apps style variables. Null for an empty brand. */
+export type StrutBrandStyles = Record<"light" | "dark", { variables: Record<string, string> }> | null;
+
+const BRAND_FIELDS = ["color", "colorDark", "radius", "font"] as const;
+
+function readBrand(data: unknown): { brand: StrutBrand; styles: StrutBrandStyles } {
+  const { brand, styles } = (data ?? {}) as { brand?: Record<string, unknown>; styles?: unknown };
+  const out: StrutBrand = {};
+  for (const k of BRAND_FIELDS) {
+    const v = brand?.[k];
+    if (typeof v === "string" && v) out[k] = v;
+  }
+  return { brand: out, styles: styles && typeof styles === "object" ? (styles as StrutBrandStyles) : null };
+}
+
+/** Strut has no `/brand`: it is older than branding (stakwork/strut#538). */
+export class BrandUnsupportedError extends Error {
+  constructor(base: string) {
+    super(`${base} has no /brand route (strut is older than branding)`);
+    this.name = "BrandUnsupportedError";
+  }
+}
+
+/**
+ * `GET /brand`. An older strut answers 404, or its web UI's page (its
+ * catch-all `GET *`): a BrandUnsupportedError.
+ */
+export async function getBrand(timeoutMs?: number): Promise<{ brand: StrutBrand; styles: StrutBrandStyles }> {
+  const res = await strutFetch("GET", "/brand", undefined, timeoutMs);
+  if (res.status === 404) throw new BrandUnsupportedError(env.strutUrl());
+  if (!res.ok) await fail("GET", "/brand", res);
+  if (!res.headers.get("content-type")?.includes("application/json")) throw new BrandUnsupportedError(env.strutUrl());
+  return readBrand(await res.json());
+}
+
+/**
+ * `PUT /brand`: replaces the whole brand, so a field left out is unset and
+ * `{}` resets it. A bad field is a 400 whose `detail` is strut's message,
+ * and nothing changes.
+ */
+export async function putBrand(brand: StrutBrand): Promise<{ brand: StrutBrand; styles: StrutBrandStyles }> {
+  const body: StrutBrand = {};
+  for (const k of BRAND_FIELDS) if (brand[k]) body[k] = brand[k];
+  const res = await strutFetch("PUT", "/brand", body);
+  if (!res.ok) await fail("PUT", "/brand", res);
+  return readBrand(await res.json());
+}
+
 // ── the frame ───────────────────────────────────────────────────────────
 
 /**

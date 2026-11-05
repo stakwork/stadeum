@@ -8,18 +8,19 @@ named.
 
 `docker compose -f stack/stadeum.yml [-f stack/dev.yml] up` starts exactly
 these; there are no profiles. The Status page in stadeum-ui lists the same
-eight (`ui/src/lib/status.ts`, `SERVICES`).
+nine (`ui/src/lib/status.ts`, `SERVICES`).
 
 | Service | Image | Role | Status page check |
 | --- | --- | --- | --- |
 | `caddy` | `caddy:2.11.8-alpine` | TLS and routing, the only published ports: `$HOST` → stadeum-ui, `strut.$HOST` → strut | None (stadeum-ui never calls it) |
 | `neo4j` | `neo4j:5.26.32` | The graph: strut's workflows, steps and knowledge graph; bifrost's agent catalog | `GET {NEO4J_HTTP_URL}/` |
 | `redis` | `redis:7.4.2-alpine` | bifrost's plugin state | None (stadeum-ui never calls it) |
-| `bifrost` | `ghcr.io/stakwork/stakgraph-gateway` | Model gateway: provider keys, a virtual key and a cap per person | `/_plugin/trust/status` |
-| `strut-browser` | `ghcr.io/stakwork/strut-browser:1.63.0` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
-| `strut` | `ghcr.io/stakwork/strut:2fe953a` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
+| `bifrost` | `ghcr.io/stakwork/stakgraph-gateway:v0.4.396` | Model gateway: provider keys, a virtual key and a cap per person | `/_plugin/trust/status` |
+| `strut-browser` | `ghcr.io/stakwork/strut-browser:stable` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
+| `strut` | `ghcr.io/stakwork/strut:stable` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
 | `bootstrap` | `node:22.20.0-alpine` | One shot: org signing key + trust registration | Org key registered with bifrost, same key as stadeum-ui's |
-| `stadeum-ui` | built from `ui/` | Sign-in, the person, Members, Status | Running (it serves the page) |
+| `stadeum-ui` | `ghcr.io/stakwork/stadeum-ui:stable` (built from `ui/`) | Sign-in, the person, Members, Status, Updates, Backups | Running (it serves the page) |
+| `ops` | `ghcr.io/stakwork/stadeum-ops:stable` (built from `ops/`) | Image updates and backups; the Docker socket | Reported in the last 3 minutes |
 
 stadeum-ui has no Docker socket, so it cannot see container state; each
 row's health is the HTTP check it already makes, and the rest show "Not
@@ -33,8 +34,15 @@ checked".
 - Only caddy publishes host ports (`HTTP_PORT`, `HTTPS_PORT`).
 - `restart: unless-stopped` on every long-running service.
 - One named volume per service that keeps state, named after it.
-- Every image is pinned to a version, except bifrost: the gateway publishes
-  no versioned tags yet (`BIFROST_TAG=latest`).
+- Every image is pinned to a version or follows a channel, never `latest`.
+  ops moves a service whose `stadeum.ops.update` label names a group, on the
+  channel its tag names (`stable`); a person moves the rest, after a backup.
+- stadeum's own images are published by `.github/workflows/publish-images.yml`
+  (amd64 + arm64, tagged with the short commit sha and `latest`) when `ui/`
+  or `ops/` changes on main; `promote-images.yml` moves `stable` for both to
+  a commit's images, as strut's `promote-image.yml` does for strut's.
+  `stack/dev.yml` builds them from the checkout instead (`stadeum-ui:dev`,
+  `stadeum-ops:dev`), and ops never pulls a service that has a build.
 
 ## Services
 
@@ -90,8 +98,11 @@ checked".
   private. Only bifrost uses it (`BIFROST_PLUGIN_REDIS_URL`).
 
 ### bifrost (mothership / LLM gateway)
-- `ghcr.io/stakwork/stakgraph-gateway`, port 8181 (a wrapper that proxies to
-  bifrost-http on 127.0.0.1:8080). Do NOT set `APP_PORT`/`APP_HOST`.
+- `ghcr.io/stakwork/stakgraph-gateway:${BIFROST_TAG:-v0.4.396}`, port 8181 (a
+  wrapper that proxies to bifrost-http on 127.0.0.1:8080). Do NOT set
+  `APP_PORT`/`APP_HOST`. Its tags are stakgraph's releases; `v0.4.396` is
+  stakgraph `b8f16c5b`, the digest `latest` named when it was pinned. A
+  person moves it.
 - Volume `/app/data`.
 - Env: `BIFROST_ADMIN_USER=admin`, `BIFROST_ADMIN_PASS` (bcrypted on first
   boot into `/app/data`), `BIFROST_PROVISIONING_TOKEN=${SHARED_API_TOKEN}`,
@@ -105,20 +116,23 @@ checked".
   402. `docs/mothership-spec.md` has the contract.
 
 ### strut-browser
-- `ghcr.io/stakwork/strut-browser:${STRUT_BROWSER_TAG:-1.63.0}`: the
+- `ghcr.io/stakwork/strut-browser:${STRUT_BROWSER_TAG:-stable}`: the
   Playwright server behind strut's `browser/*` steps. The builder looks at
   the apps it makes through it.
-- Its tag stays on strut's `playwright-core` major.minor (the server refuses
-  any other), so it moves with `STRUT_IMAGE_TAG`.
+- Its version must match strut's `playwright-core` major.minor (the server
+  refuses any other). strut's `promote-image.yml` moves both `stable` tags
+  together, and ops moves the two containers together (group `strut`). A
+  pinned strut (`STRUT_IMAGE_TAG=2fe953a`) needs the browser pinned to the
+  version that commit uses (`STRUT_BROWSER_TAG=1.63.0`).
 - It sits on its own network (`browser`) that strut joins: a page it loads can
   reach strut, but not Neo4j, bifrost or stadeum-ui.
 - `BROWSER_WS_PATH`, generated by `scripts/init-env.sh`, is its one door; a
   page it loads must not be able to guess it.
 
 ### strut
-- `ghcr.io/stakwork/strut:${STRUT_IMAGE_TAG:-2fe953a}`, amd64 + arm64, port
-  3000. A published commit tag until strut promotes a `stable` channel
-  (stakwork/strut#527 added it); then the default becomes `stable`.
+- `ghcr.io/stakwork/strut:${STRUT_IMAGE_TAG:-stable}`, amd64 + arm64, port
+  3000. `stable` is the channel strut's promote workflow moves
+  (stakwork/strut#527); ops follows it. A commit tag pins one image.
 - Based on strut's own `docker-compose.yml`:
   `STRUT_WORKSPACE_BACKEND=graph` with `NEO4J_URI=bolt://neo4j:7687`,
   `NEO4J_USER`, `NEO4J_PASSWORD`; `STRUT_GRAPH_SEED_ONTOLOGY=1`;
@@ -158,8 +172,9 @@ checked".
   Idempotent; `docker compose … run --rm bootstrap` re-runs it.
 
 ### stadeum-ui
-- Built from `ui/`, port 3000, volume `/data` (`stadeum.db`), the `org`
-  volume read-only.
+- `ghcr.io/stakwork/stadeum-ui:${STADEUM_IMAGE_TAG:-stable}`, built from
+  `ui/`, port 3000, volume `/data` (`stadeum.db`), the `org` volume
+  read-only. Healthcheck: `GET /api/health` (the database answers).
 - `STRUT_URL=http://strut:3000` (every API call) and
   `STRUT_PUBLIC_URL=https://strut.${HOST}` (the frame).
 - One strut client, `ui/src/lib/strut/client.ts`, with
@@ -172,6 +187,109 @@ checked".
   `{STRUT_PUBLIC_URL}/?ticket=<ticket>&embed_origin=<stadeum origin>[&wf=&run=]`.
   strut's UI trades the ticket for its own session cookie as that person and
   takes it off the URL (strut `specs/API.md` §13.1).
+
+### ops
+- `ghcr.io/stakwork/stadeum-ops:${STADEUM_IMAGE_TAG:-stable}`, built from
+  `ops/`: Node running the loop, the docker CLI with its compose plugin, and
+  restic, each from a pinned image. No runtime npm dependencies.
+- **No port.** It starts every connection itself: stadeum-ui
+  (`STADEUM_UI_URL`) for its settings and to post back, strut (`STRUT_URL`)
+  for the drain and the health check, both with `SHARED_API_TOKEN` as
+  Bearer. Healthcheck: a heartbeat file its loop writes every 15 s.
+- **The Docker socket**, mounted here and nowhere else. ops drives the
+  containers with `docker compose`, run against the files and env file the
+  stack was started with: compose's own labels on ops's container
+  (`com.docker.compose.project`, `…config_files`, `…environment_file`,
+  `…working_dir`) say which. The checkout is mounted at `/stadeum`, and ops
+  links its host path to it, so compose resolves `./caddy/Caddyfile` to the
+  host path the daemon needs. Why compose and not the Docker API: compose
+  already knows how to recreate a container with its networks, volumes,
+  labels and healthcheck, so an update is the `compose pull` + `compose up`
+  a person would type, and ops reimplements none of it.
+- **Every volume** is mounted at `/volumes/<name>`, for the snapshot and the
+  restore, and the checkout's `backups/` at `/backups` (a local destination).
+- **Two labels** in `stack/stadeum.yml` say what ops does to a service:
+  `stadeum.ops.update: <group>` (strut + strut-browser in `strut`;
+  stadeum-ui + ops in `stadeum`) and `stadeum.ops.backup: stop` (neo4j,
+  redis, bifrost, strut, stadeum-ui).
+
+**Its settings** live in stadeum-ui's database (`OpsSettings`), set on the
+admin pages Updates and Backups: the daily window (start, end, IANA time
+zone; default 03:00–05:00 UTC), how long to wait for strut to go idle
+(default 30 min), whether updates and backups run on their own, and the
+backup destination. The destination's credentials and restic's password are
+encrypted under `STADEUM_ENCRYPTION_KEY`, as the org key is.
+
+**The contract** (`ops/src/contract.ts`, copied in
+`ui/src/lib/ops/contract.ts`), every call by ops, with the deployment key:
+
+| Method | Path | |
+| --- | --- | --- |
+| GET | `/api/ops/settings` | The window, the wait, updates on or off, the destination (decrypted), the admin's open requests (check, update, back up now), the window last run, and the images that failed their health check |
+| PUT | `/api/ops/status` | What ops is doing, every service's running image and what its channel has, the newest snapshots, and the requests it answered |
+| POST | `/api/ops/history` | What it did: an update (with each image's from and to), a rollback, a backup (its snapshot), a restore |
+
+Caddy answers `/api/ops/*` with 404: the routes are for the box's network
+only.
+
+**The loop** ticks every 30 s. It reads its settings, does what an admin
+asked for, and once in each day's window runs the daily pass: the backup,
+then the updates, held back if tonight's backup failed. stadeum-ui keeps the
+window last run, so a restarted ops does not run it twice.
+
+**An update**, per group, strut's first:
+
+1. `compose pull` the group, and compare the image ID each tag now names
+   with the one its container runs.
+2. If any differ: a group with strut in it turns on strut's drain
+   (`PUT /drain {reason, minutes}`, strut `specs/API.md` §8.1) and polls
+   `GET /drain` until `idle`, at most the wait. Runs still going then resume
+   after the restart (strut auto-resumes). `minutes` is the wait plus 30, so
+   a drain whose ops died lifts by itself.
+3. `compose up -d --no-deps --wait`: recreate what changed and wait for the
+   containers' healthchecks; then strut's `GET /health` with the key.
+4. Unhealthy: tag the images it replaced back onto the reference and
+   `compose up` again. The bad image is held back (not tried again) until
+   the channel moves on or an admin presses Update now.
+5. Record what changed, and lift the drain if a restart did not.
+
+ops moves itself last: it cannot recreate the container it runs in, so it
+starts a one-off ops on the new image (`compose run -d --rm ops hand-over
+<previous image>`), which recreates the ops service and puts the previous
+image back if the new one does not come up.
+
+**A backup**, in the window, or when an admin presses Back up now:
+
+1. Open the restic repository, making it on first use.
+2. Drain strut and wait, as above.
+3. `compose stop` the services labelled `stadeum.ops.backup: stop` (Neo4j
+   community has no online dump; SQLite and redis tear mid-write), copy the
+   env file to `/env/.env`, `restic backup /volumes /env`, and start them
+   again whatever happened. A few minutes of downtime.
+4. `restic forget --prune`: 7 daily, 4 weekly, 12 monthly.
+
+Destinations are restic's: S3 and S3-compatible (R2, MinIO), Azure Blob,
+GCS, B2, and a folder under `/backups` for testing. stadeum-ui turns the
+admin's fields into restic's repository string and its own variables
+(`ui/src/lib/ops/destination.ts`). restic's password is made with the first
+destination and never changes; the Backups page shows it, with a restore
+kit, until the admin says they keep it off the box, and never again.
+
+**A restore** is one command on a fresh box (the restore kit saved as
+`restore.env`):
+
+```bash
+scripts/init-env.sh
+docker compose --env-file .env -f stack/stadeum.yml run --rm --env-from-file restore.env ops restore [snapshot]
+docker compose --env-file .env -f stack/stadeum.yml up -d --wait
+```
+
+It stops the stack, empties each volume the snapshot has, restores them,
+and puts the snapshot's `.env` back (keeping the one it replaced as
+`.env.before-restore`). That `.env` names the old box's `HOST`: change it
+before `up` if the new box has another name. `scripts/backup-restore-e2e.sh` proves it: data in
+strut, stadeum-ui and Neo4j, a backup, every volume wiped and `.env`
+regenerated, a restore, and the same data back.
 
 ## The shared token
 

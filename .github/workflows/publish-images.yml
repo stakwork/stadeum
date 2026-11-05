@@ -1,0 +1,116 @@
+name: publish images
+
+# Builds stadeum's own images for amd64 and arm64 and pushes them to ghcr.io
+# when what goes into one changes on main: ghcr.io/stakwork/stadeum-ui (ui/)
+# and ghcr.io/stakwork/stadeum-ops (ops/). Tags are the short commit sha,
+# which is what a box pins, and the moving `latest`. A box follows `stable`,
+# which moves only when someone runs promote-images.yml. An image whose
+# directory did not change is not rebuilt, so it keeps its digest and ops
+# does not restart it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ui/**"
+      - "ops/**"
+      - ".github/workflows/publish-images.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-images
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # A manual dispatch from another branch would otherwise overwrite `latest`.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - { name: stadeum-ui, dir: ui }
+          - { name: stadeum-ops, dir: ops }
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Did it change?
+        id: what
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          DIR: ${{ matrix.image.dir }}
+        run: |
+          set -euo pipefail
+          echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT" != push || "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "$DIR" .github/workflows/publish-images.yml; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "$DIR/ did not change: no new image"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.what.outputs.build == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - if: steps.what.outputs.build == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - if: steps.what.outputs.build == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - if: steps.what.outputs.build == 'true'
+        uses: docker/metadata-action@v5
+        id: meta
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest
+        with:
+          images: ghcr.io/stakwork/${{ matrix.image.name }}
+
+      # provenance/sbom off: a plain two-platform index, like strut's images.
+      # The arm64 half builds under QEMU; the gha cache keeps the npm layers.
+      - if: steps.what.outputs.build == 'true'
+        uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: ${{ matrix.image.dir }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/stakwork/${{ matrix.image.name }}:${{ steps.what.outputs.short }}
+            ghcr.io/stakwork/${{ matrix.image.name }}:latest
+          build-args: |
+            STADEUM_VERSION=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+          provenance: false
+          sbom: false
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+
+      # gh attestation verify oci://ghcr.io/stakwork/<image>@sha256:<digest> --owner stakwork
+      - if: steps.what.outputs.build == 'true'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/stakwork/${{ matrix.image.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

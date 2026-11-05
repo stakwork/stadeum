@@ -7,6 +7,13 @@
 #
 # Only caddy publishes host ports. The services reach each other by their
 # service name on the project's network (`stadeum_default`).
+#
+# ops reads two labels (docs/stack-spec.md, "ops"):
+#   stadeum.ops.update: <group>  ops moves the service on its channel, with
+#                                the rest of its group. No label: a person
+#                                moves it.
+#   stadeum.ops.backup: stop     stopped while the nightly snapshot is taken:
+#                                its files would tear mid-write.
 
 name: stadeum
 
@@ -67,6 +74,8 @@ services:
     # indexes. PINNED: Neo4j cannot open a store a newer version wrote, so
     # it moves only when a person moves it, after a backup.
     image: neo4j:5.26.32
+    labels:
+      stadeum.ops.backup: stop
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?run scripts/init-env.sh}
       # Laptop defaults; raise them on a real box.
@@ -87,6 +96,8 @@ services:
   redis:
     <<: *common
     image: redis:7.4.2-alpine
+    labels:
+      stadeum.ops.backup: stop
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis:/data
@@ -98,7 +109,11 @@ services:
 
   bifrost:
     <<: *common
-    image: ghcr.io/stakwork/stakgraph-gateway:${BIFROST_TAG:-latest}
+    # PINNED: the gateway moves when a person moves it (its version tags
+    # are stakgraph's releases).
+    image: ghcr.io/stakwork/stakgraph-gateway:${BIFROST_TAG:-v0.4.396}
+    labels:
+      stadeum.ops.backup: stop
     depends_on:
       redis: { condition: service_healthy }
       neo4j: { condition: service_healthy }
@@ -132,9 +147,12 @@ services:
     <<: *common
     # The Playwright server strut's browser steps drive; the builder looks
     # at the apps it makes through it. Its tag stays on strut's
-    # playwright-core major.minor: the server refuses any other. Moves with
-    # STRUT_IMAGE_TAG (`stable` beside `stable`).
-    image: ghcr.io/stakwork/strut-browser:${STRUT_BROWSER_TAG:-1.63.0}
+    # playwright-core major.minor: the server refuses any other. strut's
+    # promote workflow moves both `stable` tags together, and ops moves the
+    # two containers together.
+    image: ghcr.io/stakwork/strut-browser:${STRUT_BROWSER_TAG:-stable}
+    labels:
+      stadeum.ops.update: strut
     environment:
       # Its one door: a page it loads must not guess it.
       BROWSER_WS_PATH: ${BROWSER_WS_PATH:?run scripts/init-env.sh}
@@ -142,9 +160,12 @@ services:
 
   strut:
     <<: *common
-    # TODO: default to `stable` once strut promotes one (stakwork/strut#527
-    # added the channel); until then, a published commit tag.
-    image: ghcr.io/stakwork/strut:${STRUT_IMAGE_TAG:-2fe953a}
+    # The `stable` channel strut's promote workflow moves. A commit tag
+    # (`2fe953a`) pins one; ops then has nothing to move until it changes.
+    image: ghcr.io/stakwork/strut:${STRUT_IMAGE_TAG:-stable}
+    labels:
+      stadeum.ops.update: strut
+      stadeum.ops.backup: stop
     depends_on:
       # bolt.verify() fails the boot when nothing is listening.
       neo4j: { condition: service_healthy }
@@ -222,7 +243,12 @@ services:
 
   stadeum-ui:
     <<: *common
-    build: ../ui
+    # stadeum's own image, published from main (.github/workflows); `stable`
+    # moves when someone promotes a commit. stack/dev.yml builds it here.
+    image: ghcr.io/stakwork/stadeum-ui:${STADEUM_IMAGE_TAG:-stable}
+    labels:
+      stadeum.ops.update: stadeum
+      stadeum.ops.backup: stop
     depends_on:
       strut: { condition: service_healthy }
       bifrost: { condition: service_healthy }
@@ -258,3 +284,48 @@ services:
     volumes:
       - org:/org:ro
       - stadeum-ui:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  # The box's upkeep: image updates and backups (docs/stack-spec.md, "ops").
+  # The Docker socket is mounted here and nowhere else, and ops has no port:
+  # it reads its settings from stadeum-ui, drains strut, and posts back
+  # what it did. It moves itself on stadeum's channel, last.
+  ops:
+    <<: *common
+    image: ghcr.io/stakwork/stadeum-ops:${STADEUM_IMAGE_TAG:-stable}
+    labels:
+      stadeum.ops.update: stadeum
+    environment:
+      SHARED_API_TOKEN: ${SHARED_API_TOKEN}
+      STRUT_URL: http://strut:3000
+      STADEUM_UI_URL: http://stadeum-ui:3000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The checkout: the compose files ops runs compose with, and the .env
+      # it keeps in each snapshot and puts back on a restore. ops links its
+      # host path to here, so compose hands the daemon host paths.
+      - ..:/stadeum
+      # A local backup destination: the checkout's backups/ (testing, or a
+      # disk mounted there). Not off the box.
+      - ../backups:/backups
+      # Every volume, for the snapshot and the restore.
+      - caddy:/volumes/caddy
+      - neo4j:/volumes/neo4j
+      - redis:/volumes/redis
+      - bifrost:/volumes/bifrost
+      - strut-workspace:/volumes/strut-workspace
+      - strut-models:/volumes/strut-models
+      - org:/volumes/org
+      - stadeum-ui:/volumes/stadeum-ui
+    healthcheck:
+      # No port to probe: the loop writes a heartbeat every 15 s.
+      test: ["CMD-SHELL", "find /tmp/heartbeat -mmin -2 | grep -q ."]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

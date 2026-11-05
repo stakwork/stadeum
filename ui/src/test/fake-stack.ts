@@ -5,8 +5,8 @@
  *               virtual keys, each provider's keys and their check, the
  *               client config (bifrost transports/v2.2.2 handlers)
  *   /strut    — strut: /health, /apps (the list, each app's versions,
- *               usage, what is live and the pin), /auth/ticket and the app
- *               page a ticket opens, /llm/delegations, /llm/models,
+ *               usage, what is live and the pin), /brand, /auth/ticket and
+ *               the app page a ticket opens, /llm/delegations, /llm/models,
  *               /secrets/:name, /actors/:actor/secrets (strut specs/API.md)
  *   /neo4j    — HTTP discovery
  * Wire shapes follow docs/mothership-spec.md. The delegation PUT runs
@@ -18,6 +18,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { decodeMacaroon, verify } from "gatekey";
 
+import { brandStyles } from "@/lib/brand";
+import type { StrutBrand } from "@/lib/strut/client";
+import { brandProblem, normalizeBrand } from "./strut-brand";
 import { checkDelegationShape } from "./strut-shape";
 
 export interface FakeStackOptions {
@@ -122,6 +125,8 @@ export interface FakeState {
   appRecords: Map<string, FakeAppRecord>;
   /** Set to make the next `PUT /apps/:name/active { release }` a 409 with this message. */
   refuseRelease: string | null;
+  /** `GET /brand`'s record, as strut keeps it (normalized). */
+  brand: StrutBrand;
   /** Sign-in tickets strut minted: who each signs in, until when, whether spent. */
   tickets: Map<string, { actor: string; exp: number; used: boolean }>;
   /** Set to make strut's /health report a drain. */
@@ -154,6 +159,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     apps: SEEDED_APPS.map((a) => ({ ...a })),
     appRecords: new Map(SEEDED_APPS.map((a) => [a.name, seededRecord()])),
     refuseRelease: null,
+    brand: {},
     tickets: new Map(),
     drain: null,
     requests: [],
@@ -350,6 +356,13 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
         return warnings ? { ...a, warnings } : a;
       });
       return send(res, 200, { apps: listed });
+    }
+    if (path === "/brand" && m === "GET") return send(res, 200, { brand: state.brand, styles: brandStyles(state.brand) });
+    if (path === "/brand" && m === "PUT") {
+      const problem = brandProblem(body);
+      if (problem) return send(res, 400, { error: problem });
+      state.brand = normalizeBrand(body);
+      return send(res, 200, { brand: state.brand, styles: brandStyles(state.brand) });
     }
     const one = path.match(/^\/apps\/([^/]+)\/(versions|usage|active|pin)$/);
     if (one) return appRoute(req, res, decodeURIComponent(one[1]!), one[2]!, body);
