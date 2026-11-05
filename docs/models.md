@@ -130,9 +130,19 @@ A Models page under Organisation, beside Members, Status and Apps
        restart while its config.json is unchanged; a deleted slot comes
        back empty at the next start (`lib/config.go`,
        `reconcileProviderKeys`). A provider with no slot gets a `POST`;
-     - Numes or Other: `POST /api/providers {provider, keys, network_config: {base_url}, custom_provider_config: {base_provider_type: "openai"}}`;
-     - Maple: the same, with `base_url: http://maple:8080` and
+     - Numes, Maple or Other: **two calls**. First
+       `POST /api/providers {provider, network_config: {base_url}, custom_provider_config: {base_provider_type: "openai"}}`,
+       then the key with `POST /api/providers/{name}/keys {name, value, models, weight}`.
+       The first call's payload has no `keys` field
+       (`handlers/providers.go:125-136`), so a key sent in it is dropped
+       without an error, and every call then fails with
+       `no_key_supports_model` (stakwork/stakgraph#1844's e2e).
+     - Maple's `base_url` is `http://maple:8080`, with
        `allow_private_network: true`.
+     - Each person's virtual key needs a `provider_configs` entry for the
+       new provider. Today's provider list is the five built-ins
+       (`constants.ts`, `desiredProviders`), so item 6 widens it to the
+       custom providers the gateway has.
    - **No restart.** Bifrost's config store holds the change, as the
      e2e already shows.
    - **The key** is never written to stadeum's database or to strut. To
@@ -143,7 +153,10 @@ A Models page under Organisation, beside Members, Status and Apps
      provider's own reason, which the row shows. Saving a key runs it too.
      Checked live: a bad xAI key came back "Incorrect API key provided."
 2. **Models.** For each provider the page shows the models in strut's
-   catalog (`GET /llm/models`, with prices and context windows).
+   catalog (`GET /llm/models`, with context windows). Prices come from
+   bifrost's datasheet (ruling 7), so the catalog gives a `pricing` only
+   where a model has its own rate: Maple's and Numes' tables
+   (stakwork/strut#542). An absent price means "unknown", not free.
    - **Adding a provider allows its catalog models at once**, so "paste
      a key, done" holds. That is Numes' 8 free models, Maple's 7, and
      the named models of the others. The admin unticks what the org
@@ -161,8 +174,12 @@ A Models page under Organisation, beside Members, Status and Apps
      `Org.models`;
    - strut gets `STRUT_MODELS` and `STRUT_DEFAULT_MODEL` through
      `PUT /secrets/:name`;
-   - the gateway gets a price row for every allowed model it cannot
-     price (work item 5).
+   - the gateway gets a price row for every allowed model its datasheet
+     cannot price: `PUT /_plugin/pricing` (stakwork/stakgraph#1844), keyed
+     `<provider>/<id>` (`maple/gemma4-31b`). The route replaces the whole
+     table. The rows for Maple and Numes come from strut's catalog, and
+     an Other model's from the price the admin typed. A row of zeros marks
+     a free model.
 
 **Keys come in only through this page.** The five provider-key rows
 leave `.env.example` and `stack/stadeum.yml` (`.env.example:56-60`,
@@ -230,7 +247,22 @@ strut.
   No Hive swarm calls Maple or Numes directly. A swarm that wants them
   later adds them to its own gateway, as Stadeum does.
 - **The gateway** needs a runtime door for price rows. Without a row, a
-  Maple call counts as $0 against every cap.
+  Maple call counts as $0 against every cap. stakwork/stakgraph#1844 adds it, and
+  its e2e on the real image confirms the route:
+  - **Routing:** `model: "maple/gemma4-31b"` on
+    `/openai/v1/chat/completions` reaches the provider named `maple`, and
+    the upstream gets `gemma4-31b`.
+  - **Streaming:** usage arrives when streaming.
+  - **Restarts:** custom providers, their keys and the price table all
+    survive one.
+- **Stream flags:** maple-proxy 0.4.5 passes Maple's stream through
+  unchanged, `[DONE]` included, so it needs neither of bifrost's stream
+  flags.
+  - An Other upstream that skips `[DONE]` and keeps the connection open
+    needs both `does_not_send_done_marker` and `wait_for_usage`.
+  - With neither flag, each answer waits for the idle timeout (60 s).
+  - With the first flag alone, its usage is dropped and the call counts
+    $0.
 
 ## How strut answers "available"
 
@@ -238,9 +270,11 @@ strut.
 read from the secret store and then env, like `STRUT_DEFAULT_MODEL`.
 - **When it is set**, `GET /llm/models` marks exactly those models
   available, and its `default` is `STRUT_DEFAULT_MODEL`.
-- **The list covers every model aieo knows**, each with its price and
-  context window, so stadeum's admin page and Jamie's picker read one
-  route.
+- **The list covers every model aieo knows**, each with its context
+  window, plus any listed name aieo has no row for. Stadeum's admin page
+  and Jamie's picker read this one route. A model has a `pricing` only
+  where its own rate is known (Maple, Numes); the rest come from bifrost's
+  datasheet once aieo moves in (ruling 7).
 - **When it is unset**, today's key check applies, on Peel and on
   swarms.
 
@@ -279,11 +313,11 @@ In order, one PR each.
 | # | Repo | What | Needs |
 | --- | --- | --- | --- |
 | 1 | stadeum | The Models page, providers and keys: list, add (the five built-ins, replacing the empty `env.*` slot), Test, delete, all through the gateway's admin API. The provider list becomes what the gateway has, not a fixed five (`types.ts:3`, `constants.ts:23`, `virtual-key.ts:128-139`). The provider-key rows leave `.env.example` and `stadeum.yml`. Bifrost's log retention is set to 60 days on the upkeep pass | — |
-| 2 | strut | `STRUT_MODELS`. `/llm/models` lists every model aieo knows, with price and context. The builder chat's default reads `STRUT_DEFAULT_MODEL` (`createStrut.ts:1218`). Jamie drops a remembered pick that is no longer listed. The gateway's "model not allowed" is explained in plain words | — |
+| 2 | strut | `STRUT_MODELS`. `/llm/models` lists every model aieo knows, with context windows, and prices where a model has its own rate. The builder chat's default reads `STRUT_DEFAULT_MODEL` (`createStrut.ts:1218`). Jamie drops a remembered pick that is no longer listed. The gateway's "model not allowed" is explained in plain words. Open: stakwork/strut#542 | — |
 | 3 | stadeum | Allowed models and the org default: `Org.models` and `Org.defaultModel` (a migration). Each VK's `allowed_models` comes from them. Stadeum pushes `STRUT_MODELS` and `STRUT_DEFAULT_MODEL`, and adds `stack/strut/host-config.json` (`model: null` for job, orchestrator and builder) as `STRUT_HOST_CONFIG` | 2 |
 | 4 | strut, with aieo inside | Routed OpenAI-compatible providers (Maple, Numes, any name) on the gateway's `/openai/v1`. `llm.ts` asks the hook for every provider; the `BASE_URL_ENV` special case goes. If aieo has not moved yet, the aieo half lands in stakgraph, with a strut bump | the aieo move |
-| 5 | gateway | `PUT /_plugin/pricing` (Bearer), kept on the `bifrost` volume, over the config's `model_pricing`. Tests: a custom provider added through `/api/providers` routes `/openai/v1` with `maple/<id>` and reports usage when streaming. A key that replaced the `env.*` slot, and a custom provider, both survive a restart with the baked `config.json` | — |
-| 6 | stadeum | Numes, Maple and Other on the page. The `maple` service in every stack (`stadeum.yml`). Price rows pushed from strut's catalog. `mothership-e2e.sh` gains a fake OpenAI-compatible provider whose calls are billed per person | 3, 4, 5 |
+| 5 | gateway | `PUT /_plugin/pricing` (Bearer), kept on the `bifrost` volume, checked after the config's `model_pricing` and before the datasheet. Tests: a custom provider added through `/api/providers` routes `/openai/v1` with `maple/<id>` and reports usage when streaming. A key that replaced the `env.*` slot, and a custom provider, both survive a restart with the baked `config.json`. Open: stakwork/stakgraph#1844 | — |
+| 6 | stadeum | Numes, Maple and Other on the page, each added in two calls (provider, then key). The provider list widened to the gateway's custom providers. The `maple` service in every stack (`stadeum.yml`). Price rows (`PUT /_plugin/pricing`, keyed `<provider>/<id>`) from strut's catalog for Maple and Numes, and from the admin's typed price for Other. `mothership-e2e.sh` gains a fake OpenAI-compatible provider whose calls are billed per person | 3, 4, 5 |
 
 Items 1, 2 and 5 can run at the same time.
 
@@ -296,8 +330,10 @@ Items 1, 2 and 5 can run at the same time.
   to strut; the host config. Strut's settings read falls back to env
   (`capabilities.ts:72-85` at strut 2fe953a), so the compose value of
   `STRUT_DEFAULT_MODEL` holds until stadeum first writes it.
-- **Until strut ships item 2**, Jamie's picker still offers "Default" and
-  nothing else. That default is now the admin's.
+- **Until strut ships item 2** (stakwork/strut#542, open), Jamie's
+  picker still offers "Default" and nothing else. That default is now the
+  admin's.
+- **Item 5** is stakwork/stakgraph#1844, open.
 - **Maple's proxy service lands with item 6**, beside the page that turns
   Maple on. Strut cannot route a Maple call through the gateway before
   item 4.
@@ -326,3 +362,10 @@ Evan, 2026-11-05:
    With one org list, "for everyone" adds nothing: the question was only
    whether they start ticked. Evan did not rule on this; it is the
    plan's default, and flipping it is one line.
+7. **Prices and limits come from bifrost's datasheet**, as data, not as
+   tables in code. This is ruling 5 of strut's `plans/aieo-in-strut.md`
+   (stakwork/strut#540), and it applies once aieo moves into strut.
+   - A model priced nowhere keeps its provider's flat rate in strut.
+   - Maple's and Numes' tables stay until the datasheet carries them.
+   - Stadeum pushes the gateway's price rows for them from those
+     tables.
