@@ -5,7 +5,8 @@ admin adds, where each provider's key lives, and how Maple and Numes fit.
 It was written against stadeum `main` 30a7c61, strut `main` 5c3fb86,
 stakgraph's aieo 0.2.7, and the gateway: bifrost `transports/v2.2.2`
 with `core` v1.10.1. "Live" means a read-only call to the local dev
-stack's bifrost.
+stack's bifrost. Evan ruled on its questions the same day: see
+"Rulings" at the end.
 
 Refs: `strut …` is stakwork/strut. `aieo …` is
 stakgraph `mcp/src/aieo/src/`. `gateway …` is stakgraph `gateway/`.
@@ -21,8 +22,8 @@ stakgraph `mcp/src/aieo/src/`. `gateway …` is stakgraph `gateway/`.
    wins. The gateway's allowlist caps every level.
 2. **An admin adds a provider** on one page: pick the provider, paste the
    key, press Test, and it is done. The key goes straight to the
-   gateway's admin API, with no restart. The admin then ticks the models
-   people may use.
+   gateway's admin API, with no restart. The provider's known models
+   arrive already allowed; the admin can untick any of them.
 3. **The keys live in the gateway** and nowhere else: bifrost's config
    store, on the `bifrost` volume. Strut learns the allowed models and
    the default from `STRUT_MODELS` and `STRUT_DEFAULT_MODEL`, which
@@ -40,6 +41,8 @@ stakgraph `mcp/src/aieo/src/`. `gateway …` is stakgraph `gateway/`.
 | Provider keys reach bifrost from `.env`, through its baked config's `env.*` references | `stack/stadeum.yml:117-123`, `gateway data/config.json:14-65` |
 | Bifrost keeps providers and keys in its own SQLite config store, on the `bifrost` volume | `gateway data/config.json:94-100` |
 | A provider's URL and keys can change on a running gateway | `scripts/e2e/mothership-e2e.mjs:148-163`; live `GET /api/providers/anthropic/keys` → `{id, name, models, weight}` |
+| Each of the five built-in providers always has one key slot that points at `env.*`. With nothing in `.env`, that slot is empty | live: every built-in provider's key `value` is `{value: "", ref: "env.<NAME>", type: "env"}` on a stack with no provider key set |
+| Bifrost's log retention and content logging can be changed at run time | live `GET /api/config` → `client_config.log_retention_days: 365`, `disable_content_logging: false`, plus a `restart_required` flag |
 | Bifrost has OpenAI-compatible custom providers | `bifrost-core schemas/provider.go:538-546` (`base_provider_type`, `is_key_less`, `request_path_overrides`) |
 | A private-network upstream such as `maple:8080` needs `allow_private_network` | `bifrost-core schemas/provider.go:76` |
 | Each person's virtual key may call every model of every configured provider | `ui/src/lib/mothership/virtual-key.ts:110,151` (`allowed_models: ["*"]`) |
@@ -117,7 +120,11 @@ A Models page under Organisation, beside Members, Status and Apps
    - **Where the call goes.** stadeum-ui calls the gateway's admin API
      with the credentials it already holds
      (`ui/src/lib/mothership/admin-credentials.ts`):
-     - a built-in provider: `POST /api/providers/{p}/keys {name, value, models: ["*"]}`;
+     - a built-in provider: the pasted key **replaces** the empty
+       `env.*` slot instead of sitting beside it, so each provider has
+       one live key. That is a `DELETE` of the slot and a
+       `POST /api/providers/{p}/keys {name, value, models: ["*"]}`, the
+       two calls the e2e already makes (`mothership-e2e.mjs:155,159`);
      - Numes or Other: `POST /api/providers {provider, keys, network_config: {base_url}, custom_provider_config: {base_provider_type: "openai"}}`;
      - Maple: the same, with `base_url: http://maple:8080` and
        `allow_private_network: true`.
@@ -129,11 +136,17 @@ A Models page under Organisation, beside Members, Status and Apps
      their own delegation. That is the path every call takes, so a green
      Test means people can use the provider.
 2. **Models.** For each provider the page shows the models in strut's
-   catalog (`GET /llm/models`, with prices and context windows), ticked
-   to allow. Any other id can be typed in: the gateway's catalog knows
-   689 OpenRouter models. An Other provider's models are typed in, each
-   with an optional price per million tokens. A blank price shows as
-   "free: no cap applies". One model is starred as the org default.
+   catalog (`GET /llm/models`, with prices and context windows).
+   - **Adding a provider allows its catalog models at once**, so "paste
+     a key, done" holds. That is Numes' 8 free models, Maple's 7, and
+     the named models of the others. The admin unticks what the org
+     should not use.
+   - **Any other id can be typed in**: the gateway's catalog knows 689
+     OpenRouter models. An Other provider's models are typed in, each
+     with an optional price per million tokens. A blank price shows as
+     "free: no cap applies".
+   - **One model is starred as the org default.** Until the admin picks
+     one, it is the first provider's default model.
 3. **Save reconciles**, as it does on sign-in today:
    - every person's VK gets `allowed_models` per provider from
      `Org.models`;
@@ -142,16 +155,26 @@ A Models page under Organisation, beside Members, Status and Apps
    - the gateway gets a price row for every allowed model it cannot
      price (work item 5).
 
-**Maple's proxy.** It reads prompts in plaintext, holds no key and needs
-no port (`strut deploy/voice/docker-compose.yml:77-98`). stadeum-ui
-cannot start a container, because the Docker socket is mounted in `ops`
-alone (rule 4).
-- **Recommendation: run `maple` in every stack.** Copy the voice demo's
-  hardening: pinned `0.4.5`, read-only, `cap_drop: [ALL]`, 256 MB, no
-  route in Caddy. Turning Maple on is then a pasted key, as for every
-  other provider. With no Maple key in the gateway, nothing calls it.
-- **The alternative** is an optional compose profile. That would make
-  Maple the one provider that needs a shell (question 2).
+**Keys come in only through this page.** The five provider-key rows
+leave `.env.example` and `stack/stadeum.yml` (`.env.example:56-60`,
+`stadeum.yml:117-123`):
+- **One way in.** With a second way, "which key is live" has two
+  answers.
+- **No copies on the host.** A key in `.env` is a plaintext file on the
+  host, and it shows in `docker inspect` of the bifrost container.
+- **A provider is the admin's choice**, like a member, not a setting of
+  the box.
+- **Scripted installs** call the gateway's admin API, with the admin
+  password `.env` already holds.
+
+**Maple's proxy runs in every stack.** It reads prompts in plaintext,
+holds no key and needs no port
+(`strut deploy/voice/docker-compose.yml:77-98`). stadeum-ui cannot start
+a container: the Docker socket is mounted in `ops` alone (rule 4).
+- **The service copies the voice demo's hardening:** pinned `0.4.5`,
+  read-only, `cap_drop: [ALL]`, 256 MB, no route in Caddy.
+- **Turning Maple on is a pasted key**, as for every other provider.
+  With no Maple key in the gateway, nothing calls the proxy.
 
 **aieo moving into strut helps.** The catalog becomes strut's own, and a
 new model or provider is one strut PR. Today it takes four steps
@@ -167,8 +190,10 @@ strut.
 - **Confidentiality is kept.** The gateway is on the same box and
   network. Maple's proxy is still the only hop to the enclave, and it
   still encrypts to it. Strut already keeps every prompt on this box.
-- **Bifrost's log is one more plaintext copy**, kept for 365 days and
-  included in the backup (question 4).
+- **Bifrost's log is one more plaintext copy**, included in the backup.
+  It stays: the spend pages and debugging read it. Stadeum keeps it 60
+  days instead of the image's 365, by setting
+  `client_config.log_retention_days` through bifrost's `PUT /api/config`.
 - **Numes' free models** are priced 0. They cost nothing, and no cap
   bites. Its paid models need a price row.
 
@@ -185,11 +210,16 @@ strut.
     becomes an OpenAI chat model on that route, so an admin's Other
     provider needs no aieo release. Today that name is "Unknown LLM
     provider" (`resolve.ts:129`).
-- **strut** `src/llm.ts:115`:
-  - With `STRUT_MOTHERSHIP_REQUIRED=1`, it asks the hook for every
-    provider. "Required" means no direct call.
-  - Without it, today's rule stands: Maple and Numes are called
-    directly, as on Peel and the voice demo.
+- **strut** deletes the special case at `src/llm.ts:110-115` and asks
+  the hook for every provider. The hook decides, as it already does for
+  the others:
+  - **with a delegation**, the call goes through the gateway;
+  - **without one**, it goes direct, or is an error under
+    `STRUT_MOTHERSHIP_REQUIRED=1`;
+  - **with no hook** (Peel, the voice demo), nothing changes.
+
+  No Hive swarm calls Maple or Numes directly. A swarm that wants them
+  later adds them to its own gateway, as Stadeum does.
 - **The gateway** needs a runtime door for price rows. Without a row, a
   Maple call counts as $0 against every cap.
 
@@ -207,8 +237,26 @@ read from the secret store and then env, like `STRUT_DEFAULT_MODEL`.
 
 **Strut never asks the gateway.**
 - It holds no admin credentials.
-- A VK's list is per person, but the picker needs one answer.
+- The list is the org's and one for everyone, so the host can tell strut
+  once.
 - The gateway still enforces the list: strut only shows it.
+
+**Jamie and other apps.** Jamie is a strut app, so stadeum never draws
+its picker (rule 2). It sees the org list through strut:
+- **Jamie's picker** calls the `llm/models` step, which its manifest
+  grants (`strut src/apps/jamie/app.yaml:16`). That step returns the
+  same list as `GET /llm/models`.
+- **Jamie keeps only `available` models** (`Composer.tsx:197`). With
+  `STRUT_MODELS` set, those are exactly the org's list.
+- **"Default" sends no `params.model`**, so the turn runs on the org
+  default.
+- **Jamie shows the whole list.** It is the person's own assistant, and
+  the list is what the admin allowed.
+- **An app that wants fewer filters the same answer in its own code**,
+  or its workflow pins a model. Neither strut nor stadeum keeps a list
+  per app.
+- **An app cannot widen the list.** The gateway refuses any model that
+  is not on it, whatever the app sends.
 
 **Known limit.** Both settings sit in strut's deployment secret store,
 which anyone signed in can write. Editing them changes what Jamie shows,
@@ -221,30 +269,29 @@ In order, one PR each.
 
 | # | Repo | What | Needs |
 | --- | --- | --- | --- |
-| 1 | stadeum | The Models page, providers and keys: list, add (the five built-ins), Test, delete, all through the gateway's admin API. The provider list becomes what the gateway has, not a fixed five (`types.ts:3`, `constants.ts:23`, `virtual-key.ts:128-139`) | — |
+| 1 | stadeum | The Models page, providers and keys: list, add (the five built-ins, replacing the empty `env.*` slot), Test, delete, all through the gateway's admin API. The provider list becomes what the gateway has, not a fixed five (`types.ts:3`, `constants.ts:23`, `virtual-key.ts:128-139`). The provider-key rows leave `.env.example` and `stadeum.yml`. Bifrost's log retention is set to 60 days on the pass that registers trust; check that `restart_required` stays false | — |
 | 2 | strut | `STRUT_MODELS`. `/llm/models` lists every model aieo knows, with price and context. The builder chat's default reads `STRUT_DEFAULT_MODEL` (`createStrut.ts:1218`). Jamie drops a remembered pick that is no longer listed. The gateway's "model not allowed" is explained in plain words | — |
 | 3 | stadeum | Allowed models and the org default: `Org.models` and `Org.defaultModel` (a migration). Each VK's `allowed_models` comes from them. Stadeum pushes `STRUT_MODELS` and `STRUT_DEFAULT_MODEL`, and adds `stack/strut/host-config.json` (`model: null` for job, orchestrator and builder) as `STRUT_HOST_CONFIG` | 2 |
-| 4 | strut, with aieo inside | Routed OpenAI-compatible providers (Maple, Numes, any name) on the gateway's `/openai/v1`. `llm.ts` asks the hook for every provider under `REQUIRED`. If aieo has not moved yet, the aieo half lands in stakgraph, with a strut bump | the aieo move |
-| 5 | gateway | `PUT /_plugin/pricing` (Bearer), kept on the `bifrost` volume, over the config's `model_pricing`. Tests: a custom provider added through `/api/providers` routes `/openai/v1` with `maple/<id>`, reports usage when streaming, and survives a restart with the baked `config.json` | — |
-| 6 | stadeum | Numes, Maple and Other on the page. The `maple` service in `stadeum.yml`. Price rows pushed from strut's catalog. `mothership-e2e.sh` gains a fake OpenAI-compatible provider whose calls are billed per person | 3, 4, 5 |
+| 4 | strut, with aieo inside | Routed OpenAI-compatible providers (Maple, Numes, any name) on the gateway's `/openai/v1`. `llm.ts` asks the hook for every provider; the `BASE_URL_ENV` special case goes. If aieo has not moved yet, the aieo half lands in stakgraph, with a strut bump | the aieo move |
+| 5 | gateway | `PUT /_plugin/pricing` (Bearer), kept on the `bifrost` volume, over the config's `model_pricing`. Tests: a custom provider added through `/api/providers` routes `/openai/v1` with `maple/<id>` and reports usage when streaming. A key that replaced the `env.*` slot, and a custom provider, both survive a restart with the baked `config.json` | — |
+| 6 | stadeum | Numes, Maple and Other on the page. The `maple` service in every stack (`stadeum.yml`). Price rows pushed from strut's catalog. `mothership-e2e.sh` gains a fake OpenAI-compatible provider whose calls are billed per person | 3, 4, 5 |
 
 Items 1, 2 and 5 can run at the same time.
 
-## Open questions for Evan
+## Rulings
 
-1. **One list for the org, or one per role or person?** The VK is
-   already per person, so per-person lists cost nothing new later. v1
-   has one list.
-2. **Maple's proxy in every stack (recommended), or behind a compose
-   profile?**
-3. **Drop the five provider-key rows from `.env` once the page ships?**
-   Two ways in means two answers to "which key is live". Recommended:
-   yes. Scripted installs call the gateway's API.
-4. **Bifrost's log keeps every prompt for 365 days.** Keep it, for
-   debugging and the spend pages? Or turn content logging off, which
-   suits Maple's promise better and shrinks backups?
-5. **Does any Hive swarm run strut with `STRUT_MOTHERSHIP_REQUIRED=1`
-   and call Maple or Numes directly?** Item 4 would send those calls to
-   a gateway with no route for them.
-6. **Numes' free models:** allowed for everyone by default, since they
-   cost nothing, or off until an admin ticks them?
+Evan, 2026-11-05:
+
+1. **One list of allowed models per org.** Apps may filter it, but may
+   not widen it.
+2. **Maple's proxy runs in every stack.** It costs little when unused.
+3. **Provider keys leave `.env`.** Evan asked for a recommendation, and
+   this is it: "Keys come in only through this page" gives the reasons.
+4. **The gateway log stays, kept 60 days** on Stadeum.
+5. **No Hive swarm calls Maple or Numes directly.** Routing them through
+   a gateway stays an option, so strut drops the special case outright.
+6. **A new provider's catalog models arrive already allowed.** This was
+   the question about Numes' free models "on for everyone by default".
+   With one org list, "for everyone" adds nothing: the question was only
+   whether they start ticked. Evan did not rule on this; it is the
+   plan's default, and flipping it is one line.
