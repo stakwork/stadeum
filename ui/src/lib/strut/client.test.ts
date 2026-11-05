@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { MothershipConfigError } from "@/lib/mothership/admin-credentials";
 import { startFakeStack, type FakeStack } from "@/test/fake-stack";
-import { embedUrl, health, listApps, StrutHttpError } from "./client";
+import { embedUrl, getAppUsage, getAppVersions, health, listApps, setAppLive, setAppPinned, StrutHttpError } from "./client";
 
 let fake: FakeStack;
 const saved = { ...process.env };
@@ -88,7 +88,7 @@ describe("listApps", () => {
     const apps = await listApps();
     expect(fake.state.requests).toContain("GET /strut/apps");
     expect(apps.map((a) => a.name)).toEqual(["strut/jamie", "strut/views"]);
-    expect(apps[0]).toEqual({ name: "strut/jamie", title: "Jamie", description: "Jamie, the person's assistant." });
+    expect(apps[0]).toEqual({ name: "strut/jamie", title: "Jamie", description: "Jamie, the person's assistant.", activeVersion: "v1" });
   });
 
   it("falls back to the name for a title, and keeps pinned only when true", async () => {
@@ -100,8 +100,8 @@ describe("listApps", () => {
     ];
     try {
       expect(await listApps()).toEqual([
-        { name: "acme/books", title: "Books" },
-        { name: "acme/legal", title: "acme/legal", pinned: true },
+        { name: "acme/books", title: "Books", activeVersion: "v1" },
+        { name: "acme/legal", title: "acme/legal", activeVersion: "v1", pinned: true },
       ]);
     } finally {
       fake.state.apps = saved;
@@ -118,6 +118,68 @@ describe("listApps", () => {
     } finally {
       fake.state.down.strut = false;
     }
+  });
+});
+
+describe("an app's versions", () => {
+  it("reads the versions, what is live and the releases, and makes changes as the actor", async () => {
+    configure();
+    fake.publish("acme/legal", "Legal");
+    fake.publish("acme/legal");
+    let v = await getAppVersions("acme/legal");
+    expect(v).toMatchObject({ name: "acme/legal", active: "v2", live: "latest", releases: [] });
+    expect(Object.keys(v.versions)).toEqual(["v1", "v2"]);
+    expect(fake.state.requests).toContain("GET /strut/apps/acme%2Flegal/versions");
+
+    // Holding at v1 makes a release, stamped with who asked; a publish is then a draft.
+    expect(await setAppLive("acme/legal", { version: "v1" }, "ada-0f3c")).toEqual({ active: "v1", live: "r1" });
+    fake.publish("acme/legal");
+    v = await getAppVersions("acme/legal");
+    expect(v).toMatchObject({ active: "v1", live: "r1", releases: [{ id: "r1", version: "v1", by: "ada-0f3c" }] });
+    expect(Object.keys(v.versions)).toEqual(["v1", "v2", "v3"]);
+    // The listing says the app is held.
+    expect((await listApps()).find((a) => a.name === "acme/legal")).toMatchObject({ activeVersion: "v1", live: "r1" });
+
+    await setAppLive("acme/legal", { version: "v3" }, "ada-0f3c");
+    expect(await setAppLive("acme/legal", { release: "r1" }, "ada-0f3c")).toEqual({ active: "v1", live: "r1" });
+    expect(await setAppLive("acme/legal", { version: "latest" }, "ada-0f3c")).toEqual({ active: "v3", live: "latest" });
+  });
+
+  it("refuses in strut's own words", async () => {
+    configure();
+    fake.publish("acme/tax", "Tax");
+    await setAppLive("acme/tax", { version: "v1" }, "ada-0f3c");
+    fake.state.refuseRelease = "release r1 locks workflow tax-run, which no longer exists";
+    const err = await setAppLive("acme/tax", { release: "r1" }, "ada-0f3c").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(StrutHttpError);
+    expect((err as StrutHttpError).status).toBe(409);
+    expect((err as StrutHttpError).detail).toBe("release r1 locks workflow tax-run, which no longer exists");
+
+    // A seeded app cannot be held; pinning it holds nothing.
+    await expect(setAppLive("strut/jamie", { version: "v1" }, "ada-0f3c")).rejects.toMatchObject({ status: 409, detail: expect.stringMatching(/cannot be held/) });
+    expect(await setAppPinned("strut/jamie", true, "ada-0f3c")).toEqual({ pinned: true, live: "latest" });
+    await setAppPinned("strut/jamie", false, "ada-0f3c");
+    expect((await getAppVersions("strut/jamie")).versions.v1?.source).toBe("seed");
+
+    await expect(getAppVersions("acme/nope")).rejects.toMatchObject({ status: 404, detail: 'App "acme/nope" not found' });
+  });
+
+  it("pins: an app that follows latest is held at its live version", async () => {
+    configure();
+    fake.publish("acme/books", "Books");
+    expect(await setAppPinned("acme/books", true, "ada-0f3c")).toEqual({ pinned: true, live: "r1" });
+    expect(await getAppVersions("acme/books")).toMatchObject({ pinned: true, live: "r1", active: "v1" });
+    // Unpinning leaves what is live alone.
+    expect(await setAppPinned("acme/books", false, "ada-0f3c")).toEqual({ pinned: false, live: "r1" });
+  });
+
+  it("reads the last day's warnings", async () => {
+    configure();
+    fake.publish("acme/dash", "Dash");
+    const warning = { kind: "fanout", version: "v1", times: 6, lastAt: new Date().toISOString(), message: "run/events called 214 times in 10 s", fix: "Gather it in one call." };
+    fake.state.appRecords.get("acme/dash")!.warnings.push(warning);
+    expect(await getAppUsage("acme/dash")).toEqual({ warnings: [warning] });
+    expect((await listApps()).find((a) => a.name === "acme/dash")?.warnings).toBe(1);
   });
 });
 

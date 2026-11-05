@@ -4,19 +4,11 @@ import { notFound, redirect } from "next/navigation";
 import { listApps } from "@/lib/apps";
 import { requireUser } from "@/lib/session";
 import { AppFrame, CannotOpen } from "../app-frame";
+import { appName } from "../app-name";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ name: string }>; searchParams: Promise<{ input?: string }> };
-
-/** The segment is the app's name, encoded: `strut%2Fjamie`. */
-function appName(segment: string): string {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
-}
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const name = appName((await params).name);

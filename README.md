@@ -73,6 +73,16 @@ Organisation (Members, Status; admins only) and strut's apps.
 - The app's own deep link, `input`, rides in stadeum's URL:
   `/?input=session%3D<id>` opens that conversation, and the app's
   `strut:location` reports update it.
+- Organisation → Apps (`/apps`, admins only) manages what strut serves: per
+  app, what is live (every publish, or a held version), its drafts, its
+  pin and its usage warnings. An app's versions
+  (`/apps/<name>/versions`) can be viewed by the admin alone
+  (`<name>@vN`), made live, restored, or followed again from the newest
+  publish. Every change asks first and says what everyone will get. The
+  role is checked on the server, and every call goes through the strut
+  client with the deployment key, the admin named as the actor. The states
+  and wording are strut's (`ui/src/lib/app-versions.ts`, ported from its
+  `web/src/app-versions.ts`). A seeded app (Jamie) is read-only.
 - Sign-in: Microsoft Entra ID and Google when their `AUTH_*` vars are set;
   `STADEUM_DEV_LOGIN=1` adds a password-less email login for local work.
   The first person becomes admin; others need an invite or an email at

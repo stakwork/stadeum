@@ -31,7 +31,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </p>
         )}
         {/* A framed app (`data-bleed`) fills the page: no width cap, no padding. */}
-        <main className="mx-auto flex w-full max-w-[1048px] flex-1 flex-col gap-10 px-4 pt-6 pb-20 md:gap-11 md:px-14 md:pt-12 has-[>[data-bleed]]:max-w-none has-[>[data-bleed]]:p-0">
+        <main className="mx-auto flex w-full max-w-[1048px] flex-1 flex-col gap-10 px-4 pt-6 pb-20 md:gap-11 md:px-14 md:pt-12 has-[>[data-bleed]]:max-w-none has-[>[data-bleed]]:gap-0 has-[>[data-bleed]]:p-0">
           {children}
         </main>
       </div>
