@@ -312,7 +312,7 @@ function embedPage(actor: string | undefined, q: URLSearchParams, apps: FakeApp[
     : !app
       ? `<p>No app <code>${esc(name || "(none)")}</code>.</p>`
       : `<h1 style="font-weight:600;font-size:18px">${esc(app.title)}</h1>
-<p>App: <code>${esc(app.name)}</code>${q.get("solo") === "1" ? " alone" : ""}, input <code>${esc(q.get("input") ?? "(none)")}</code></p>
+<p>App: <code>${esc(app.name)}</code>${q.get("solo") === "1" ? " alone" : ""}, input <code>${esc(q.get("input") ?? "(none)")}</code>, theme <code>${esc(q.get("theme") ?? "dark")}</code></p>
 <p>Signed in as actor: <code>${esc(actor)}</code></p>
 <p>This page stands in for strut's app host. It was opened with a one-use sign-in ticket, not the shared token.</p>`;
   return `<!doctype html><meta charset="utf-8"><title>Strut (fake)</title>

@@ -65,7 +65,9 @@ Organisation (Members, Status; admins only) and strut's apps.
   `{STRUT_PUBLIC_URL}/?ticket=…&app=<name>&solo=1&embed_origin=<stadeum's origin>`,
   signed in as the person with a ticket minted per page load
   (`POST /auth/ticket`). The frame fills the page beside the rail, with no
-  title or margin of stadeum's. Jamie is the home, `/`. Every other app is
+  title or margin of stadeum's. It opens in the theme stadeum shows
+  (`&theme=light|dark`, which strut reads once), so a theme switch reloads
+  it with a fresh ticket. Jamie is the home, `/`. Every other app is
   at `/apps/<its name, encoded>` (`/apps/acme%2Flegal`). Without Jamie, the
   home lists the apps.
 - The app's own deep link, `input`, rides in stadeum's URL:
