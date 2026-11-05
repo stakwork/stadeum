@@ -85,6 +85,12 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
             <Item href="/apps" active={managingApps}>
               Apps
             </Item>
+            <Item href="/updates" active={is("/updates")}>
+              Updates
+            </Item>
+            <Item href="/backups" active={is("/backups")}>
+              Backups
+            </Item>
           </Section>
         )}
 

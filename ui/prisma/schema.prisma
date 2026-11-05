@@ -71,3 +71,64 @@ model HealthCheck {
   detail    String
   checkedAt DateTime
 }
+
+/// The box's upkeep, which `ops` reads (one row). docs/stack-spec.md, "ops".
+model OpsSettings {
+  id             String   @id @default("ops")
+  /// The daily window, HH:MM in timeZone (IANA).
+  windowStart    String   @default("03:00")
+  windowEnd      String   @default("05:00")
+  timeZone       String   @default("UTC")
+  /// How long to wait for strut to go idle before a restart.
+  drainMinutes   Int      @default(30)
+  updatesEnabled Boolean  @default(true)
+  backupsEnabled Boolean  @default(true)
+  /// s3 | azure | gcs | b2 | local (lib/ops/destination.ts); null until the admin picks one.
+  backupKind     String?
+  /// The destination's fields that are not secret, JSON.
+  backupFields   String?
+  /// Its credentials, JSON, AES-256-GCM (lib/crypto.ts).
+  backupSecretsEnc  String?
+  /// restic's password, AES-256-GCM. Made once, with the first destination.
+  resticPasswordEnc String?
+  /// When the admin said they keep the password off the box; the Backups page shows it until then.
+  passwordKeptAt DateTime?
+  updatedAt      DateTime @updatedAt
+}
+
+/// What ops last said it is doing (one row): ui/src/lib/ops/contract.ts, OpsStatus.
+model OpsStatus {
+  id         String   @id @default("ops")
+  /// The OpsStatus, JSON, without `done`.
+  state      String
+  /// The window ops last ran its daily pass in.
+  lastCycle  String?
+  reportedAt DateTime
+}
+
+/// An admin's Check now, Update now or Back up now, until ops says it is done.
+model OpsRequest {
+  id        String    @id @default(cuid())
+  /// check | update | backup
+  kind      String
+  createdAt DateTime  @default(now())
+  doneAt    DateTime?
+}
+
+/// What ops did: an update, a rollback, a backup, a restore.
+model OpsEvent {
+  id         String   @id @default(cuid())
+  /// update | backup | restore
+  kind       String
+  /// ok | failed | rolled-back | skipped
+  outcome    String
+  startedAt  DateTime
+  endedAt    DateTime
+  detail     String
+  /// OpsEvent.changes, JSON.
+  changes    String?
+  snapshotId String?
+  createdAt  DateTime @default(now())
+
+  @@index([kind, endedAt])
+}

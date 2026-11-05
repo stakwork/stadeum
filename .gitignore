@@ -1,9 +1,15 @@
 node_modules/
 .next/
 .env
-.env.local
+# Other env files (a restore keeps the one it replaced as .env.before-restore).
+.env.*
+!.env.example
 *.db
 *.db-journal
 data/
 .DS_Store
 .claude/
+# A local backup destination (ops mounts it at /backups).
+/backups/
+# Local compose overlays.
+stack/*.local.yml
