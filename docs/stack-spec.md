@@ -135,9 +135,13 @@ checked".
   (stakwork/strut#527); ops follows it. A commit tag pins one image.
 - Based on strut's own `docker-compose.yml`:
   `STRUT_WORKSPACE_BACKEND=graph` with `NEO4J_URI=bolt://neo4j:7687`,
-  `NEO4J_USER`, `NEO4J_PASSWORD`; `STRUT_GRAPH_SEED_ONTOLOGY=1`;
+  `NEO4J_USER`, `NEO4J_PASSWORD`;
   `STRUT_WORKSPACE=/data/workspace`, `STRUT_MODEL_DIR=/data/models`;
   `BROWSER_WS_URL=ws://strut-browser:3000` + `BROWSER_WS_PATH`.
+- No Jarvis ontology: strut seeds its own types on Neo4j (Claim, Check,
+  Evidence, Concept and its `Strut*` types, stakwork/strut#536) and agents
+  and apps add theirs at runtime. Strut no longer carries Jarvis's library
+  (stakwork/strut#543).
 - `STRUT_API_KEY=${SHARED_API_TOKEN}`: every route needs it, or a session
   cookie. It never reaches a browser.
 - `STRUT_SECRET_KEY`, generated: encrypts strut's secret stores
