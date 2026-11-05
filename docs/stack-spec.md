@@ -20,7 +20,7 @@ nine (`ui/src/lib/status.ts`, `SERVICES`).
 | `strut` | `ghcr.io/stakwork/strut:stable` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
 | `bootstrap` | `node:22.20.0-alpine` | One shot: org signing key + trust registration | Org key registered with bifrost, same key as stadeum-ui's |
 | `stadeum-ui` | `ghcr.io/stakwork/stadeum-ui:stable` (built from `ui/`) | Sign-in, the person, Members, Status, Updates, Backups | Running (it serves the page) |
-| `ops` | `ghcr.io/stakwork/stadeum-ops:stable` (built from `ops/`) | Image updates and backups; the Docker socket | Reported in the last 3 minutes |
+| `ops` | `ghcr.io/stakwork/stadeum-ops:stable` (built from `ops/`, carrying `stack/`) | stadeum's releases, strut's updates, backups; the Docker socket | Reported in the last 3 minutes |
 
 stadeum-ui has no Docker socket, so it cannot see container state; each
 row's health is the HTTP check it already makes, and the rest show "Not
@@ -36,13 +36,20 @@ checked".
 - One named volume per service that keeps state, named after it.
 - Every image is pinned to a version or follows a channel, never `latest`.
   ops moves a service whose `stadeum.ops.update` label names a group, on the
-  channel its tag names (`stable`); a person moves the rest, after a backup.
+  channel its tag names (`stable`). Every other pin is in the stack files,
+  which are a release's: it moves when a release changes it, and Neo4j's
+  only when an admin confirms it, after a backup.
 - stadeum's own images are published by `.github/workflows/publish-images.yml`
-  (amd64 + arm64, tagged with the short commit sha and `latest`) when `ui/`
-  or `ops/` changes on main; `promote-images.yml` moves `stable` for both to
-  a commit's images, as strut's `promote-image.yml` does for strut's.
+  (amd64 + arm64, tagged with the short commit sha and `latest`) when what
+  goes into one changes on main: `ui/` for stadeum-ui; `ops/`, `stack/`,
+  `.env.example` or `scripts/init-env.sh` for stadeum-ops, which carries
+  them. `promote-images.yml` moves `stable` for both to a commit's images,
+  as strut's `promote-image.yml` does for strut's: that is a release.
   `stack/dev.yml` builds them from the checkout instead (`stadeum-ui:dev`,
   `stadeum-ops:dev`), and ops never pulls a service that has a build.
+- A box's own changes go in `stack/local.yml`: a compose override beside
+  `stadeum.yml` that ops and `scripts/install.sh` add last when it is there,
+  and that no release writes. `.env` is the box's too.
 
 ## Services
 
@@ -75,8 +82,10 @@ checked".
 ### neo4j
 - The stock `neo4j:5.26.32`: no APOC, no GDS, no index initializers. 5.26 is
   the last 5.x (the LTS) and the patch strut's own `docker-compose.yml` pins.
-- **PINNED.** Neo4j cannot open a store a newer version wrote, so it moves
-  only when a person moves it, after a backup.
+- **PINNED, and held.** Neo4j cannot open a store a newer version wrote.
+  Its label `stadeum.ops.upgrade: confirm` makes ops hold a release that
+  changes its image until an admin presses Upgrade Neo4j on the Updates
+  page; ops then backs up and applies it ("ops", below).
 - Who needs what from it:
   - strut's graph backend (`STRUT_WORKSPACE_BACKEND=graph`) needs fulltext
     and vector indexes (5.13+) and makes its own at boot.
@@ -102,7 +111,8 @@ checked".
   wrapper that proxies to bifrost-http on 127.0.0.1:8080). Do NOT set
   `APP_PORT`/`APP_HOST`. Its tags are stakgraph's releases; `v0.4.396` is
   stakgraph `b8f16c5b`, the digest `latest` named when it was pinned. A
-  person moves it.
+  release that changes the pin moves it (`BIFROST_TAG` in `.env` pins a
+  box's).
 - Volume `/app/data`.
 - Env: `BIFROST_ADMIN_USER=admin`, `BIFROST_ADMIN_PASS` (bcrypted on first
   boot into `/app/data`), `BIFROST_PROVISIONING_TOKEN=${SHARED_API_TOKEN}`,
@@ -173,7 +183,8 @@ checked".
 ### bootstrap
 - `node:22.20.0-alpine`, runs `stack/bootstrap/org-identity.mjs` once: the org
   signing key in the `org` volume, and its registration with bifrost.
-  Idempotent; `docker compose … run --rm bootstrap` re-runs it.
+  Idempotent; `docker compose … run --rm bootstrap` re-runs it. An update
+  never starts it (`restart: "no"` makes it a one-shot to ops).
 
 ### stadeum-ui
 - `ghcr.io/stakwork/stadeum-ui:${STADEUM_IMAGE_TAG:-stable}`, built from
@@ -194,8 +205,12 @@ checked".
 
 ### ops
 - `ghcr.io/stakwork/stadeum-ops:${STADEUM_IMAGE_TAG:-stable}`, built from
-  `ops/`: Node running the loop, the docker CLI with its compose plugin, and
-  restic, each from a pinned image. No runtime npm dependencies.
+  `ops/` with the repository's root as its context: Node running the loop,
+  the docker CLI with its compose plugin, and restic, each from a pinned
+  image. No runtime npm dependencies. It also carries its commit's release
+  at `/usr/local/share/stadeum`: `stack/` (without `local.yml` and
+  `dev.yml`), `.env.example` and `scripts/init-env.sh`
+  (`ops/Dockerfile.dockerignore`).
 - **No port.** It starts every connection itself: stadeum-ui
   (`STADEUM_UI_URL`) for its settings and to post back, strut (`STRUT_URL`)
   for the drain and the health check, both with `SHARED_API_TOKEN` as
@@ -204,18 +219,21 @@ checked".
   containers with `docker compose`, run against the files and env file the
   stack was started with: compose's own labels on ops's container
   (`com.docker.compose.project`, `…config_files`, `…environment_file`,
-  `…working_dir`) say which. The checkout is mounted at `/stadeum`, and ops
-  links its host path to it, so compose resolves `./caddy/Caddyfile` to the
-  host path the daemon needs. Why compose and not the Docker API: compose
+  `…working_dir`) say which, and the box's `stack/local.yml` is added last
+  when it is there. The box's directory (`/opt/stadeum`; on a laptop, the
+  checkout) is mounted at `/stadeum`, and ops links its host path to it, so
+  compose resolves `./caddy/Caddyfile` to the host path the daemon needs. Why compose and not the Docker API: compose
   already knows how to recreate a container with its networks, volumes,
   labels and healthcheck, so an update is the `compose pull` + `compose up`
   a person would type, and ops reimplements none of it.
 - **Every volume** is mounted at `/volumes/<name>`, for the snapshot and the
-  restore, and the checkout's `backups/` at `/backups` (a local destination).
-- **Two labels** in `stack/stadeum.yml` say what ops does to a service:
+  restore, and the box's `backups/` at `/backups` (a local destination).
+- **Three labels** in `stack/stadeum.yml` say what ops does to a service:
   `stadeum.ops.update: <group>` (strut + strut-browser in `strut`;
-  stadeum-ui + ops in `stadeum`) and `stadeum.ops.backup: stop` (neo4j,
-  redis, bifrost, strut, stadeum-ui).
+  stadeum-ui + ops in `stadeum`, ops's own group: the release),
+  `stadeum.ops.backup: stop` (neo4j, redis, bifrost, strut, stadeum-ui) and
+  `stadeum.ops.upgrade: confirm` (neo4j). A service with `restart: "no"`
+  (bootstrap) is a one-shot: an update never starts it.
 
 **Its settings** live in stadeum-ui's database (`OpsSettings`), set on the
 admin pages Updates and Backups: the daily window (start, end, IANA time
@@ -229,8 +247,8 @@ encrypted under `STADEUM_ENCRYPTION_KEY`, as the org key is.
 
 | Method | Path | |
 | --- | --- | --- |
-| GET | `/api/ops/settings` | The window, the wait, updates on or off, the destination (decrypted), the admin's open requests (check, update, back up now), the window last run, and the images that failed their health check |
-| PUT | `/api/ops/status` | What ops is doing, every service's running image and what its channel has, the newest snapshots, and the requests it answered |
+| GET | `/api/ops/settings` | The window, the wait, updates on or off, the destination (decrypted), the admin's open requests (check, update, back up now, and `confirm` with the image references an admin agreed to), the window last run, and the images that failed their health check |
+| PUT | `/api/ops/status` | What ops is doing, every service's running image and what its channel has, the release that runs and what the channel's would change (files, pins, what holds it), the newest snapshots, and the requests it answered |
 | POST | `/api/ops/history` | What it did: an update (with each image's from and to), a rollback, a backup (its snapshot), a restore |
 
 Caddy answers `/api/ops/*` with 404: the routes are for the box's network
@@ -238,10 +256,12 @@ only.
 
 **The loop** ticks every 30 s. It reads its settings, does what an admin
 asked for, and once in each day's window runs the daily pass: the backup,
-then the updates, held back if tonight's backup failed. stadeum-ui keeps the
-window last run, so a restarted ops does not run it twice.
+then the updates, held back if tonight's backup failed: strut's group, then
+stadeum's release. stadeum-ui keeps the window last run, so a restarted ops
+does not run it twice. While a release is being applied (the one-off below
+runs), the loop keeps still.
 
-**An update**, per group, strut's first:
+**An update** of a group that follows a channel (strut's):
 
 1. `compose pull` the group, and compare the image ID each tag now names
    with the one its container runs.
@@ -257,10 +277,60 @@ window last run, so a restarted ops does not run it twice.
    the channel moves on or an admin presses Update now.
 5. Record what changed, and lift the drain if a restart did not.
 
-ops moves itself last: it cannot recreate the container it runs in, so it
-starts a one-off ops on the new image (`compose run -d --rm ops hand-over
-<previous image>`), which recreates the ops service and puts the previous
-image back if the new one does not come up.
+**A release** is stadeum's channel: stadeum-ops's image, stadeum-ui's, and
+the stack files ops's image carries (`ops/src/release.ts`). The files pin
+every other image, so a release moves Caddy, Redis and the gateway too.
+
+1. The check pulls stadeum-ui and ops. If either moved, ops reads the new
+   release's files out of the new ops image (`docker create` + `docker
+   cp`), stages them, and has compose read them with the box's `.env` and
+   `local.yml`, which proves they parse. It reports what they change: the
+   files, and each service whose pin moves. It puts the release's tags back
+   on what runs, so a person's `compose up` cannot bring half a release in.
+2. A release that changes the image of a service labelled
+   `stadeum.ops.upgrade: confirm` (Neo4j) is **held**: nothing of it moves,
+   files or images. The Updates page says a release is waiting and what it
+   upgrades, from what to what, which cannot be undone, with an **Upgrade
+   Neo4j** button. The button files a `confirm` request naming the
+   references the admin saw. ops then takes a fresh backup (the nightly
+   one's restic snapshot), and only if it succeeded hands the release over
+   with those references; a release that has moved on since is held again.
+3. Otherwise ops hands the release to the ops it brings: it tags the
+   release's images and starts a one-off ops on the new image (`compose
+   run -d --rm ops hand-over <previous ops image> [--confirm <refs>]`). The
+   new ops applies its own files, because they are its: the code that
+   knows a release is the release's own, and it may change how a release
+   goes in without waiting a release. And `compose up` must run outside the
+   ops service's container, since it may recreate ops itself. The old ops
+   waits; if the new code dies, it is still there.
+4. The one-off plans again (and holds again, unless told the admin
+   confirmed), pulls what the files pin and the box lacks, and works out
+   what compose will recreate: a service whose config hash (`compose config
+   --hash`, the `com.docker.compose.config-hash` it was made with) or image
+   differs, a new one, or one that bind-mounts a file that changes (a new
+   Caddyfile needs a new Caddy). It drains strut unless only stadeum-ui and
+   ops move, writes the files that change (each renamed over the old) and
+   removes those the release dropped, then `compose up -d --no-deps
+   --force-recreate --remove-orphans --wait` those services, ops among
+   them, and checks strut's health with the key if strut moved.
+5. Unhealthy: the previous ops image's stack files go back (or, from an ops
+   older than releases, the box's own copies), every image's tag goes back
+   on what ran, and `compose up` again. The release's images are held back
+   (not tried again) until the channel moves on or an admin presses Update
+   now.
+
+The release never writes `.env` or `stack/local.yml`, and an ops built here
+(`stack/dev.yml`) has no releases: the files are the checkout's.
+`scripts/release-e2e.sh` proves it on a box of its own, with a registry
+standing in for ghcr.io: a release that changes a Caddy route, a setting
+and a pin goes in; a broken one comes back off; one that moves Neo4j waits
+for Upgrade Neo4j, which backs up first.
+
+**The box needs no git checkout.** `scripts/install.sh` writes the stack
+files from stadeum-ops's image: on a fresh box the stable channel's, after
+that the release the box's ops runs, so running it again writes back what
+ops last put in place instead of fighting it. A checkout would be a second
+source of the same files, one that `git pull` and ops would both write.
 
 **A backup**, in the window, or when an admin presses Back up now:
 
@@ -279,8 +349,16 @@ admin's fields into restic's repository string and its own variables
 destination and never changes; the Backups page shows it, with a restore
 kit, until the admin says they keep it off the box, and never again.
 
-**A restore** is one command on a fresh box (the restore kit saved as
-`restore.env`):
+**A restore** is the install on a new box, with the restore kit (saved as
+`/root/restore.env`): it puts the release's files in place, restores the
+snapshot, then starts the stack.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo STADEUM_RESTORE=/root/restore.env bash
+```
+
+From a checkout, it is these. `ops restore <id>` (for the install,
+`STADEUM_SNAPSHOT=<id>`) restores another snapshot than the latest.
 
 ```bash
 scripts/init-env.sh
@@ -290,8 +368,8 @@ docker compose --env-file .env -f stack/stadeum.yml up -d --wait
 
 It stops the stack, empties each volume the snapshot has, restores them,
 and puts the snapshot's `.env` back (keeping the one it replaced as
-`.env.before-restore`). That `.env` names the old box's `HOST`: change it
-before `up` if the new box has another name. `scripts/backup-restore-e2e.sh` proves it: data in
+`.env.before-restore`). That `.env` names the old box's `HOST`: for another
+name, pass `STADEUM_HOST` to the install, or change it before `up`. `scripts/backup-restore-e2e.sh` proves it: data in
 strut, stadeum-ui and Neo4j, a backup, every volume wiped and `.env`
 regenerated, a restore, and the same data back.
 

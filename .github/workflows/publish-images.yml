@@ -2,11 +2,12 @@ name: publish images
 
 # Builds stadeum's own images for amd64 and arm64 and pushes them to ghcr.io
 # when what goes into one changes on main: ghcr.io/stakwork/stadeum-ui (ui/)
-# and ghcr.io/stakwork/stadeum-ops (ops/). Tags are the short commit sha,
-# which is what a box pins, and the moving `latest`. A box follows `stable`,
-# which moves only when someone runs promote-images.yml. An image whose
-# directory did not change is not rebuilt, so it keeps its digest and ops
-# does not restart it.
+# and ghcr.io/stakwork/stadeum-ops (ops/, and the release it carries: stack/,
+# .env.example, scripts/init-env.sh; ops/Dockerfile). Tags are the short
+# commit sha, which is what a box pins, and the moving `latest`. A box
+# follows `stable`, which moves only when someone runs promote-images.yml.
+# An image whose sources did not change is not rebuilt, so it keeps its
+# digest and ops does not restart it.
 
 on:
   push:
@@ -14,6 +15,9 @@ on:
     paths:
       - "ui/**"
       - "ops/**"
+      - "stack/**"
+      - ".env.example"
+      - "scripts/init-env.sh"
       - ".github/workflows/publish-images.yml"
   workflow_dispatch:
 
@@ -34,9 +38,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # context: what the build sees; file: its Dockerfile; paths: what,
+        # changed, makes a new image.
         image:
-          - { name: stadeum-ui, dir: ui }
-          - { name: stadeum-ops, dir: ops }
+          - { name: stadeum-ui, context: ui, file: ui/Dockerfile, paths: "ui" }
+          - { name: stadeum-ops, context: ".", file: ops/Dockerfile, paths: "ops stack .env.example scripts/init-env.sh" }
     permissions:
       contents: read
       packages: write
@@ -52,15 +58,16 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
-          DIR: ${{ matrix.image.dir }}
+          PATHS: ${{ matrix.image.paths }}
         run: |
           set -euo pipefail
           echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          read -ra paths <<< "$PATHS"
           if [[ "$EVENT" != push || "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
             echo "build=true" >> "$GITHUB_OUTPUT"
-          elif git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "$DIR" .github/workflows/publish-images.yml; then
+          elif git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "${paths[@]}" .github/workflows/publish-images.yml; then
             echo "build=false" >> "$GITHUB_OUTPUT"
-            echo "$DIR/ did not change: no new image"
+            echo "${paths[*]} did not change: no new image"
           else
             echo "build=true" >> "$GITHUB_OUTPUT"
           fi
@@ -92,7 +99,8 @@ jobs:
         uses: docker/build-push-action@v6
         id: build
         with:
-          context: ${{ matrix.image.dir }}
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.file }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |

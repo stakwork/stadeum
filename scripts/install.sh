@@ -11,8 +11,10 @@
 #
 #   1. installs Docker Engine and its compose plugin from Docker's apt
 #      repository, unless they are there;
-#   2. clones stadeum into /opt/stadeum, or uses the clone it runs from, and
-#      updates it; makes .env with scripts/init-env.sh;
+#   2. puts a release's stack files in /opt/stadeum/stack (STADEUM_DIR):
+#      stadeum-ops's image carries them. On a fresh box that is the stable
+#      channel's; after, the release the box's ops runs. It makes .env with
+#      the release's scripts/init-env.sh;
 #   3. asks for what .env still lacks: the domain, an email for Let's
 #      Encrypt, a sign-in provider and, the first time, the org's name.
 #      Model keys are not asked for: an admin sets them on the Models page,
@@ -22,10 +24,24 @@
 #   5. starts the stack, checks that both names answer over https, and says
 #      what is left to do.
 #
-# Re-running it is safe: it updates the checkout and starts the stack again
-# with the same .env. It never changes a value .env has, and never re-pulls
-# an image the box has: ops moves those in its nightly window, with a drain
-# and a rollback. A Neo4j version change waits for a yes on the terminal.
+# The box needs no git checkout: each release brings its own stack files,
+# and ops puts them in place when it applies one (docs/stack-spec.md,
+# "ops"). The box's own changes go in stack/local.yml, which compose reads
+# last when it is there, and .env; neither is ever written by a release.
+#
+# Re-running it is safe: it writes back the stack files of the release that
+# runs, and starts the stack again with the same .env. It never changes a
+# value .env has, and never re-pulls an image the box has: ops moves those
+# in its nightly window, with a drain and a rollback. A Neo4j version change
+# waits for a yes on the terminal.
+#
+# Restore onto a new box: save the Backups page's restore kit on it, then
+#
+#   curl -fsSL …/scripts/install.sh | sudo STADEUM_RESTORE=/root/restore.env bash
+#
+# puts the latest snapshot back (STADEUM_SNAPSHOT=<id> for another) before
+# it starts: the volumes and the old box's .env. For another name than the
+# old box's, pass STADEUM_HOST too.
 #
 # A scripted install answers each question with STADEUM_ and the .env name.
 # sudo drops the environment, so put them after it:
@@ -41,13 +57,16 @@
 #   STADEUM_ORG_NAME (optional)
 #   STADEUM_SKIP_DNS_CHECK=1  start without the DNS check, when a load
 #                             balancer or proxy sits in front of the box
+#   STADEUM_DIR               the box's directory (default /opt/stadeum)
 #
 # It refuses STADEUM_DEV_LOGIN: on a public host the password-less dev login
 # lets anyone sign in as anyone, and the first to sign in becomes admin.
 set -euo pipefail
 
-REPO=https://github.com/stakwork/stadeum
-DEFAULT_CHECKOUT=/opt/stadeum
+DEFAULT_BOX=/opt/stadeum
+OPS_IMAGE=ghcr.io/stakwork/stadeum-ops
+# Where stadeum-ops's image keeps its release (ops/Dockerfile).
+RELEASE_DIR=/usr/local/share/stadeum
 SUPPORTED="Ubuntu 22.04, 24.04 or 26.04, or Debian 12 or 13, on amd64 or arm64"
 
 say() { printf '%s\n' "$*"; }
@@ -93,7 +112,6 @@ apt_get() {
 install_docker() {
   step "Docker"
   local tools=() docker=()
-  command -v git >/dev/null || tools+=(git)
   command -v curl >/dev/null || tools+=(curl)
   command -v openssl >/dev/null || tools+=(openssl)
   [ -e /etc/ssl/certs/ca-certificates.crt ] || tools+=(ca-certificates)
@@ -129,48 +147,48 @@ install_docker() {
   say "Docker $(docker version --format '{{.Server.Version}}'), compose $(docker compose version --short)"
 }
 
-# --- The checkout ---
+# --- The release ---
 
-# The clone this script runs from, else /opt/stadeum (under `curl … | bash`
-# there is no file to run from).
-locate_checkout() {
-  local here
-  CHECKOUT=$DEFAULT_CHECKOUT
-  if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
-    here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-    if [ -f "$here/stack/stadeum.yml" ] && [ -e "$here/.git" ]; then CHECKOUT=$here; fi
-  fi
-  ENV_FILE=$CHECKOUT/.env
+locate_box() {
+  BOX=${STADEUM_DIR:-$DEFAULT_BOX}
+  ENV_FILE=$BOX/.env
 }
 
-# git as whoever owns the checkout: a person's own clone stays theirs.
-git_checkout() {
-  local owner
-  owner=$(stat -c %U -- "$CHECKOUT")
-  if [ "$owner" = root ]; then
-    git -C "$CHECKOUT" "$@"
-  else
-    runuser -u "$owner" -- git -C "$CHECKOUT" "$@"
-  fi
+# unpack IMAGE DIR: the release IMAGE carries (stack/, .env.example,
+# scripts/init-env.sh), into DIR. Fails when it carries none.
+unpack() {
+  local c ok=1
+  c=$(docker create "$1") || return 1
+  if docker cp "$c:$RELEASE_DIR/." "$2" >/dev/null 2>&1 && [ -f "$2/stack/stadeum.yml" ]; then ok=0; fi
+  docker rm "$c" >/dev/null
+  return $ok
 }
 
-update_checkout() {
-  step "Checkout: $CHECKOUT"
-  local before after
-  if [ ! -e "$CHECKOUT" ]; then
-    git clone --quiet "$REPO" "$CHECKOUT"
-    say "cloned $REPO"
-  elif [ ! -e "$CHECKOUT/.git" ]; then
-    die "$CHECKOUT is there but is not a git checkout: move it aside and run this again."
-  elif ! git_checkout rev-parse -q --verify '@{upstream}' >/dev/null 2>&1; then
-    say "$(git_checkout symbolic-ref -q --short HEAD || echo 'a detached HEAD') follows no upstream: not updated"
+# The release the box gets: the one its ops runs, so a re-run writes back
+# what ops last put in place; on a fresh box, or one older than releases,
+# the channel's (STADEUM_IMAGE_TAG, default stable).
+put_release() {
+  step "Stack files: $BOX/stack"
+  local ops tag ref
+  RELEASE=$(mktemp -d)
+  ops=$(docker ps -aq --filter label=com.docker.compose.project=stadeum --filter label=com.docker.compose.service=ops \
+    --filter label=com.docker.compose.oneoff=False | head -n 1)
+  if [ -n "$ops" ] && unpack "$(docker inspect --format '{{.Image}}' "$ops")" "$RELEASE"; then
+    say "the release ops runs ($(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$ops" | cut -c1-7))"
   else
-    before=$(git_checkout rev-parse --short HEAD)
-    git_checkout pull --ff-only --quiet ||
-      die "could not update $CHECKOUT (git pull --ff-only, above): sort it out there and run this again."
-    after=$(git_checkout rev-parse --short HEAD)
-    if [ "$before" = "$after" ]; then say "up to date ($after)"; else say "updated $before → $after"; fi
+    tag=""
+    [ ! -f "$ENV_FILE" ] || tag=$(env_get STADEUM_IMAGE_TAG)
+    ref=$OPS_IMAGE:${tag:-stable}
+    if ! docker image inspect "$ref" >/dev/null 2>&1 || ! unpack "$ref" "$RELEASE"; then
+      say "pulling $ref"
+      docker pull --quiet "$ref" >/dev/null || die "could not pull $ref"
+      unpack "$ref" "$RELEASE" || die "$ref carries no stack files: it is older than releases. Set STADEUM_IMAGE_TAG in $ENV_FILE to a newer one."
+    fi
+    say "$ref"
   fi
+  [ ! -e "$BOX/.git" ] || say "$BOX is a git checkout: git no longer updates it. Each release brings its own stack files."
+  install -d -m 0755 "$BOX" "$BOX/stack"
+  cp -R "$RELEASE/stack/." "$BOX/stack/"
 }
 
 # --- .env ---
@@ -444,9 +462,32 @@ check_dns() {
 
 # --- The stack ---
 
+# The compose files: the release's, then the box's own local.yml when it is there.
+compose_files() {
+  printf '%s' "-f stack/stadeum.yml"
+  [ ! -f "$BOX/stack/local.yml" ] || printf '%s' " -f stack/local.yml"
+}
+
 # compose on .env alone: a variable in this shell must not override it.
 compose() {
-  (cd "$CHECKOUT" && env -i PATH="$PATH" HOME="${HOME:-/root}" docker compose --env-file .env -f stack/stadeum.yml "$@")
+  local files
+  read -ra files <<<"$(compose_files)"
+  (cd "$BOX" && env -i PATH="$PATH" HOME="${HOME:-/root}" docker compose --env-file .env "${files[@]}" "$@")
+}
+
+# The command a person runs, for the messages.
+compose_cmd() { printf 'cd %s && docker compose --env-file .env %s' "$BOX" "$(compose_files)"; }
+
+# STADEUM_RESTORE: a snapshot back onto this box, before it starts.
+restore() {
+  [ -n "${STADEUM_RESTORE:-}" ] || return 0
+  step "Restore"
+  [ -f "$STADEUM_RESTORE" ] || die "STADEUM_RESTORE names no file: $STADEUM_RESTORE (the Backups page's restore kit)"
+  [ -z "$(compose ps -q)" ] || die "the stack is running here: a restore is for a new box (or stop it first: $(compose_cmd) down)."
+  compose run --rm --no-deps --env-from-file "$STADEUM_RESTORE" ops restore ${STADEUM_SNAPSHOT:+"$STADEUM_SNAPSHOT"} ||
+    die "the restore failed (above): nothing was started."
+  # The snapshot's .env names the old box: STADEUM_HOST names this one (configure checks it).
+  [ -z "${STADEUM_HOST:-}" ] || env_set HOST ""
 }
 
 # Neo4j cannot open a store a newer version wrote: it moves only when a
@@ -481,7 +522,7 @@ start() {
   neo4j_guard
   say "starting: the first start seeds the graph and fetches strut's models, a few minutes"
   compose up -d --wait ||
-    die "the stack did not come up healthy. See: cd $CHECKOUT && docker compose --env-file .env -f stack/stadeum.yml ps (then … logs <service>)"
+    die "the stack did not come up healthy. See: $(compose_cmd) ps (then … logs <service>)"
 }
 
 # Caddy on this machine answers NAME with a trusted certificate.
@@ -509,7 +550,7 @@ finish() {
   else
     step "Stadeum is running, but https://$HOST_NAME has no certificate yet"
     say "Caddy keeps trying. Open ports 80 and 443, then see what it says:"
-    say "  cd $CHECKOUT && docker compose --env-file .env -f stack/stadeum.yml logs caddy"
+    say "  $(compose_cmd) logs caddy"
   fi
   say ""
   say "  Register the sign-in redirect URLs, in each provider's OAuth client:"
@@ -521,19 +562,23 @@ finish() {
   say "  Then set the model keys and the models people may use: Organisation → Models."
   say "  And set up backups: Organisation → Backups."
   say ""
-  say "  The settings are in $ENV_FILE. Run this again to update the checkout and restart with them."
+  say "  The settings are in $ENV_FILE, and the box's own compose changes go in"
+  say "  $BOX/stack/local.yml: a release never touches either. ops keeps the rest"
+  say "  current (Organisation → Updates). Run this again to restart with them."
   [ "$ok" = 1 ] || exit 1
 }
 
 main() {
   check_system
-  locate_checkout
+  locate_box
   refuse_dev_login
   install_docker
-  update_checkout
+  put_release
   FRESH=0
   [ -f "$ENV_FILE" ] || FRESH=1
-  "$CHECKOUT/scripts/init-env.sh" "$ENV_FILE" >/dev/null
+  "$RELEASE/scripts/init-env.sh" "$ENV_FILE" >/dev/null
+  rm -rf "$RELEASE"
+  restore
   configure
   check_dns
   start

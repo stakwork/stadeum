@@ -14,11 +14,11 @@ const PHASE: Record<Phase, string> = {
   draining: "Waiting for strut to finish its runs",
   "backing-up": "Backing up",
   updating: "Updating",
-  "rolling-back": "Putting the old images back",
+  "rolling-back": "Putting the previous images and stack files back",
   restoring: "Restoring",
 };
 
-const ASKED: Record<RequestKind, string> = { check: "a check", update: "an update", backup: "a backup" };
+const ASKED: Record<RequestKind, string> = { check: "a check", update: "an update", backup: "a backup", confirm: "the held release, after a backup" };
 
 export function OpsNow({
   report,

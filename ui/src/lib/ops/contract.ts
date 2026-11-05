@@ -30,7 +30,12 @@ export interface Destination {
   env: Record<string, string>;
 }
 
-export type RequestKind = "check" | "update" | "backup";
+/**
+ * `confirm`: an admin let a held release in (Upgrade Neo4j). Its `target`
+ * names the image references they agreed to, comma-separated: ops backs
+ * up, then moves only to those.
+ */
+export type RequestKind = "check" | "update" | "backup" | "confirm";
 
 export interface OpsSettings {
   window: UpkeepWindow;
@@ -40,7 +45,7 @@ export interface OpsSettings {
   /** null until the admin picks a destination. */
   backups: ({ enabled: boolean } & Destination) | null;
   /** What an admin asked for on the Updates and Backups pages, oldest first. */
-  requests: Array<{ id: string; kind: RequestKind; at: string }>;
+  requests: Array<{ id: string; kind: RequestKind; at: string; target?: string }>;
   /** The window ops last ran its daily pass in (its local start date). */
   lastCycle: string | null;
   /** Images that failed their health check: not tried again until the channel moves on. */
@@ -58,6 +63,8 @@ export interface ServiceImage {
   group?: string;
   /** Built on this box (`stack/dev.yml`): never pulled. */
   built?: boolean;
+  /** One of stadeum's release's own images (stadeum-ui, ops): it moves with the release. */
+  release?: boolean;
   running?: ImageRef;
   available?: ImageRef;
 }
@@ -77,12 +84,35 @@ export interface Snapshot {
   added?: number;
 }
 
+/**
+ * A stadeum release: stadeum-ops's image, the stack files it carries, and
+ * stadeum-ui's image, moved together. What runs, and what the channel has
+ * when that is another.
+ */
+export interface ReleaseStatus {
+  /** ops's image that runs: its revision is the release's commit. */
+  running?: ImageRef;
+  /** The channel's, when it is not the one that runs. */
+  available?: ImageRef;
+  /** What moving to it changes: the stack files, and each service whose image reference changes. */
+  files?: string[];
+  images?: Array<{ service: string; from?: string; to?: string }>;
+  /**
+   * What holds it: a service whose image moves only when an admin
+   * confirms it, after a backup, because it cannot move back (Neo4j).
+   */
+  held?: Array<{ service: string; from: string; to: string }>;
+  /** Why the channel's release could not be read. */
+  problem?: string;
+}
+
 export interface OpsStatus {
   phase: Phase;
   detail?: string;
   /** ops's own revision. */
   version: string;
   services: ServiceImage[];
+  release?: ReleaseStatus;
   /** When ops last compared the channels with what runs. */
   checkedAt?: string;
   lastCycle?: string;

@@ -112,11 +112,13 @@ model OpsStatus {
   reportedAt DateTime
 }
 
-/// An admin's Check now, Update now or Back up now, until ops says it is done.
+/// An admin's Check now, Update now, Back up now or Upgrade Neo4j, until ops says it is done.
 model OpsRequest {
   id        String    @id @default(cuid())
-  /// check | update | backup
+  /// check | update | backup | confirm
   kind      String
+  /// confirm: the image references the admin agreed to, comma-separated (lib/ops/contract.ts).
+  target    String?
   createdAt DateTime  @default(now())
   doneAt    DateTime?
 }

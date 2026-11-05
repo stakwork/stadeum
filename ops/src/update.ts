@@ -5,8 +5,10 @@ import { drainStrut, errorText, liftDrain, took, type Deps } from "./deps.js";
 /**
  * Updates. A service with a `stadeum.ops.update: <group>` label follows
  * the channel its image names (`…:stable`); a group moves together (strut
- * and strut-browser: their Playwright versions must match). Every other
- * service moves only when a person moves it.
+ * and strut-browser: their Playwright versions must match). ops's own
+ * group (stadeum-ui and ops) is a release, with the stack files ops's
+ * image carries, and moves as one (release.ts). Every other service moves
+ * when a release changes its pin.
  *
  *   1. Pull the group, and compare the image ID each reference now names
  *      with the one its container runs.
@@ -32,11 +34,12 @@ export interface Check {
 /** Strut's service name: a group with it in is drained first. */
 export const STRUT = "strut";
 
-/** The update groups, by name: those of services made on this box (dev) and ops's own are left out. */
+/** The update groups, by name: those of services made on this box (dev) and the release's are left out. */
 export function updateGroups(defs: ServiceDef[], self: string): Group[] {
+  const release = new Set(releaseGroup(defs, self).map((s) => s.name));
   const groups = new Map<string, ServiceDef[]>();
   for (const s of defs) {
-    if (!s.group || s.built || s.name === self) continue;
+    if (!s.group || s.built || s.name === self || release.has(s.name)) continue;
     groups.set(s.group, [...(groups.get(s.group) ?? []), s]);
   }
   return [...groups].map(([name, services]) => ({ name, services })).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
@@ -66,7 +69,7 @@ export interface UpdateOptions {
   drainMinutes: number;
 }
 
-const short = (r: ImageRef | undefined) => (r ? (r.revision ?? r.id.replace(/^sha256:/, "")).slice(0, 7) : "none");
+export const short = (r: ImageRef | undefined) => (r ? (r.revision ?? r.id.replace(/^sha256:/, "")).slice(0, 7) : "none");
 
 export function describeChanges(changes: NonNullable<OpsEvent["changes"]>): string {
   return changes.map((c) => `${c.service} ${short(c.from)} → ${short(c.to)}`).join(", ");
@@ -137,7 +140,7 @@ const HEALTH_EVERY_MS = 5_000;
  * Beyond the containers' own healthchecks (`compose up --wait`): strut
  * answers `/health` with the key, i.e. its API is serving.
  */
-async function healthy(d: Deps, services: string[]): Promise<void> {
+export async function healthy(d: Deps, services: string[]): Promise<void> {
   if (!services.includes(STRUT)) return;
   let last = "";
   for (let i = 0; i < HEALTH_TRIES; i++) {
@@ -153,57 +156,42 @@ async function healthy(d: Deps, services: string[]): Promise<void> {
   throw new Error(`strut's /health: ${last}`);
 }
 
-// ── ops itself ──────────────────────────────────────────────────────────
+// ── the release ─────────────────────────────────────────────────────────
 
 /**
- * ops's own image. ops cannot recreate the container it runs in (compose
- * would stop it halfway), so a one-off ops container on the new image
- * takes over: `ops hand-over <previous image>` recreates the service and
- * puts the previous image back if it does not come up.
+ * ops's own service, when it follows a channel. Built here (stack/dev.yml)
+ * or pinned to no channel, it has no releases: the files are the
+ * checkout's, and nothing writes them but a person.
  */
 export function selfDef(defs: ServiceDef[], self: string): ServiceDef | undefined {
   const s = defs.find((d) => d.name === self);
   return s?.group && !s.built ? s : undefined;
 }
 
-export async function handOver(d: Deps, check: Check): Promise<void> {
-  d.log(`ops ${short({ id: check.running ?? "" })} → ${short({ id: check.available! })}: handing over`);
-  await d.stack.spawnSelf(["hand-over", check.running ?? ""]);
+/** The release's services: ops's own update group (stadeum-ui and ops). */
+export function releaseGroup(defs: ServiceDef[], self: string): ServiceDef[] {
+  const sd = selfDef(defs, self);
+  return sd ? defs.filter((s) => s.group === sd.group && !s.built) : [];
 }
 
-/** In the one-off container: recreate ops on the image just pulled. */
-export async function takeOver(d: Deps, previous: string | undefined): Promise<OpsEvent> {
-  const startedAt = d.now();
-  const defs = await d.stack.services();
-  const self = defs.find((s) => s.name === d.stack.self);
-  if (!self) throw new Error(`no service ${d.stack.self} in the compose file`);
-  const available = await d.stack.imageId(self.image);
-  if (!available) throw new Error(`no image ${self.image} on this box`);
-  const changes = [
-    { service: self.name, ...(previous ? { from: await d.stack.describe(previous) } : {}), to: await d.stack.describe(available) },
-  ];
-  const what = describeChanges(changes);
-  const event = (outcome: OpsEvent["outcome"], detail: string): OpsEvent => ({
-    kind: "update",
-    outcome,
-    startedAt: startedAt.toISOString(),
-    endedAt: d.now().toISOString(),
-    detail,
-    changes,
-  });
-  // Let the old ops finish what it was saying.
-  await d.sleep(3_000);
+/**
+ * Hand the release to the ops it brings. ops cannot run the compose up
+ * that recreates the container it runs in (compose would stop it
+ * halfway), and the files are the new ops's to put in place: a one-off ops
+ * container on the new image (`ops hand-over <previous ops image>`)
+ * applies the release (release.ts, applyRelease), the ops service with
+ * it, and puts it all back if it does not come up. The release's images
+ * get their tags here, for the one-off and its compose up; they go back
+ * on what runs if it does not start.
+ */
+export async function handOver(d: Deps, checks: Check[], confirmed: string[]): Promise<void> {
+  const self = checks.find((c) => c.service.name === d.stack.self);
+  d.log(`release ${short({ id: self?.running ?? "" })} → ${short({ id: self?.available ?? self?.running ?? "" })}: handing over`);
   try {
-    await d.stack.up([self.name]);
-    return event("ok", `Updated ${what}.`);
+    for (const c of checks) if (c.available) await d.stack.tag(c.available, c.service.image);
+    await d.stack.spawnSelf(["hand-over", self?.running ?? "", ...(confirmed.length ? ["--confirm", confirmed.join(",")] : [])]);
   } catch (err) {
-    if (!previous) return event("failed", `${what} did not come up: ${errorText(err)}`);
-    try {
-      await d.stack.tag(previous, self.image);
-      await d.stack.up([self.name]);
-      return event("rolled-back", `${what} did not come up, so the image it replaced was put back. ${errorText(err)}`);
-    } catch (err2) {
-      return event("failed", `${what} did not come up, and putting the old image back failed too: ${errorText(err2)}`);
-    }
+    for (const c of checks) if (c.running) await d.stack.tag(c.running, c.service.image).catch(() => undefined);
+    throw err;
   }
 }

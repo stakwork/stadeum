@@ -16,7 +16,7 @@ work on it. Read the rules before adding anything.
 | **neo4j** | The graph strut keeps | Updated by anything but a person |
 | **bifrost** + **redis** (`ghcr.io/stakwork/stakgraph-gateway`) | Every model call: provider keys, a virtual key and a cap per person | Lets a call through without a valid delegation |
 | **stadeum-ui** (`ui/`) | Who people are (sign-in, members, roles), the org signing key's use, each person's delegation, the admin pages | Draws an app, or knows what a workflow or document is |
-| **ops** (`ops/`) | The box's upkeep: image updates, backups, restores | Has an open port |
+| **ops** (`ops/`) | The box's upkeep: stadeum's releases (its image carries the stack files), strut's updates, backups, restores | Has an open port |
 | **caddy** | TLS and routing; the only published ports | Holds any credential but its certificates |
 | **bootstrap** | One shot at first boot: the org signing key | Runs again unasked |
 
@@ -67,9 +67,13 @@ work on it. Read the rules before adding anything.
    did, nothing more.
 
 7. **Pinned, moved on purpose, reversible.** Every image is pinned to a
-   version or a channel (`stable`), never `latest`. An update can be rolled
-   back to the image it replaced. Neo4j moves only when a person moves it,
-   after a backup: it cannot open a store a newer version wrote.
+   version or a channel (`stable`), never `latest`. A release is
+   stadeum-ops's image, stadeum-ui's, and the stack files ops's image
+   carries; it moves every pin in them. Neo4j moves only when an admin
+   confirms it on the box, after a backup: it cannot open a store a newer
+   version wrote. An update can be rolled back to the images and stack
+   files it replaced. A box's own changes live in `.env` and
+   `stack/local.yml`, which no release writes.
 
 8. **The data is the customer's.** Every volume is in the backup, and so
    are the secrets needed to read it, except the backup's own password,
@@ -104,7 +108,10 @@ order of the work, each step its own PR:
 3. Updates: `ops` follows `strut:stable` (and stadeum's own `stable`) in a
    daily window the admin sets. It turns on strut's drain (`PUT /drain`),
    waits for `idle`, pulls, restarts, checks health, and rolls back on
-   failure. (Done.)
+   failure. (Done.) A stadeum release carries its stack files in ops's
+   image, and the ops it brings applies them; a release that changes Neo4j
+   waits for an admin's Upgrade Neo4j, after a backup. A box needs no git
+   checkout. (Done.)
 4. Backups: `ops` runs restic to the destination the admin picks. It covers
    every volume (Neo4j's store, strut's data, `stadeum.db`, the `org`
    volume, the gateway's) and `.env`, with what would tear stopped around
@@ -123,7 +130,7 @@ order of the work, each step its own PR:
 
 | Path | What |
 | --- | --- |
-| `stack/stadeum.yml` | The deployment (docker compose), on published images. `stack/dev.yml` overlays local mode: plain http on `*.localhost`, stadeum-ui and ops built here |
+| `stack/stadeum.yml` | The deployment (docker compose), on published images: a release's, which ops writes onto a box. `stack/local.yml` is a box's own override, never in a release. `stack/dev.yml` overlays local mode: plain http on `*.localhost`, stadeum-ui and ops built here |
 | `stack/caddy/Caddyfile` | The routes: `$HOST` → stadeum-ui, `strut.$HOST` → strut |
 | `stack/bootstrap/` | First boot: the org signing key and its registration with the gateway |
 | `ui/` | stadeum-ui: Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db`) |
@@ -131,9 +138,9 @@ order of the work, each step its own PR:
 | `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the brand, the frame's sign-in ticket |
 | `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
 | `ui/src/lib/models/` | The Models page's work: each provider's key in the gateway, the org's model list and default, carried to every person's virtual key and to strut |
-| `ops/` | stadeum-ops: the update and backup loop, driving `docker compose` and restic. No runtime dependencies |
+| `ops/` | stadeum-ops: the update and backup loop, driving `docker compose` and restic, and the release (`src/release.ts`): its image carries `stack/`, built from the repository's root. No runtime dependencies |
 | `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |
-| `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the checkout, `.env`, the DNS check, the stack), `init-env.sh` (generates `.env`'s secrets), the gateway end-to-end check, the backup-and-restore proof |
+| `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the release's stack files from stadeum-ops's image, `.env`, the DNS check, the stack; or a restore), `init-env.sh` (generates `.env`'s secrets), the gateway end-to-end check, the backup-and-restore proof, the release proof |
 | `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract), `models.md` (who picks a model, where the keys live) |
 
 ## Running
@@ -165,8 +172,9 @@ cd ui && npm run dev
 
 Checks: `cd ui && npm run typecheck && npm run lint && npm test`,
 `cd ops && npm run typecheck && npm test`, `scripts/mothership-e2e.sh` for
-the gateway path end to end, and `scripts/backup-restore-e2e.sh` for a
-backup restored onto wiped volumes.
+the gateway path end to end, `scripts/backup-restore-e2e.sh` for a backup
+restored onto wiped volumes, and `scripts/release-e2e.sh` for releases
+applied to a running box, rolled back, and held for Neo4j.
 
 ## Conventions
 

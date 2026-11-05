@@ -1,6 +1,9 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { checkoutPath, ComposeStack, parseProject, parseServices } from "./compose.js";
+import { boxPath, ComposeStack, parseHashes, parseProject, parseServices } from "./compose.js";
 import type { Exec } from "./exec.js";
 
 const labels = {
@@ -22,32 +25,43 @@ describe("the compose project", () => {
     });
   });
 
-  it("finds the checkout at the path compose names it, under any prefix the daemon adds", () => {
+  it("finds the box's directory at the path compose names it, under any prefix the daemon adds", () => {
     const files = ["/Users/ada/stadeum/stack/stadeum.yml", "/Users/ada/stadeum/stack/dev.yml"];
-    expect(checkoutPath("/host_mnt/Users/ada/stadeum", files)).toBe("/Users/ada/stadeum");
-    expect(checkoutPath("/srv/stadeum", ["/srv/stadeum/stack/stadeum.yml"])).toBe("/srv/stadeum");
-    expect(checkoutPath("/elsewhere", ["/srv/stadeum/stack/stadeum.yml"])).toBe("/elsewhere");
+    expect(boxPath("/host_mnt/Users/ada/stadeum", files)).toBe("/Users/ada/stadeum");
+    expect(boxPath("/srv/stadeum", ["/srv/stadeum/stack/stadeum.yml"])).toBe("/srv/stadeum");
+    expect(boxPath("/elsewhere", ["/srv/stadeum/stack/stadeum.yml"])).toBe("/elsewhere");
   });
 
   it("refuses a container compose did not start", () => {
     expect(() => parseProject({})).toThrow(/not running under docker compose/);
   });
 
-  it("reads the update groups and the services stopped for a backup from the labels", () => {
+  it("reads from the labels the update groups, what stops for a backup and what waits for an admin; and the one-shots and bind mounts", () => {
     const services = parseServices({
       services: {
-        neo4j: { image: "neo4j:5.26.32", labels: { "stadeum.ops.backup": "stop" } },
-        strut: { image: "ghcr.io/stakwork/strut:stable", labels: { "stadeum.ops.update": "strut", "stadeum.ops.backup": "stop" } },
-        "stadeum-ui": { image: "stadeum-ui:dev", build: { context: "../ui" }, labels: { "stadeum.ops.update": "stadeum" } },
-        caddy: { image: "caddy:2.11.8-alpine" },
+        neo4j: { image: "neo4j:5.26.32", restart: "unless-stopped", labels: { "stadeum.ops.backup": "stop", "stadeum.ops.upgrade": "confirm" } },
+        strut: { image: "ghcr.io/stakwork/strut:stable", restart: "unless-stopped", labels: { "stadeum.ops.update": "strut", "stadeum.ops.backup": "stop" } },
+        "stadeum-ui": { image: "stadeum-ui:dev", restart: "unless-stopped", build: { context: "../ui" }, labels: { "stadeum.ops.update": "stadeum" } },
+        caddy: {
+          image: "caddy:2.11.8-alpine",
+          restart: "unless-stopped",
+          volumes: [{ type: "bind", source: "/srv/stadeum/stack/caddy/Caddyfile" }, { type: "volume", source: "caddy" }],
+        },
+        bootstrap: { image: "node:22.20.0-alpine", restart: "no" },
       },
     });
+    const base = { built: false, stopForBackup: false, oneShot: false, confirm: false, binds: [] };
     expect(services).toEqual([
-      { name: "neo4j", image: "neo4j:5.26.32", built: false, stopForBackup: true },
-      { name: "strut", image: "ghcr.io/stakwork/strut:stable", built: false, group: "strut", stopForBackup: true },
-      { name: "stadeum-ui", image: "stadeum-ui:dev", built: true, group: "stadeum", stopForBackup: false },
-      { name: "caddy", image: "caddy:2.11.8-alpine", built: false, stopForBackup: false },
+      { ...base, name: "neo4j", image: "neo4j:5.26.32", stopForBackup: true, confirm: true },
+      { ...base, name: "strut", image: "ghcr.io/stakwork/strut:stable", group: "strut", stopForBackup: true },
+      { ...base, name: "stadeum-ui", image: "stadeum-ui:dev", built: true, group: "stadeum" },
+      { ...base, name: "caddy", image: "caddy:2.11.8-alpine", binds: ["/srv/stadeum/stack/caddy/Caddyfile"] },
+      { ...base, name: "bootstrap", image: "node:22.20.0-alpine", oneShot: true },
     ]);
+  });
+
+  it("reads compose's config hashes", () => {
+    expect(parseHashes("caddy 876d14\nops 1f2e3d\n")).toEqual(new Map([["caddy", "876d14"], ["ops", "1f2e3d"]]));
   });
 });
 
@@ -84,8 +98,22 @@ describe("driving compose", () => {
     const { s, calls } = stack();
     await s.up(["strut"]);
     await s.up(["neo4j"], { start: true });
+    await s.up(["caddy", "ops"], { recreate: true });
     expect(calls[0]).toEqual([...base, "up", "-d", "--no-deps", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "600", "strut"]);
     expect(calls[1]).toContain("--no-recreate");
+    expect(calls[2]).toEqual([...base, "up", "-d", "--no-deps", "--no-build", "--pull", "never", "--force-recreate", "--remove-orphans", "--wait", "--wait-timeout", "600", "caddy", "ops"]);
+  });
+
+  it("applies the box's local.yml when there is one, after the stack's own files, and reads a release's files in place of the box's", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ops-compose-"));
+    const release = mkdtempSync(join(tmpdir(), "ops-release-"));
+    writeFileSync(join(release, "stadeum.yml"), "services: {}\n");
+    const s = new ComposeStack(parseProject({ ...labels, "com.docker.compose.project.config_files": `${dir}/stadeum.yml,${dir}/dev.yml` }), async () => ({ code: 0, stdout: "", stderr: "" }));
+    expect(s.dir).toBe(dir);
+    expect(s.files()).toEqual([`${dir}/stadeum.yml`, `${dir}/dev.yml`]);
+    writeFileSync(join(dir, "local.yml"), "services: {}\n");
+    expect(s.files()).toEqual([`${dir}/stadeum.yml`, `${dir}/dev.yml`, `${dir}/local.yml`]);
+    expect(s.files(release)).toEqual([`${release}/stadeum.yml`, `${dir}/dev.yml`, `${dir}/local.yml`]);
   });
 
   it("says which step failed and compose's last line, not the command", async () => {
