@@ -21,10 +21,7 @@
 # Each update is an admin's Update now, filed in stadeum-ui's database as
 # the page files it. CONFIRM=page waits at r4 for someone to set a backup
 # destination and press Upgrade Neo4j at http://stadeum.localhost:8091
-# (the dev login) instead. KEEP=1 leaves it all up. The gateway's image is
-# amd64 only: on an arm64 machine without amd64 emulation,
-# E2E_BIFROST_IMAGE names an arm64 build of it, which the box's local.yml
-# pins.
+# (the dev login) instead. KEEP=1 leaves it all up.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -182,9 +179,6 @@ services:
   ops:
     image: $REG/stadeum-ops:stable
 EOF
-if [ -n "${E2E_BIFROST_IMAGE:-}" ]; then
-  printf '  bifrost:\n    image: %s\n' "$E2E_BIFROST_IMAGE" >>"$BOX/stack/local.yml"
-fi
 cp "$BOX/stack/local.yml" "$BUILD/local.yml"
 cp "$BOX/.env" "$BUILD/env"
 compose up -d --wait --wait-timeout 900 >/dev/null

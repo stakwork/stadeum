@@ -123,10 +123,11 @@ services:
   bifrost:
     <<: *common
     # PINNED: the gateway moves with a stadeum release that changes this
-    # pin (its version tags are stakgraph's releases). v0.4.398 has the
-    # runtime price table (`PUT /_plugin/pricing`) stadeum-ui keeps Maple's,
-    # Numes' and added providers' prices in (docs/models.md).
-    image: ghcr.io/stakwork/stakgraph-gateway:${BIFROST_TAG:-v0.4.398}
+    # pin (its version tags are stakgraph's releases). v0.4.399 is published
+    # for amd64 and arm64, and has the runtime price table (`PUT
+    # /_plugin/pricing`, since v0.4.398) stadeum-ui keeps Maple's, Numes'
+    # and added providers' prices in (docs/models.md).
+    image: ghcr.io/stakwork/stakgraph-gateway:${BIFROST_TAG:-v0.4.399}
     labels:
       stadeum.ops.backup: stop
     depends_on:
