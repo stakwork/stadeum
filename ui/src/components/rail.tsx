@@ -10,23 +10,28 @@ import { LogoMark } from "./logo-mark";
 
 export interface RailProps {
   orgName: string;
-  apps: Array<{ id: string; name: string; entry: string }>;
+  /** The top item, `/`: the assistant's title, or "Home" without one. */
+  home: string;
+  /** Strut's other apps, in launcher order. */
+  apps: Array<{ title: string; href: string }>;
   admin: boolean;
   person: { name: string; tone: Tone; state: string };
 }
 
 /**
- * The left rail: wordmark, Home, Apps, Organisation, and the person with
- * their run state. On phones it folds behind a menu button and, when
- * opened, sits above the page in the flow: it pushes content down, never
- * covers it.
+ * The left rail: wordmark, the home (the assistant), Apps, Organisation,
+ * and the person with their run state. On phones it folds behind a menu
+ * button and, when opened, sits above the page in the flow: it pushes
+ * content down, never covers it.
  */
-export function Rail({ orgName, apps, admin, person }: RailProps) {
+export function Rail({ orgName, home, apps, admin, person }: RailProps) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
 
   const is = (href: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
+  // The admin Apps page and an app's versions; an app's own item is only its frame.
+  const managingApps = path === "/apps" || /^\/apps\/[^/]+\/versions(\/|$)/.test(path);
 
   return (
     <>
@@ -56,16 +61,18 @@ export function Rail({ orgName, apps, admin, person }: RailProps) {
         </div>
 
         <Item href="/" active={is("/")} strong>
-          Home
+          {home}
         </Item>
 
-        <Section label="Apps">
-          {apps.map((a) => (
-            <Item key={a.id} href={a.entry} active={is(a.entry)}>
-              {a.name}
-            </Item>
-          ))}
-        </Section>
+        {apps.length > 0 && (
+          <Section label="Apps">
+            {apps.map((a) => (
+              <Item key={a.href} href={a.href} active={path === a.href}>
+                {a.title}
+              </Item>
+            ))}
+          </Section>
+        )}
 
         {admin && (
           <Section label="Organisation">
@@ -74,6 +81,9 @@ export function Rail({ orgName, apps, admin, person }: RailProps) {
             </Item>
             <Item href="/status" active={is("/status")}>
               Status
+            </Item>
+            <Item href="/apps" active={managingApps}>
+              Apps
             </Item>
             <Item href="/updates" active={is("/updates")}>
               Updates

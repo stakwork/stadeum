@@ -97,7 +97,7 @@ order of the work, each step its own PR:
 
 0. This file. (Done.)
 1. Strut: a per-person sign-in for its framed UI, the standalone twin of
-   mcp's `/mint-token` (a strut PR).
+   mcp's `/mint-token` (stakwork/strut#530). (Done.)
 2. Strut's own image in place of repo2graph, and Caddy in place of Traefik.
    Neo4j becomes the stock image strut needs, pinned, with no plugins.
    (Done.)
@@ -110,7 +110,8 @@ order of the work, each step its own PR:
    volume, the gateway's) and `.env`, with what would tear stopped around
    the same drain: Neo4j community has no online dump. Restores are tested
    (`scripts/backup-restore-e2e.sh`). (Done.)
-5. Apps from strut's `GET /apps`, with the assistant (Jamie) the first.
+5. Apps from strut's `GET /apps`, with the assistant (Jamie) the first:
+   Jamie is the home. (Done.)
 6. A custom domain. Caddy fetches the certificates. A new domain also needs
    its sign-in redirect URLs registered with Google and Microsoft, which
    the admin page says.
@@ -127,7 +128,7 @@ order of the work, each step its own PR:
 | `stack/bootstrap/` | First boot: the org signing key and its registration with the gateway |
 | `ui/` | stadeum-ui: Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db`) |
 | `ui/src/lib/mothership/` | Each person's virtual key and delegation, minted, pushed to strut, renewed |
-| `ui/src/lib/strut/` | The strut client: delegations, the status check, the frame's sign-in ticket |
+| `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the frame's sign-in ticket |
 | `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
 | `ops/` | stadeum-ops: the update and backup loop, driving `docker compose` and restic. No runtime dependencies |
 | `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |

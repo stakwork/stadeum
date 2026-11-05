@@ -13,22 +13,25 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     db.mothershipUser.findUnique({ where: { userId: user.id } }),
   ]);
   const access = describeDelegation(mothership);
+  const home = apps?.find((a) => a.assistant);
 
   return (
-    <div className="min-h-dvh md:flex">
+    <div className="flex min-h-dvh flex-col md:flex-row">
       <Rail
         orgName={env.orgName()}
-        apps={apps.map((a) => ({ id: a.id, name: a.name, entry: a.entry }))}
+        home={home?.title ?? "Home"}
+        apps={(apps ?? []).filter((a) => !a.assistant).map((a) => ({ title: a.title, href: a.href }))}
         admin={isAdmin(user.role)}
         person={{ name: user.name || user.email, tone: access.tone, state: access.rail }}
       />
-      <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col">
         {env.devLogin() && (
           <p className="bg-warn-soft px-4 py-1.5 text-center text-[12.5px] text-warn">
             Development sign-in is on
           </p>
         )}
-        <main className="mx-auto flex w-full max-w-[1048px] flex-col gap-10 px-4 pt-6 pb-20 md:gap-11 md:px-14 md:pt-12">
+        {/* A framed app (`data-bleed`) fills the page: no width cap, no padding. */}
+        <main className="mx-auto flex w-full max-w-[1048px] flex-1 flex-col gap-10 px-4 pt-6 pb-20 md:gap-11 md:px-14 md:pt-12 has-[>[data-bleed]]:max-w-none has-[>[data-bleed]]:gap-0 has-[>[data-bleed]]:p-0">
           {children}
         </main>
       </div>

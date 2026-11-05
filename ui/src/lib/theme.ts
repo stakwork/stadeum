@@ -15,6 +15,13 @@ export function readTheme(): Theme {
   return t === "light" || t === "dark" ? t : "system";
 }
 
+/** The theme the page shows: the choice, or the OS's under System. */
+export function shownTheme(): "light" | "dark" {
+  const t = readTheme();
+  if (t !== "system") return t;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 /** Apply and remember a choice. Colours change at once: transitions are held off for a frame. */
 export function applyTheme(theme: Theme) {
   const root = document.documentElement;
