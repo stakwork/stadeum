@@ -6,9 +6,8 @@ It was written against stadeum `main` 30a7c61, strut `main` 5c3fb86,
 stakgraph's aieo 0.2.7, and the gateway: bifrost `transports/v2.2.2`
 with `core` v1.10.1. "Live" means a read-only call to the local dev
 stack's bifrost. Evan ruled on its questions the same day: see
-"Rulings" at the end. Work items 1 and 3 are built in the same PR
-(stakwork/stadeum#7); "Built so far" under "Work items" says what that
-covers.
+"Rulings" at the end. Every work item is built: "Built so far" under
+"Work items" says where.
 
 Refs: `strut …` is stakwork/strut. `aieo …` is
 stakgraph `mcp/src/aieo/src/`. `gateway …` is stakgraph `gateway/`.
@@ -116,9 +115,10 @@ A Models page under Organisation, beside Members, Status and Apps
 
 1. **Providers.** The page lists what the gateway has. Each provider
    shows bifrost's masked preview of its key, whether the key works, and
-   Set, Test and Remove. Built: Anthropic, OpenAI, Google, xAI and
-   OpenRouter. With item 6: Numes, Maple, and "Other
-   (OpenAI-compatible)", which also asks for a name and a base URL.
+   Set, Test and Remove: Anthropic, OpenAI, Google, xAI and OpenRouter,
+   then Maple and Numes, then each provider an admin added under
+   "Another provider" (any OpenAI-compatible API: a name, its address,
+   its key). Removing a custom provider removes it whole.
    - **Where the call goes.** stadeum-ui calls the gateway's admin API
      with the credentials it already holds
      (`ui/src/lib/mothership/admin-credentials.ts`):
@@ -321,7 +321,17 @@ In order, one PR each.
 
 Items 1, 2 and 5 can run at the same time.
 
-**Built so far**, in stakwork/stadeum#7 beside this plan:
+**Built so far.** Items 1 and 3 in stakwork/stadeum#7, beside this
+plan; item 2 in stakwork/strut#542, item 4 in stakwork/strut#545, item 5
+in stakwork/stakgraph#1844 (gateway v0.4.398), all merged; item 6 in the
+PR after #7.
+- **Item 6**: Maple and Numes on the page, added on their first key;
+  "Another provider"; every person's key widened to the gateway's custom
+  providers; the price table pushed with the rest (Maple's and Numes'
+  rates from strut's catalog, an added provider's model from the price
+  the admin types beside it); the `maple` service; the gateway pinned at
+  v0.4.398; the gateway e2e's section 5, an OpenAI-compatible provider
+  billed to the person and priced from the table.
 - **Item 1**: the page, its gateway calls, the 60-day log, and the
   provider keys out of `.env`. The gateway e2e asks bifrost whether it
   holds an Anthropic key instead of reading `.env`.
@@ -330,13 +340,9 @@ Items 1, 2 and 5 can run at the same time.
   to strut; the host config. Strut's settings read falls back to env
   (`capabilities.ts:72-85` at strut 2fe953a), so the compose value of
   `STRUT_DEFAULT_MODEL` holds until stadeum first writes it.
-- **Until strut ships item 2** (stakwork/strut#542, open), Jamie's
-  picker still offers "Default" and nothing else. That default is now the
-  admin's.
-- **Item 5** is stakwork/stakgraph#1844, open.
-- **Maple's proxy service lands with item 6**, beside the page that turns
-  Maple on. Strut cannot route a Maple call through the gateway before
-  item 4.
+- **On a box**, Jamie shows the org's list once strut's `stable` carries
+  #542, and Maple, Numes and added providers are called once it carries
+  #545 (strut `bbfcdc0` and later).
 - **Checked against the real bifrost** (the local stack, v2.2.2), on an
   empty xAI slot, then restored: a pasted key replaces the slot in place
   (same id and name, now `plain_text`), only a masked preview comes back,

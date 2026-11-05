@@ -15,7 +15,8 @@ nine (`ui/src/lib/status.ts`, `SERVICES`).
 | `caddy` | `caddy:2.11.8-alpine` | TLS and routing, the only published ports: `$HOST` → stadeum-ui, `strut.$HOST` → strut | None (stadeum-ui never calls it) |
 | `neo4j` | `neo4j:5.26.32` | The graph: strut's workflows, steps and knowledge graph; bifrost's agent catalog | `GET {NEO4J_HTTP_URL}/` |
 | `redis` | `redis:7.4.2-alpine` | bifrost's plugin state | None (stadeum-ui never calls it) |
-| `bifrost` | `ghcr.io/stakwork/stakgraph-gateway:v0.4.396` | Model gateway: provider keys, a virtual key and a cap per person | `/_plugin/trust/status` |
+| `bifrost` | `ghcr.io/stakwork/stakgraph-gateway:v0.4.398` | Model gateway: provider keys, a virtual key and a cap per person, the price table | `/_plugin/trust/status` |
+| `maple` | `ghcr.io/mapleprivacylabs/maple-proxy:0.4.5` | Maple's inference proxy: encrypts each request to Maple's enclave. The gateway's `maple` provider | None (stadeum-ui never calls it) |
 | `strut-browser` | `ghcr.io/stakwork/strut-browser:stable` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
 | `strut` | `ghcr.io/stakwork/strut:stable` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
 | `bootstrap` | `node:22.20.0-alpine` | One shot: org signing key + trust registration | Org key registered with bifrost, same key as stadeum-ui's |
@@ -98,11 +99,11 @@ checked".
   private. Only bifrost uses it (`BIFROST_PLUGIN_REDIS_URL`).
 
 ### bifrost (mothership / LLM gateway)
-- `ghcr.io/stakwork/stakgraph-gateway:${BIFROST_TAG:-v0.4.396}`, port 8181 (a
+- `ghcr.io/stakwork/stakgraph-gateway:${BIFROST_TAG:-v0.4.398}`, port 8181 (a
   wrapper that proxies to bifrost-http on 127.0.0.1:8080). Do NOT set
-  `APP_PORT`/`APP_HOST`. Its tags are stakgraph's releases; `v0.4.396` is
-  stakgraph `b8f16c5b`, the digest `latest` named when it was pinned. A
-  person moves it.
+  `APP_PORT`/`APP_HOST`. Its tags are stakgraph's releases; `v0.4.398` is
+  stakgraph `fcb2692a`, the first with the runtime price table
+  (`PUT /_plugin/pricing`, stakwork/stakgraph#1844). A person moves it.
 - Volume `/app/data`.
 - Env: `BIFROST_ADMIN_USER=admin`, `BIFROST_ADMIN_PASS` (bcrypted on first
   boot into `/app/data`), `BIFROST_PROVISIONING_TOKEN=${SHARED_API_TOKEN}`,
@@ -114,6 +115,19 @@ checked".
 - `BIFROST_PLUGIN_ENFORCE_MACAROONS` and `BIFROST_PLUGIN_ENFORCE_BUDGETS` are
   fixed `true`: a call without a valid macaroon is a 401, one over a cap a
   402. `docs/mothership-spec.md` has the contract.
+
+### maple
+- `ghcr.io/mapleprivacylabs/maple-proxy:${MAPLE_PROXY_TAG:-0.4.5}`, port 8080
+  on the network only: no published port, no route in Caddy. It reads each
+  prompt in plaintext and encrypts it to Maple's attested enclave.
+- The gateway holds it as the OpenAI-compatible custom provider `maple`
+  (`http://maple:8080`, `allow_private_network`), which stadeum-ui adds
+  when an admin sets Maple's key on the Models page. Until then nothing
+  calls it. It holds no key: the gateway sends Maple's on each request.
+- `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, 256 MB. No state, so
+  no backup label; pinned, so a person moves it. It passes Maple's stream
+  through, `[DONE]` included, so the gateway needs none of its stream
+  flags for it (stakwork/stakgraph#1844).
 
 ### strut-browser
 - `ghcr.io/stakwork/strut-browser:${STRUT_BROWSER_TAG:-stable}`: the

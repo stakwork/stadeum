@@ -50,7 +50,7 @@ export default async function ModelsPage() {
                   People pick from the allowed models in Jamie. The default is what everyone gets unless they pick, and what
                   workflows with no model of their own run on.
                 </p>
-                <ModelsForm groups={view.groups.map((g) => ({ label: g.provider.label, models: g.models }))} />
+                <ModelsForm groups={view.groups.map((g) => ({ label: g.provider.label, prefix: g.provider.strut, models: g.models }))} />
               </>
             )}
           </section>

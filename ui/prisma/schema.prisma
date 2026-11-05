@@ -50,6 +50,10 @@ model Org {
   models              String?
   /// The model everyone gets unless they pick one; one of `models`.
   defaultModel        String?
+  /// Prices the admin typed for models strut has no rate for (an Other
+  /// provider's): JSON `{ "<provider>/<id>": { input, output } }`, USD per
+  /// million tokens. Pushed to the gateway's price table.
+  modelPrices         String?
   updatedAt           DateTime  @updatedAt
 }
 

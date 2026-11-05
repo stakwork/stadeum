@@ -1,5 +1,5 @@
 import { BifrostHttpError, jsonClient } from "./http";
-import type { AgentCatalogManifest, TrustOrgRow, TrustOrgUpsert, TrustStatusResponse } from "./types";
+import type { AgentCatalogManifest, GatewayPriceRow, TrustOrgRow, TrustOrgUpsert, TrustStatusResponse } from "./types";
 
 /**
  * Client for the gateway plugin's `/_plugin/*` routes (Bearer provisioning
@@ -66,5 +66,15 @@ export class BifrostPluginClient {
   /** POST /_plugin/agents — replace-by-source agent catalog seed. */
   seedAgentCatalog(manifest: AgentCatalogManifest) {
     return this.request<unknown>("POST", "/_plugin/agents", manifest);
+  }
+
+  /**
+   * Replace the gateway's runtime price table (stakgraph gateway, v0.4.398
+   * and later): rows keyed `<provider>/<model>`, consulted after the
+   * config's `model_pricing` and before bifrost's datasheet. A row of zeros
+   * marks a free model.
+   */
+  putPricing(table: Record<string, GatewayPriceRow>) {
+    return this.request<unknown>("PUT", "/_plugin/pricing", table);
   }
 }
