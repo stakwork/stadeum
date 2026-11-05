@@ -5,15 +5,26 @@
 #
 # Local (plain http on *.localhost, no certificates): add `-f stack/dev.yml`.
 #
+# On a box these files are a release's: stadeum-ops's image carries them,
+# and ops writes them in place when it applies the release (the Updates
+# page). Do not edit them there: put the box's own changes in
+# stack/local.yml, a compose override that ops and scripts/install.sh add
+# when it is there (`-f stack/local.yml`, last) and ops never writes. .env
+# is the box's too.
+#
 # Only caddy publishes host ports. The services reach each other by their
 # service name on the project's network (`stadeum_default`).
 #
-# ops reads two labels (docs/stack-spec.md, "ops"):
+# ops reads three labels (docs/stack-spec.md, "ops"):
 #   stadeum.ops.update: <group>  ops moves the service on its channel, with
-#                                the rest of its group. No label: a person
-#                                moves it.
+#                                the rest of its group. ops's own group is
+#                                stadeum's release. No label: it moves when
+#                                a release changes its pin.
 #   stadeum.ops.backup: stop     stopped while the nightly snapshot is taken:
 #                                its files would tear mid-write.
+#   stadeum.ops.upgrade: confirm a release that changes its image waits
+#                                until an admin confirms it on the Updates
+#                                page, and ops backs up first.
 
 name: stadeum
 
@@ -71,11 +82,13 @@ services:
     <<: *common
     # The stock image strut's graph backend needs (fulltext and vector
     # indexes, 5.13+): no APOC, no GDS. Strut and bifrost make their own
-    # indexes. PINNED: Neo4j cannot open a store a newer version wrote, so
-    # it moves only when a person moves it, after a backup.
+    # indexes. PINNED, and held: Neo4j cannot open a store a newer version
+    # wrote, so a release that moves it waits for an admin's confirmation
+    # on the box, and ops backs up first.
     image: neo4j:5.26.32
     labels:
       stadeum.ops.backup: stop
+      stadeum.ops.upgrade: confirm
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?run scripts/init-env.sh}
       # Laptop defaults; raise them on a real box.
@@ -109,11 +122,12 @@ services:
 
   bifrost:
     <<: *common
-    # PINNED: the gateway moves when a person moves it (its version tags
-    # are stakgraph's releases). v0.4.398 has the runtime price table
-    # (`PUT /_plugin/pricing`) stadeum-ui keeps Maple's, Numes' and added
-    # providers' prices in (docs/models.md).
-    image: ghcr.io/stakwork/stakgraph-gateway:${BIFROST_TAG:-v0.4.398}
+    # PINNED: the gateway moves with a stadeum release that changes this
+    # pin (its version tags are stakgraph's releases). v0.4.399 is published
+    # for amd64 and arm64, and has the runtime price table (`PUT
+    # /_plugin/pricing`, since v0.4.398) stadeum-ui keeps Maple's, Numes'
+    # and added providers' prices in (docs/models.md).
+    image: ghcr.io/stakwork/stakgraph-gateway:${BIFROST_TAG:-v0.4.399}
     labels:
       stadeum.ops.backup: stop
     depends_on:
@@ -154,8 +168,8 @@ services:
     # calls it. It reads each prompt in plaintext, so it stays on this
     # network: no port, no route in the Caddyfile. It holds no key: the
     # gateway sends Maple's on each request. No state, so no backup label;
-    # PINNED (Maple's version tags are immutable, amd64 + arm64), so a
-    # person moves it.
+    # PINNED (Maple's version tags are immutable, amd64 + arm64): it moves
+    # with a stadeum release that changes this pin.
     image: ghcr.io/mapleprivacylabs/maple-proxy:${MAPLE_PROXY_TAG:-0.4.5}
     read_only: true
     cap_drop: [ALL]
@@ -245,7 +259,8 @@ services:
       start_period: 180s
 
   # One-shot: org signing key + bifrost trust registration. Idempotent;
-  # re-run with `docker compose ... run --rm bootstrap`.
+  # re-run with `docker compose ... run --rm bootstrap`. An update never
+  # starts it (`restart: "no"`).
   bootstrap:
     image: node:22.20.0-alpine
     restart: "no"
@@ -313,10 +328,12 @@ services:
       retries: 6
       start_period: 30s
 
-  # The box's upkeep: image updates and backups (docs/stack-spec.md, "ops").
+  # The box's upkeep: updates and backups (docs/stack-spec.md, "ops").
   # The Docker socket is mounted here and nowhere else, and ops has no port:
   # it reads its settings from stadeum-ui, drains strut, and posts back
-  # what it did. It moves itself on stadeum's channel, last.
+  # what it did. Its image is stadeum's release: with stadeum-ui's, and the
+  # stack files it carries, it moves on stadeum's channel, applied by the
+  # new ops itself.
   ops:
     <<: *common
     image: ghcr.io/stakwork/stadeum-ops:${STADEUM_IMAGE_TAG:-stable}
@@ -328,12 +345,13 @@ services:
       STADEUM_UI_URL: http://stadeum-ui:3000
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # The checkout: the compose files ops runs compose with, and the .env
-      # it keeps in each snapshot and puts back on a restore. ops links its
-      # host path to here, so compose hands the daemon host paths.
+      # The box's directory: the stack files ops runs compose with and
+      # writes from each release, and the .env it keeps in each snapshot and
+      # puts back on a restore. ops links its host path to here, so compose
+      # hands the daemon host paths.
       - ..:/stadeum
-      # A local backup destination: the checkout's backups/ (testing, or a
-      # disk mounted there). Not off the box.
+      # A local backup destination: the box's backups/ (testing, or a disk
+      # mounted there). Not off the box.
       - ../backups:/backups
       # Every volume, for the snapshot and the restore.
       - caddy:/volumes/caddy

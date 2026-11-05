@@ -64,7 +64,7 @@ export async function settingsForOps(): Promise<OpsSettings> {
     drainMinutes: row.drainMinutes,
     updates: { enabled: row.updatesEnabled },
     backups,
-    requests: requests.map((r) => ({ id: r.id, kind: r.kind as RequestKind, at: r.createdAt.toISOString() })),
+    requests: requests.map((r) => ({ id: r.id, kind: r.kind as RequestKind, at: r.createdAt.toISOString(), ...(r.target ? { target: r.target } : {}) })),
     lastCycle: status?.lastCycle ?? null,
     failedImages: [...new Set(failed.flatMap((e) => changesOf(e.changes).map((c) => c.to.id)))],
   };
@@ -167,10 +167,10 @@ export async function markPasswordKept(): Promise<void> {
 
 // ── requests ────────────────────────────────────────────────────────────
 
-/** Ask ops for something; it picks it up within its next tick. One open request of a kind is enough. */
-export async function request(kind: RequestKind): Promise<void> {
-  if (await db.opsRequest.findFirst({ where: { kind, doneAt: null } })) return;
-  await db.opsRequest.create({ data: { kind } });
+/** Ask ops for something; it picks it up within its next tick. One open request of a kind (and target) is enough. */
+export async function request(kind: RequestKind, target?: string): Promise<void> {
+  if (await db.opsRequest.findFirst({ where: { kind, doneAt: null, target: target ?? null } })) return;
+  await db.opsRequest.create({ data: { kind, ...(target ? { target } : {}) } });
 }
 
 export async function openRequests(): Promise<RequestKind[]> {
@@ -180,6 +180,7 @@ export async function openRequests(): Promise<RequestKind[]> {
 // ── what ops says ───────────────────────────────────────────────────────
 
 const imageRef = z.object({ id: z.string().max(200), revision: z.string().max(100).optional(), created: z.string().max(60).optional() });
+const ref = z.string().max(300);
 const snapshot = z.object({ id: z.string().max(100), time: z.string().max(60), added: z.number().optional() });
 
 export const statusSchema = z.object({
@@ -193,11 +194,22 @@ export const statusSchema = z.object({
         image: z.string().max(300),
         group: z.string().max(100).optional(),
         built: z.boolean().optional(),
+        release: z.boolean().optional(),
         running: imageRef.optional(),
         available: imageRef.optional(),
       }),
     )
     .max(50),
+  release: z
+    .object({
+      running: imageRef.optional(),
+      available: imageRef.optional(),
+      files: z.array(z.string().max(300)).max(100).optional(),
+      images: z.array(z.object({ service: z.string().max(100), from: ref.optional(), to: ref.optional() })).max(50).optional(),
+      held: z.array(z.object({ service: z.string().max(100), from: ref, to: ref })).max(10).optional(),
+      problem: z.string().max(2000).optional(),
+    })
+    .optional(),
   checkedAt: z.string().max(60).optional(),
   lastCycle: z.string().max(20).optional(),
   snapshots: z.array(snapshot).max(100).optional(),

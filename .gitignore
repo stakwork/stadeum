@@ -13,3 +13,5 @@ data/
 /backups/
 # Local compose overlays.
 stack/*.local.yml
+# The box's own compose override (stack/stadeum.yml).
+stack/local.yml

@@ -111,6 +111,30 @@ describe("the ops routes", () => {
     expect(after.lastCycle).toBe("2026-11-05");
   });
 
+  it("hand ops an Upgrade Neo4j with the references the admin agreed to, once per target", async () => {
+    await request("confirm", "neo4j:5.26.40");
+    await request("confirm", "neo4j:5.26.40");
+    await request("confirm", "neo4j:2026.01.0");
+    const { requests } = await settings();
+    expect(requests.map((r) => [r.kind, r.target])).toEqual([
+      ["confirm", "neo4j:5.26.40"],
+      ["confirm", "neo4j:2026.01.0"],
+    ]);
+  });
+
+  it("keep the release ops reports, with what holds it", async () => {
+    const release = {
+      running: { id: "sha256:ops-1", revision: "1a2b3c4" },
+      available: { id: "sha256:ops-2", revision: "5d6e7f8" },
+      files: ["stadeum.yml"],
+      images: [{ service: "neo4j", from: "neo4j:5.26.32", to: "neo4j:5.26.40" }],
+      held: [{ service: "neo4j", from: "neo4j:5.26.32", to: "neo4j:5.26.40" }],
+    };
+    expect((await putStatus(call("PUT", status({ release })))).status).toBe(204);
+    expect((await readStatus())?.status.release).toEqual(release);
+    expect((await putStatus(call("PUT", status({ release: { held: [{ service: "neo4j" }] } as never })))).status).toBe(400);
+  });
+
   it("keep the last status, its snapshots and its window when the next leaves them out", async () => {
     const snapshots = [{ id: "abc", time: "2026-11-05T03:05:00Z", added: 10 }];
     await putStatus(call("PUT", status({ phase: "backing-up", detail: "taking the snapshot", snapshots, lastCycle: "2026-11-05" })));

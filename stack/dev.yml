@@ -18,7 +18,9 @@ services:
       STRUT_PUBLIC_URL: http://strut.${HOST}
 
   # Built from this checkout. ops never pulls a service that has a build,
-  # so locally it moves strut and strut-browser only.
+  # so locally it moves strut and strut-browser only, and an ops built here
+  # has no releases: it never writes the stack files, which are the
+  # checkout's.
   stadeum-ui:
     image: stadeum-ui:dev
     build: ../ui
@@ -30,4 +32,7 @@ services:
 
   ops:
     image: stadeum-ops:dev
-    build: ../ops
+    # From the repository's root: the image carries the stack files (ops/Dockerfile).
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile

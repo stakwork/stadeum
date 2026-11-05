@@ -1,12 +1,14 @@
 name: promote images
 
-# Points a CHANNEL tag (`stable` by default) at stadeum's images for a commit
-# on main: ghcr.io/stakwork/stadeum-ui and ghcr.io/stakwork/stadeum-ops, each
-# the newest image published at or before that commit (publish-images.yml
-# builds an image only when its directory changed). A box's ops follows
-# `stable` in its nightly window. Nothing is rebuilt: the tags are copied by
-# digest. `latest` is every merge to main; a channel moves only when someone
-# runs this. Like strut's promote-image.yml.
+# Points a CHANNEL tag (`stable` by default) at stadeum's release for a
+# commit on main: ghcr.io/stakwork/stadeum-ui and ghcr.io/stakwork/stadeum-ops,
+# each the newest image published at or before that commit (publish-images.yml
+# builds an image only when its sources changed). stadeum-ops carries that
+# commit's stack files, so the channel moves the files with the images. A
+# box's ops follows `stable` in its nightly window, and holds a release that
+# changes Neo4j until an admin confirms it there. Nothing is rebuilt: the
+# tags are copied by digest. `latest` is every merge to main; a channel moves
+# only when someone runs this. Like strut's promote-image.yml.
 
 on:
   workflow_dispatch:

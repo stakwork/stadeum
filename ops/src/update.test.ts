@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { deps, FakeStack, FakeStrut, svc } from "./test/fakes.js";
-import { checkGroup, takeOver, updateGroup, updateGroups } from "./update.js";
+import { checkGroup, handOver, releaseGroup, updateGroup, updateGroups } from "./update.js";
 
 const opts = { force: false, failed: new Set<string>(), drainMinutes: 30 };
 
@@ -11,14 +11,20 @@ async function strutGroup(stack: FakeStack) {
 }
 
 describe("update groups", () => {
-  it("come from the labels, strut's first, leaving out ops and what is built here", () => {
+  it("come from the labels, leaving out the release (ops's own group) and what is built here", () => {
     const stack = FakeStack.standard();
-    stack.defs.push(svc("dev-thing", "dev:local", { group: "stadeum", built: true }));
+    stack.defs.push(svc("dev-thing", "dev:local", { group: "other", built: true }));
     const groups = updateGroups(stack.defs, "ops");
-    expect(groups.map((g) => [g.name, g.services.map((s) => s.name)])).toEqual([
-      ["strut", ["strut-browser", "strut"]],
-      ["stadeum", ["stadeum-ui"]],
-    ]);
+    expect(groups.map((g) => [g.name, g.services.map((s) => s.name)])).toEqual([["strut", ["strut-browser", "strut"]]]);
+    expect(releaseGroup(stack.defs, "ops").map((s) => s.name)).toEqual(["stadeum-ui", "ops"]);
+  });
+
+  it("have no release when ops is built here: stadeum-ui then moves as a group of its own, if it follows a channel", () => {
+    const stack = FakeStack.standard();
+    const ops = stack.defs.find((s) => s.name === "ops")!;
+    ops.built = true;
+    expect(releaseGroup(stack.defs, "ops")).toEqual([]);
+    expect(updateGroups(stack.defs, "ops").map((g) => g.name)).toEqual(["strut", "stadeum"]);
   });
 });
 
@@ -137,8 +143,11 @@ describe("updating a group", () => {
   it("does not drain for a group without strut", async () => {
     const stack = FakeStack.standard();
     const strut = new FakeStrut();
-    stack.publish("stadeum-ui", "sha256:ui-2");
-    const group = updateGroups(stack.defs, "ops").find((g) => g.name === "stadeum")!;
+    stack.defs.push(svc("maple", "ghcr.io/stakwork/maple:stable", { group: "maple" }));
+    stack.containers.set("maple", "sha256:maple-1");
+    stack.tags.set("ghcr.io/stakwork/maple:stable", "sha256:maple-1");
+    stack.publish("maple", "sha256:maple-2");
+    const group = updateGroups(stack.defs, "ops").find((g) => g.name === "maple")!;
     const event = await updateGroup(deps(stack, strut).d, group, await checkGroup(stack, group.services), opts);
     expect(event?.outcome).toBe("ok");
     expect(strut.calls).toEqual([]);
@@ -161,23 +170,24 @@ describe("updating a group", () => {
   });
 });
 
-describe("ops taking over from itself", () => {
-  it("recreates ops on the new image", async () => {
+describe("handing a release over", () => {
+  it("tags the release's images and starts the one-off on the previous ops image", async () => {
     const stack = FakeStack.standard();
     stack.publish("ops", "sha256:ops-2");
-    await stack.pull(["ops"]);
-    const event = await takeOver(deps(stack, new FakeStrut()).d, "sha256:ops-1");
-    expect(event.outcome).toBe("ok");
-    expect(stack.containers.get("ops")).toBe("sha256:ops-2");
+    const checks = await checkGroup(stack, releaseGroup(stack.defs, "ops"));
+    await handOver(deps(stack, new FakeStrut()).d, checks, ["neo4j:5.26.40"]);
+    expect(stack.tags.get("ghcr.io/stakwork/stadeum-ops:stable")).toBe("sha256:ops-2");
+    expect(stack.calls.at(-1)).toBe("spawn hand-over sha256:ops-1 --confirm neo4j:5.26.40");
   });
 
-  it("puts the previous image back when the new one does not come up", async () => {
+  it("puts the tags back on what runs when the one-off does not start", async () => {
     const stack = FakeStack.standard();
-    stack.publish("ops", "sha256:ops-bad");
-    stack.unhealthy.add("sha256:ops-bad");
-    await stack.pull(["ops"]);
-    const event = await takeOver(deps(stack, new FakeStrut()).d, "sha256:ops-1");
-    expect(event.outcome).toBe("rolled-back");
-    expect(stack.containers.get("ops")).toBe("sha256:ops-1");
+    stack.publish("ops", "sha256:ops-2");
+    const checks = await checkGroup(stack, releaseGroup(stack.defs, "ops"));
+    stack.spawnSelf = async () => {
+      throw new Error("no such service");
+    };
+    await expect(handOver(deps(stack, new FakeStrut()).d, checks, [])).rejects.toThrow(/no such service/);
+    expect(stack.tags.get("ghcr.io/stakwork/stadeum-ops:stable")).toBe("sha256:ops-1");
   });
 });

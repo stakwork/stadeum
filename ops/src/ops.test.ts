@@ -1,34 +1,6 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { Ops } from "./ops.js";
-import { FakeRestic, FakeStack, FakeStadeum, FakeStrut, settings } from "./test/fakes.js";
-
-function setup(now = "2026-11-05T12:00:00Z") {
-  const stack = FakeStack.standard();
-  const strut = new FakeStrut();
-  const stadeum = new FakeStadeum();
-  const restic = new FakeRestic();
-  let t = new Date(now).getTime();
-  const log: string[] = [];
-  const ops = new Ops({
-    stack,
-    strut,
-    stadeum,
-    restic: () => restic,
-    log: (m) => log.push(m),
-    now: () => new Date(t),
-    sleep: async (ms) => {
-      t += ms;
-    },
-    version: "abc1234",
-    host: "stadeum",
-    paths: { volumes: "/volumes", envDir: join(mkdtempSync(join(tmpdir(), "ops-loop-")), "env") },
-  });
-  return { ops, stack, strut, stadeum, restic, log, at: (iso: string) => (t = new Date(iso).getTime()) };
-}
+import { loop as setup, settings } from "./test/fakes.js";
 
 const destination = { enabled: true, repository: "/backups/box", password: "pw", env: {} };
 
@@ -76,17 +48,35 @@ describe("the loop", () => {
     expect(stadeum.statuses.at(-1)!.services.find((s) => s.service === "strut")?.available?.id).toBe("sha256:strut-bad");
   });
 
-  it("updates when asked, even outside the window, and hands over to its own new image last", async () => {
+  it("updates when asked, even outside the window: strut's channel, then it hands stadeum's release to the ops it brings", async () => {
     const { ops, stadeum, stack } = setup();
     stack.publish("strut", "sha256:strut-2");
-    stack.publish("ops", "sha256:ops-2");
+    stack.release("sha256:ops-2", stack.releases.get("sha256:ops-1")!, "sha256:ui-2");
     stadeum.current = settings({ requests: [{ id: "r2", kind: "update", at: "2026-11-05T11:59:00Z" }] });
     await ops.tick();
     expect(stack.containers.get("strut")).toBe("sha256:strut-2");
     expect(stadeum.events.map((e) => [e.kind, e.outcome])).toEqual([["update", "ok"]]);
     expect(stack.calls.at(-1)).toBe("spawn hand-over sha256:ops-1");
+    // The one-off applies it: here nothing of the release moved but the tags it starts on.
+    expect(stack.containers.get("stadeum-ui")).toBe("sha256:stadeum-ui-1");
+    expect(stack.tags.get("ghcr.io/stakwork/stadeum-ui:stable")).toBe("sha256:ui-2");
     // The status saying it is done went out before the hand-over.
     expect(stadeum.statuses.at(-1)!.done).toEqual(["r2"]);
+  });
+
+  it("keeps still while a release is being applied", async () => {
+    const { ops, stadeum, stack } = setup();
+    stack.handover = true;
+    stadeum.current = settings({ requests: [{ id: "r5", kind: "update", at: "2026-11-05T11:59:00Z" }] });
+    await ops.tick();
+    expect(stadeum.statuses).toEqual([]);
+    expect(stack.calls).toEqual([]);
+    stack.handover = false;
+    await ops.tick();
+    expect(stadeum.statuses.at(-1)!.done).toEqual(["r5"]);
+    // Once it is done, a check says what runs now.
+    expect(stack.calls.filter((c) => c.startsWith("pull"))).toHaveLength(4);
+    expect(stadeum.statuses.at(-1)!.release?.running?.id).toBe("sha256:ops-1");
   });
 
   it("runs the daily pass once in the window: the backup, then the updates", async () => {
@@ -141,7 +131,7 @@ describe("the loop", () => {
 
   it("keeps what it did until stadeum-ui answers again", async () => {
     const { ops, stadeum, stack } = setup();
-    stack.publish("stadeum-ui", "sha256:ui-2");
+    stack.publish("strut", "sha256:strut-2");
     stadeum.current = settings({ requests: [{ id: "r3", kind: "update", at: "2026-11-05T11:59:00Z" }] });
     // stadeum-ui goes away while it is recreated, and the history waits.
     const up = stack.up.bind(stack);

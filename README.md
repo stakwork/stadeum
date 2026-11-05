@@ -18,14 +18,21 @@ On a fresh Ubuntu 22.04, 24.04 or 26.04, or Debian 12 or 13 VM, on any cloud:
 curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo bash
 ```
 
-Or clone the repo and run `sudo scripts/install.sh`, and the clone is the
-box's checkout. The script installs Docker from Docker's apt repository if
-it is missing, puts stadeum in `/opt/stadeum` and makes `.env`
-(`scripts/init-env.sh`). It asks for the domain, an email for Let's Encrypt
-and a Google or Microsoft sign-in, checks DNS, starts the stack and checks
-its certificates. Model keys go in afterwards, on Organisation → Models (the
-gateway keeps them, never `.env`). Run it again to update the checkout
-and restart with the same `.env`: it asks only for what `.env` lacks.
+Or run `sudo scripts/install.sh` from a clone. The script installs Docker
+from Docker's apt repository if it is missing, writes the stack files of
+stadeum's stable release into `/opt/stadeum/stack` (stadeum-ops's image
+carries them: the box needs no git checkout) and makes `.env`. It asks for
+the domain, an email for Let's Encrypt and a Google or Microsoft sign-in,
+checks DNS, starts the stack and checks its certificates. Model keys go in
+afterwards, on Organisation → Models (the gateway keeps them, never
+`.env`). Run it again to restart with the same `.env`: it asks only for
+what `.env` lacks, and writes back the stack files of the release the box
+runs. From then on ops keeps the box current, files and all.
+
+- **The box's own changes** go in `/opt/stadeum/stack/local.yml`, a compose
+  override read last when it is there (a port, a memory size, an image
+  pinned on this box), and in `.env`. A release never writes either, and
+  overwrites the rest of `stack/`.
 
 - **DNS**, before it starts: two A records at the VM's public IPv4 address.
   The script checks them and starts nothing until both point at the VM.
@@ -58,12 +65,12 @@ curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/insta
 
 | Path | What |
 | --- | --- |
-| `stack/` | `stadeum.yml` (docker compose): caddy, neo4j, strut + strut-browser, bifrost + redis (LLM gateway), stadeum-ui, ops. `caddy/Caddyfile`: the routes |
+| `stack/` | `stadeum.yml` (docker compose): caddy, neo4j, strut + strut-browser, bifrost + redis (LLM gateway), stadeum-ui, ops. `caddy/Caddyfile`: the routes. On a box these are a release's, and `local.yml` is the box's own |
 | `stack/bootstrap/` | First-boot setup: the org signing key and its registration with bifrost |
 | `ui/` | stadeum-ui: single sign-on, members, status, updates, backups, per-person model access, app launcher |
-| `ops/` | stadeum-ops: image updates and backups (the Docker socket's one holder, no port) |
+| `ops/` | stadeum-ops: releases, updates and backups (the Docker socket's one holder, no port). Its image carries the release's stack files |
 | `.github/workflows/` | Checks; stadeum's images, published from main and promoted to `stable` |
-| `scripts/` | The server install, env setup, the end-to-end gateway check, the backup-and-restore proof |
+| `scripts/` | The server install, env setup, the end-to-end gateway check, the backup-and-restore proof, the release proof |
 | `docs/` | Stack and gateway specs |
 
 ## Run the stack
@@ -93,36 +100,36 @@ with no port. An admin sets it up on two pages in stadeum-ui.
 
 - **Updates.** In a daily window (default 03:00–05:00, in the admin's time
   zone), ops pulls strut + strut-browser (together: their Playwright
-  versions must match) and stadeum-ui + ops on their `stable` channels. If
+  versions must match) on strut's `stable` channel, and stadeum's release on
+  its own: stadeum-ui and ops, and the stack files ops's image carries. If
   one moved, it drains strut and waits for its runs to finish (at most 30
-  minutes; what still runs resumes after the restart), recreates it, checks
-  its health, and puts the old image back if it fails. The admin can turn
-  updates off, check now, or update now. Neo4j, Caddy, Redis and the gateway
-  move only when a person moves them.
+  minutes; what still runs resumes after the restart), recreates what
+  changed, checks its health, and puts the previous images and files back
+  if it fails. A release is applied by the ops it brings. It moves every pin
+  in its files (Caddy, Redis, the gateway), except Neo4j's: a release that
+  upgrades Neo4j waits, whole, until the admin presses **Upgrade Neo4j** on
+  the Updates page, and ops backs up first. The admin can turn updates off,
+  check now, or update now.
 - **Backups.** In the same window, before the updates: drain strut, stop the
   services whose files would tear (Neo4j community has no online dump), and
   snapshot every volume and `.env` with restic, to S3 or S3-compatible
   storage (R2, MinIO), Azure Blob, GCS, B2, or a local folder for testing. A
   few minutes of downtime. Kept: 7 daily, 4 weekly, 12 monthly. restic's
   password is shown once, with a restore kit, to keep off the box.
-- **Restore**, on a fresh box with the kit saved as `restore.env`:
+- **Restore**, on a new box with the kit saved as `/root/restore.env`: the
+  install restores the latest snapshot before it starts, with the old box's
+  `.env` (pass `STADEUM_HOST=<name>` too for another name than the old box's).
 
 ```bash
-scripts/init-env.sh
-```
-
-```bash
-docker compose --env-file .env -f stack/stadeum.yml run --rm --env-from-file restore.env ops restore
-```
-
-```bash
-docker compose --env-file .env -f stack/stadeum.yml up -d --wait
+curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo STADEUM_RESTORE=/root/restore.env bash
 ```
 
 `scripts/backup-restore-e2e.sh` proves it end to end: data in strut,
 stadeum-ui and Neo4j, a backup, every volume wiped and `.env` regenerated, a
-restore, and the same data back. `docs/stack-spec.md` ("ops") has how it
-works.
+restore, and the same data back. `scripts/release-e2e.sh` proves releases:
+one applied to a running box, a broken one rolled back, and one that moves
+Neo4j held until Upgrade Neo4j. `docs/stack-spec.md` ("ops") has how they
+work.
 
 ## Decisions
 

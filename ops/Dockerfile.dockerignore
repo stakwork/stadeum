@@ -1,0 +1,17 @@
+# What goes into stadeum-ops, built from the repository's root: ops's own
+# sources, and the release it carries (ops/Dockerfile).
+*
+!ops/package.json
+!ops/package-lock.json
+!ops/tsconfig.json
+!ops/tsconfig.build.json
+!ops/src
+ops/src/**/*.test.ts
+ops/src/test
+!stack
+stack/local.yml
+stack/*.local.yml
+stack/dev.yml
+stack/.gitkeep
+!.env.example
+!scripts/init-env.sh

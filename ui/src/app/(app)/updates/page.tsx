@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
 
+import Link from "next/link";
+
 import { buttonClass } from "@/components/button";
 import { History, OpsNow, shortImage, tagOf } from "@/components/ops";
 import { PageHeader, SectionLabel } from "@/components/page-header";
 import { Dot } from "@/components/state";
 import { absoluteTime, relativeTime } from "@/lib/format";
-import type { ServiceImage } from "@/lib/ops/contract";
+import type { ReleaseStatus, ServiceImage } from "@/lib/ops/contract";
 import { history, openRequests, readStatus, settingsForOps, settingsRow } from "@/lib/ops/store";
 import { requireAdmin } from "@/lib/session";
-import { checkNow, updateNow } from "./actions";
+import { checkNow, confirmRelease, updateNow } from "./actions";
 import { ScheduleForm } from "./forms";
 
 export const metadata: Metadata = { title: "Updates" };
@@ -20,6 +22,12 @@ function timeZones(current: string): string[] {
 }
 
 const td = "px-5 py-3.5 align-top";
+
+/** A service as the page names it. */
+const NAMES: Record<string, string> = { neo4j: "Neo4j", caddy: "Caddy", redis: "Redis", bifrost: "the gateway" };
+const named = (service: string) => NAMES[service] ?? service;
+const upgrade = (held: NonNullable<ReleaseStatus["held"]>) =>
+  held.map((h) => `${named(h.service)} from ${tagOf(h.from)} to ${tagOf(h.to)}`).join(" and ");
 
 export default async function UpdatesPage() {
   await requireAdmin();
@@ -35,12 +43,15 @@ export default async function UpdatesPage() {
   const pinned = services.filter((s) => !s.group || s.built);
   const failed = new Set(forOps.failedImages);
   const checkedAt = report?.status.checkedAt;
+  const release = report?.status.release;
+  const held = release?.held ?? [];
+  const confirming = asked.includes("confirm");
 
   return (
     <>
       <PageHeader
         title="Updates"
-        lede="strut and stadeum follow their stable channels. In the window each night, ops moves them, checks their health, and puts the old images back if they fail it."
+        lede="strut and stadeum follow their stable channels. A stadeum release brings the stack files it runs with, and every pin in them. In the window each night, ops moves them, checks their health, and puts the previous ones back if they fail it."
       >
         <div className="flex flex-wrap gap-3">
           <form action={checkNow}>
@@ -55,6 +66,37 @@ export default async function UpdatesPage() {
           </form>
         </div>
       </PageHeader>
+
+      {held.length > 0 && (
+        <section aria-labelledby="held" className="flex max-w-3xl flex-col gap-4 rounded-[14px] border border-warn bg-warn-soft p-5 md:p-6">
+          <h2 id="held" className="text-[17px] font-medium text-ink">
+            A release is waiting for you
+          </h2>
+          <p className="text-[14.5px] text-ink-2">
+            {release?.available ? <>Release {shortImage(release.available)} </> : <>The next release </>}
+            upgrades {upgrade(held)}. A store a newer Neo4j wrote cannot be opened by the older one, so this cannot be undone. ops
+            takes a fresh backup first, then applies the release. Nothing in it moves until you confirm.
+          </p>
+          {confirming ? (
+            <p className="text-[14px] text-ink-2">Confirmed: ops backs up, then upgrades, within half a minute.</p>
+          ) : forOps.backups ? (
+            <form action={confirmRelease}>
+              <input type="hidden" name="target" value={held.map((h) => h.to).join(",")} />
+              <button type="submit" className={buttonClass.primary}>
+                Upgrade {held.length === 1 ? named(held[0]!.service) : "them"}
+              </button>
+            </form>
+          ) : (
+            <p className="text-[14px] text-ink-2">
+              It needs a backup first, and none is set up: pick a destination on{" "}
+              <Link href="/backups" className="text-accent underline underline-offset-2">
+                Backups
+              </Link>
+              , then come back here.
+            </p>
+          )}
+        </section>
+      )}
 
       <section aria-labelledby="now" className="flex flex-col gap-3">
         <SectionLabel id="now">Now</SectionLabel>
@@ -79,6 +121,8 @@ export default async function UpdatesPage() {
         </div>
       </section>
 
+      {release && <Release release={release} held={held.length > 0} />}
+
       <section aria-labelledby="images" className="flex flex-col gap-3">
         <SectionLabel id="images">Images</SectionLabel>
         {services.length === 0 ? (
@@ -101,13 +145,13 @@ export default async function UpdatesPage() {
               </thead>
               <tbody>
                 {followed.map((s) => (
-                  <ImageRow key={s.service} s={s} channel={<Channel s={s} failed={failed} />} />
+                  <ImageRow key={s.service} s={s} channel={<Channel s={s} failed={failed} held={held.length > 0} />} />
                 ))}
                 {pinned.length > 0 && (
                   <tr className="border-t border-rule-soft">
                     <td colSpan={3} className="px-5 pt-5 pb-1 text-[12px] text-ink-3">
-                      Moved only by a person, after a backup: change its pin in <code className="font-mono">stack/stadeum.yml</code> (the
-                      gateway&apos;s is <code className="font-mono">BIFROST_TAG</code>) and run <code className="font-mono">docker compose up -d</code>.
+                      Pinned in the release&apos;s stack files: each moves when a release changes its pin, and Neo4j only when you
+                      confirm it. To pin one on this box alone, set its image in <code className="font-mono">stack/local.yml</code>.
                     </td>
                   </tr>
                 )}
@@ -162,9 +206,59 @@ function ImageRow({ s, channel }: { s: ServiceImage; channel: React.ReactNode })
   );
 }
 
-function Channel({ s, failed }: { s: ServiceImage; failed: Set<string> }) {
+function Channel({ s, failed, held }: { s: ServiceImage; failed: Set<string>; held: boolean }) {
   if (!s.available) return <Dot tone="ok" label="Up to date" />;
   const label = `${shortImage(s.available)} is out`;
   if (failed.has(s.available.id)) return <Dot tone="attention" label={`${label}, held back: it failed its health check`} />;
+  if (s.release && held) return <Dot tone="attention" label={`${label}, waiting for you: it upgrades Neo4j`} />;
   return <Dot tone="pending" label={`${label}: next window, or Update now`} />;
+}
+
+/** stadeum's release: what runs, and what the next one changes. */
+function Release({ release, held }: { release: ReleaseStatus; held: boolean }) {
+  const moves = release.images ?? [];
+  return (
+    <section aria-labelledby="release" className="flex flex-col gap-3">
+      <SectionLabel id="release">Release</SectionLabel>
+      <div className="flex flex-col gap-3 rounded-[14px] border border-rule bg-surface p-5 text-[14px] md:p-6">
+        <p className="text-ink-2">
+          Running release <code className="font-mono text-[13px] text-ink">{shortImage(release.running)}</code>: ops&apos;s image, with
+          stadeum-ui&apos;s and the stack files they run with. The box&apos;s own changes go in{" "}
+          <code className="font-mono text-[13px]">stack/local.yml</code> and <code className="font-mono text-[13px]">.env</code>, which a
+          release never touches.
+        </p>
+        {release.available && (
+          <div className="flex flex-col gap-1.5">
+            <span>
+              <Dot
+                tone={held ? "attention" : "pending"}
+                label={`Release ${shortImage(release.available)} is out${held ? ": waiting for you" : ": next window, or Update now"}`}
+              />
+            </span>
+            <span className="text-[13px] text-ink-3 [overflow-wrap:anywhere]">
+              {release.files?.length ? (
+                <>
+                  Changes {release.files.map((f, i) => (
+                    <span key={f}>
+                      {i > 0 && ", "}
+                      <code className="font-mono">stack/{f}</code>
+                    </span>
+                  ))}
+                  .
+                </>
+              ) : (
+                "Changes no stack file."
+              )}{" "}
+              {moves.map((m) => (
+                <span key={m.service}>
+                  {named(m.service)}: {m.from ? tagOf(m.from) : "new"} → {m.to ? tagOf(m.to) : "removed"}.{" "}
+                </span>
+              ))}
+            </span>
+          </div>
+        )}
+        {release.problem && <Dot tone="attention" label={`Could not read the channel's release: ${release.problem}`} />}
+      </div>
+    </section>
+  );
 }
