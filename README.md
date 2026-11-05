@@ -94,7 +94,8 @@ works.
 
 Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db` in the
 container), port 3000. The shell is vertical-neutral: sign-in, the person,
-Organisation (Members, Status, Apps, Updates, Backups; admins only) and strut's apps.
+Organisation (Members, Status, Apps, Branding, Updates, Backups; admins
+only) and strut's apps.
 
 - Apps: `ui/src/lib/apps.ts` reads strut's `GET /apps` through the strut
   client (`ui/src/lib/strut/client.ts`) and orders them: the assistant,
@@ -124,6 +125,13 @@ Organisation (Members, Status, Apps, Updates, Backups; admins only) and strut's 
   client with the deployment key, the admin named as the actor. The states
   and wording are strut's (`ui/src/lib/app-versions.ts`, ported from its
   `web/src/app-versions.ts`). A seeded app (Jamie) is read-only.
+- Organisation → Branding (`/branding`, admins only) sets the look of every
+  app strut serves: one color (and its dark-theme twin), the corners and
+  the font. Strut keeps the brand and hands it to every app page as MCP
+  Apps style variables (`GET`/`PUT /brand`, strut `specs/API.md` §14.12),
+  so no app is rebuilt; stadeum keeps no copy. The preview draws the kit's
+  components from strut's own variables (`ui/src/lib/brand.ts`), and a
+  change shows in an app the next time it loads.
 - Sign-in: Microsoft Entra ID and Google when their `AUTH_*` vars are set;
   `STADEUM_DEV_LOGIN=1` adds a password-less email login for local work.
   The first person becomes admin; others need an invite or an email at
