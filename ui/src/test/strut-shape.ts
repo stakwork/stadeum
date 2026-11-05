@@ -1,7 +1,7 @@
 /**
  * Strut's delegation shape check, copied from strut
  * `src/mothership.ts:123-161` (`checkDelegationMacaroon`) so tests and the
- * fake lab apply exactly the rules the real `PUT /llm/delegations` does.
+ * fake strut apply exactly the rules the real `PUT /llm/delegations` does.
  */
 import { decodeMacaroon } from "gatekey";
 

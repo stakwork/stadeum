@@ -1,163 +1,191 @@
-# Stack spec (extracted from sphinx-swarm `dd0f132d`)
+# Stack spec
 
-Source of truth for `stack/stadeum.yml`. All `file:line` refs are in
-[stakwork/sphinx-swarm](https://github.com/stakwork/sphinx-swarm). Extracted by reading the Rust image modules; verify
-anything marked "open" before relying on it.
+Source of truth for `stack/stadeum.yml`: what each service is, what it is
+given, and why. Refs to other repos are `file` or `file:line` at the commit
+named.
 
-## v1 containers
+## Containers
 
 `docker compose -f stack/stadeum.yml [-f stack/dev.yml] up` starts exactly
 these; there are no profiles. The Status page in stadeum-ui lists the same
-seven (`ui/src/lib/status.ts`, `SERVICES`).
+eight (`ui/src/lib/status.ts`, `SERVICES`).
 
 | Service | Image | Role | Status page check |
 | --- | --- | --- | --- |
-| `load_balancer` | `traefik:v2.11.31` | Only public ports (80/443); routes `$HOST`, `bifrost.$HOST`, `repo2graph.$HOST` | None (stadeum-ui never calls it) |
-| `neo4j` | `neo4j:5.19.0` | Knowledge graph, Strut workflow store | `GET {NEO4J_HTTP_URL}/` |
-| `redis` | `redis:7.4.2-alpine` | bifrost plugin state, mcp | None (stadeum-ui never calls it) |
-| `bifrost` | `stakgraph-gateway` | Model gateway, mothership trust/budgets | `/_plugin/trust/status` |
-| `repo2graph` | `stakgraph-mcp` | mcp + Strut lab | `GET {MCP_URL}/lab/llm/mothership` |
-| `bootstrap` | `node:22.20.0-alpine` | One-shot: org signing key + trust registration | Org key registered with bifrost, same key as stadeum-ui's |
-| `stadeum-ui` | built from `ui/` | Sign-in, Home, Members, Status | Running (it serves the page) |
+| `caddy` | `caddy:2.11.8-alpine` | TLS and routing, the only published ports: `$HOST` → stadeum-ui, `strut.$HOST` → strut | None (stadeum-ui never calls it) |
+| `neo4j` | `neo4j:5.26.32` | The graph: strut's workflows, steps and knowledge graph; bifrost's agent catalog | `GET {NEO4J_HTTP_URL}/` |
+| `redis` | `redis:7.4.2-alpine` | bifrost's plugin state | None (stadeum-ui never calls it) |
+| `bifrost` | `ghcr.io/stakwork/stakgraph-gateway` | Model gateway: provider keys, a virtual key and a cap per person | `/_plugin/trust/status` |
+| `strut-browser` | `ghcr.io/stakwork/strut-browser:1.63.0` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
+| `strut` | `ghcr.io/stakwork/strut:7498d21` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
+| `bootstrap` | `node:22.20.0-alpine` | One shot: org signing key + trust registration | Org key registered with bifrost, same key as stadeum-ui's |
+| `stadeum-ui` | built from `ui/` | Sign-in, the person, Members, Status | Running (it serves the page) |
 
 stadeum-ui has no Docker socket, so it cannot see container state; each
-row's health is the HTTP check it already makes, and traefik and redis show
-"Not checked".
+row's health is the HTTP check it already makes, and the rest show "Not
+checked".
 
-**Removed in the v1 cleanup** (each confirmed unused by grepping this repo
-and stakgraph `origin/main` `643e12fd` `mcp/src`):
+## Conventions
 
-- Volume `repo2graph-tests` (`/usr/src/app/tests/generated_tests`): only
-  mcp's eval test runner reads it (`TESTS_DIR`), which v1 does not use.
-- Volume `repo2graph-cache` and env `STRUT_CACHE_DIR`, `VEIN_CACHE_DIR`,
-  `HF_TOKEN`: only the GAIA benchmark bootstrap reads them
-  (`mcp src/lab/gaia/bootstrap.ts`); `VEIN_*` is read nowhere.
-- Env `VEIN_LAB_WORKSPACE`: read nowhere (`STRUT_LAB_WORKSPACE` stays).
-- `extra_hosts: host.docker.internal:host-gateway` on every service:
-  nothing in the stack calls the host.
-- The `ui` profile: stadeum-ui is part of v1, so it starts by default.
-
-Kept: `repo2graph-reqs` (mcp's async request store, `src/graph/reqs.ts`,
-read back after a restart), `repo2graph-sessions`, `repo2graph-artifacts`,
-`repo2graph-lab-workspace`, and the public `bifrost.$HOST` and
-`repo2graph.$HOST` routes (operator access to the gateway admin API and the
-Strut lab; `repo2graph.$HOST` is also stadeum-ui's `MCP_PUBLIC_URL`, where
-the browser loads a hosted Strut app from).
-
-## Shared conventions
-
-- Hostname `<name>.sphinx` (`src/utils.rs:276-281`); network `sphinx-swarm` (`src/dock.rs:777`). Stadeum: compose key `sphinx-swarm`, docker name `stadeum_sphinx-swarm` (so it never collides with a real swarm's network on the same host), and each service gets a `<name>.sphinx` network alias, which is what DNS resolves.
-- `restart: unless-stopped` (`src/utils.rs:18-53,262`). Swarm also adds `extra_hosts: host.docker.internal:host-gateway`; stadeum drops it (nothing calls the host).
-- Named volume `<name>.sphinx` at the image's root volume (`src/utils.rs:360-367`).
-- Swarm publishes every container port on the host. **Stadeum does not**: only traefik's 80/443 are public; everything else stays on the network.
-- Traefik labels per `traefik_labels()` (`src/images/traefik.rs:123-175`): enable, server.port, tls, certresolver=myresolver, entrypoints=websecure, `Host(...)`.
+- Services reach each other by their compose service name on the project's
+  network (`stadeum_default`): `http://strut:3000`, `http://bifrost:8181`,
+  `bolt://neo4j:7687`. strut and strut-browser also share `stadeum_browser`.
+- Only caddy publishes host ports (`HTTP_PORT`, `HTTPS_PORT`).
+- `restart: unless-stopped` on every long-running service.
+- One named volume per service that keeps state, named after it.
+- Every image is pinned to a version, except bifrost: the gateway publishes
+  no versioned tags yet (`BIFROST_TAG=latest`).
 
 ## Services
 
-### traefik (`load_balancer`)
-- `traefik:v2.11.31` (`second-brain-2.yml`). The Rust `_traefik()` is dead code; the real config is in `second-brain.yml:6-41`.
-- Commands: docker provider (exposedbydefault=false), entrypoints web :80 → redirect to websecure :443, ACME tlschallenge resolver `myresolver`, storage `/letsencrypt/acme.json`. ACME email must be configurable (repo hardcodes a personal address).
-- Mounts docker socket + `./letsencrypt`.
+### caddy
+- `stack/caddy/Caddyfile`, two sites: `{SCHEME}://{HOST}` → `stadeum-ui:3000`
+  and `{SCHEME}://strut.{HOST}` → `strut:3000`. The compose file sets
+  `SCHEME=https`, `HOST` and `ACME_EMAIL` in its environment.
+- **https:** Caddy fetches and renews the certificates (Let's Encrypt; also
+  ZeroSSL when `ACME_EMAIL` is set) and redirects http to https. Ports 80
+  and 443 must reach the box from the internet; 443/udp carries HTTP/3.
+  Volume `caddy` at `/data` keeps the certificates and the ACME account.
+- **strut:** `flush_interval -1`, so run tails and the chat (SSE) pass every
+  chunk on at once. WebSocket upgrades (`/rooms`, `/channels`,
+  `/audio/stream`) pass through `reverse_proxy` as they are. Precedent:
+  strut `deploy/voice/Caddyfile`.
+- **Same site.** strut's session cookie is `SameSite=Lax`, so the browser
+  sends it to the framed UI only when strut and stadeum-ui are the same site:
+  strut at `strut.$HOST`, under `$HOST`. Keep that layout.
+- **Local (`stack/dev.yml`):** `SCHEME=http`, so Caddy serves port 80 only and
+  fetches no certificate. `HOST` stays `stadeum.localhost`: every
+  `*.localhost` resolves to the machine, and with a dot in it
+  `strut.stadeum.localhost` is the same site as `stadeum.localhost`. Bare
+  `localhost` and `strut.localhost` are two sites (`localhost` has no
+  registrable domain), and the frame's cookie would not reach strut.
+- No Docker socket: the routes are in the Caddyfile, not in labels.
+- **bifrost is not routed.** strut and stadeum-ui call it on the network and
+  nothing outside the box does. Its admin UI is reached from inside, e.g. a
+  local override that publishes `127.0.0.1:8181:8181`.
 
 ### neo4j
-- `neo4j:5.19.0` (`neo4j.rs:170-178`, `secondbrain.rs:61`). Private: no traefik labels (`neo4j.rs:263-272`).
-- Volume `/data`. Env (`neo4j.rs:224-259`): `NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}`, apoc export/import/uuid enabled, heap 6g/6g, pagecache 8g, tx total 4g / tx 1g, checkpoint iops 500, listen 0.0.0.0, bolt 0.0.0.0:7687, procedures allowlist/unrestricted `apoc.*,gds.*,algo.*`, allow_upgrade, default db `neo4j`, min password length 4, `NEO4J_PLUGINS=["graph-data-science"]`. Memory sizes should be env-overridable for laptops.
-- **Plugins:** swarm copies into the running container (`neo4j.rs:65-134`): `apoc-5.19.0-extended.jar`, `apoc-5.19.0-core.jar` (with bundled commons-lang3 stripped, `neo4j.rs:95-100,139-161`), `neo4j-graph-data-science-2.9.0.jar`, and `conf/apoc.conf` (`APOC_CONF`, `neo4j.rs:276-294`, fulltext/vector index initializers).
-- **Stadeum (phase 1, verified):**
-  - `scripts/fetch-neo4j-plugins.sh` downloads the three jars into `stack/neo4j/plugins` (git-ignored), bind-mounted read-only at `/plugins` (the entrypoint uses `/plugins` when it exists).
-  - GDS: swarm saves the release **zip** under a `.jar` name (`neo4j.rs:122-131`), so the GDS it actually runs comes from `NEO4J_PLUGINS`. Stadeum unzips the real 2.9.0 jar and **drops `NEO4J_PLUGINS`**: it would download a second GDS into `/plugins` at every boot. GDS 2.9.0 reports "for Neo4j 5.19 -- available".
-  - apoc.conf: the neo4j entrypoint writes every `NEO4J_apoc_*` env var into `conf/apoc.conf` with `sed -i` + append, so a bind-mounted file either fails (`:ro`, "Device or resource busy") or is rewritten on the host at each boot. The `APOC_CONF` lines are therefore `NEO4J_apoc_*` env vars in `stadeum.yml` (`_` → `.`, `__` → `_`), and the entrypoint generates the file. All 14 initializers run (16 indexes after first boot).
-  - Memory: `NEO4J_HEAP_INITIAL/HEAP_MAX/PAGECACHE/TX_TOTAL_MAX/TX_MAX/CHECKPOINT_IOPS`, defaults 1g/1g/1g/1g/512m/500.
+- The stock `neo4j:5.26.32`: no APOC, no GDS, no index initializers. 5.26 is
+  the last 5.x (the LTS) and the patch strut's own `docker-compose.yml` pins.
+- **PINNED.** Neo4j cannot open a store a newer version wrote, so it moves
+  only when a person moves it, after a backup.
+- Who needs what from it:
+  - strut's graph backend (`STRUT_WORKSPACE_BACKEND=graph`) needs fulltext
+    and vector indexes (5.13+) and makes its own at boot.
+  - bifrost keeps its agent catalog and evals in it, over the HTTP Cypher
+    endpoint (`NEO4J_HTTP_URL` + `/db/neo4j/tx/commit`, user `neo4j`,
+    `NEO4J_PASSWORD`). Its schema is three `CREATE … IF NOT EXISTS`
+    statements run before the first write (stakgraph
+    `gateway/internal/graphclient/schema.go`), and no query in
+    `gateway/internal` calls APOC or GDS (stakgraph `b8f16c5b`). Nothing on
+    the inference path reads the catalog.
+  - So nothing in the stack needs sphinx-swarm's plugins or `apoc.initializer`
+    indexes.
+- Memory: `NEO4J_HEAP_INITIAL/HEAP_MAX/PAGECACHE/TX_TOTAL_MAX/TX_MAX`,
+  defaults `1g/1g/1g/1g/512m` (laptop sizes; raise them on a real box).
+- Private: no published port, no route.
 
 ### redis
-- `redis:latest` (stadeum pins `redis:7.4.2-alpine`), `redis-server --appendonly yes` (`redis.rs:73-77`), volume `/data`, private.
+- `redis:7.4.2-alpine`, `redis-server --appendonly yes`, volume `/data`,
+  private. Only bifrost uses it (`BIFROST_PLUGIN_REDIS_URL`).
 
 ### bifrost (mothership / LLM gateway)
-- `ghcr.io/stakwork/stakgraph-gateway:latest` (`bifrost.rs:113-126`, GHCR only). Port 8181 (wrapper; proxies to bifrost-http on 127.0.0.1:8080). Do NOT set APP_PORT/APP_HOST (`bifrost.rs:140-146`).
-- Volume `/app/data` (only one mount there, `bifrost.rs:245-248`). Traefik host `bifrost.${HOST}`.
-- Env: `BIFROST_ADMIN_USER=admin`, `BIFROST_ADMIN_PASS` (random 16; bcrypted on first boot into /app/data), `BIFROST_PROVISIONING_TOKEN=${SHARED_API_TOKEN}`, `BIFROST_PLUGIN_REDIS_URL=redis://redis.sphinx:6379/0`, `NEO4J_HTTP_URL=http://neo4j.sphinx:7474`, `NEO4J_PASSWORD`, provider keys OPENAI/ANTHROPIC/OPENROUTER/GOOGLE/XAI (only if non-empty). Optional `BIFROST_PLUGIN_ENFORCE_MACAROONS`, `BIFROST_PLUGIN_ENFORCE_BUDGETS` (default: baked config.json, shadow mode). Stadeum phase 2 sets both to `true`.
+- `ghcr.io/stakwork/stakgraph-gateway`, port 8181 (a wrapper that proxies to
+  bifrost-http on 127.0.0.1:8080). Do NOT set `APP_PORT`/`APP_HOST`.
+- Volume `/app/data`.
+- Env: `BIFROST_ADMIN_USER=admin`, `BIFROST_ADMIN_PASS` (bcrypted on first
+  boot into `/app/data`), `BIFROST_PROVISIONING_TOKEN=${SHARED_API_TOKEN}`,
+  `BIFROST_PLUGIN_REDIS_URL`, `NEO4J_HTTP_URL`, `NEO4J_PASSWORD`, and the
+  provider keys (OPENAI/ANTHROPIC/OPENROUTER/GOOGLE/XAI): the only place they
+  live.
+- `BIFROST_PLUGIN_ENFORCE_MACAROONS` and `BIFROST_PLUGIN_ENFORCE_BUDGETS` are
+  fixed `true`: a call without a valid macaroon is a 401, one over a cap a
+  402. `docs/mothership-spec.md` has the contract.
 
-### repo2graph (Strut + mcp + stakgraph)
-- `ghcr.io/stakwork/stakgraph-mcp:latest` (`repo2graph.rs:84-93`), port 3355, traefik host `repo2graph.${HOST}`. Requires neo4j (`repo2graph.rs:72`).
-- Volumes (`repo2graph.rs:215-236`): `/root`, `/usr/src/app/{tests/generated_tests,sessions,artifacts,reqs,cache,lab-workspace}`. Stadeum keeps `/root`, `sessions`, `artifacts`, `reqs`, `lab-workspace` (see "v1 containers").
-- Env (`repo2graph.rs:111-213`): `PORT=3355`, `NEO4J_HOST=neo4j.sphinx:7687`, `NEO4J_PASSWORD`, `SAGE_CONFIG_PATH=/root/sage_config.json`, `USE_STAGEHAND=1`, `PAT=${GITHUB_REQUEST_TOKEN}`, `API_TOKEN=${SHARED_API_TOKEN}`, `REDIS_URL=redis://redis.sphinx:6379`, provider keys OPENAI/ANTHROPIC/OPENROUTER/XAI/EXA, `STRUT_CHAT_MODEL`, `STRUT_LLM_MODEL`, `HF_TOKEN`, `SESSIONS_DIR`, `AGENT_ARTIFACTS_DIR`, `REQS_DIR`, `VEIN_CACHE_DIR`+`STRUT_CACHE_DIR=/usr/src/app/cache`, `VEIN_LAB_WORKSPACE`+`STRUT_LAB_WORKSPACE=/usr/src/app/lab-workspace`, optional `STRUT_MOTHERSHIP_REQUIRED`, optional `LLM_PROVIDER` (default openai).
-- Dropped: `JARVIS_URL`, `HERMES_URL`, `BROWSER_WS_URL`/`BROWSER_WS_PATH` and the second network; in v1 also `HF_TOKEN`, `VEIN_CACHE_DIR`, `STRUT_CACHE_DIR`, `VEIN_LAB_WORKSPACE`.
-- **Image bug (2026-11-04):** the `linux/arm64` variant of `stakgraph-mcp:latest` (created 2026-11-03) crash-loops: `Cannot find module '@anush008/tokenizers-linux-arm64-gnu'` (only `tokenizers-linux-x64-gnu` is in `node_modules`). `stadeum.yml` pins `platform: ${REPO2GRAPH_PLATFORM:-linux/amd64}`; arm64 hosts run it emulated. Fix belongs in stakgraph's image build.
-- **The lab needs the `LLM_PROVIDER` key to boot.** `buildConceptServices` calls `getApiKeyForProvider` when the lab strut is first built (mcp `src/lab/concepts/services.ts:151`), so with the key blank every `/lab/*` request returns 500 `API key not found for provider: <provider>`, even for workflows that make no LLM call. `/health` stays 200.
-- Stadeum sets `LLM_PROVIDER=anthropic` by default (swarm: unset → openai).
+### strut-browser
+- `ghcr.io/stakwork/strut-browser:${STRUT_BROWSER_TAG:-1.63.0}`: the
+  Playwright server behind strut's `browser/*` steps. The builder looks at
+  the apps it makes through it.
+- Its tag stays on strut's `playwright-core` major.minor (the server refuses
+  any other), so it moves with `STRUT_IMAGE_TAG`.
+- It sits on its own network (`browser`) that strut joins: a page it loads can
+  reach strut, but not Neo4j, bifrost or stadeum-ui.
+- `BROWSER_WS_PATH`, generated by `scripts/init-env.sh`, is its one door; a
+  page it loads must not be able to guess it.
 
-## The shared token (replaces boltwall)
+### strut
+- `ghcr.io/stakwork/strut:${STRUT_IMAGE_TAG:-7498d21}`, amd64 + arm64, port
+  3000. A published commit tag until strut promotes a `stable` channel
+  (stakwork/strut#527 added it); then the default becomes `stable`.
+- Based on strut's own `docker-compose.yml`:
+  `STRUT_WORKSPACE_BACKEND=graph` with `NEO4J_URI=bolt://neo4j:7687`,
+  `NEO4J_USER`, `NEO4J_PASSWORD`; `STRUT_GRAPH_SEED_ONTOLOGY=1`;
+  `STRUT_WORKSPACE=/data/workspace`, `STRUT_MODEL_DIR=/data/models`;
+  `BROWSER_WS_URL=ws://strut-browser:3000` + `BROWSER_WS_PATH`.
+- `STRUT_API_KEY=${SHARED_API_TOKEN}`: every route needs it, or a session
+  cookie. It never reaches a browser.
+- `STRUT_SECRET_KEY`, generated: encrypts strut's secret stores
+  (`secrets.json`, and the delegations in `mothership.json`). Losing it loses
+  what they hold; the backup must keep it.
+- `STRUT_MOTHERSHIP=1` mounts `/llm/delegations`; `STRUT_MOTHERSHIP_REQUIRED=1`
+  makes a model call with nobody to bill a step error. Both are fixed on, like
+  bifrost's flags.
+- No provider keys and no `LLM_PROVIDER`: strut calls a model only through
+  bifrost, on the caller's delegation, so it boots and runs with none.
+  `EXA_API_KEY` is optional (web search on a routed call; without it a routed
+  call has `web_fetch` only).
+- `STRUT_PUBLIC_URL=https://strut.${HOST}`: the base of the links strut hands
+  a caller outside its UI (MCP artifact links, `ui` deep links).
+- Volumes: `strut-workspace` (runs, chats, artifacts, apps, the secret
+  stores) and `strut-models` (the embedding and speech models, fetched on
+  first boot). strut's uv cache is not kept: it is a cache.
+- Healthcheck: `GET /health`, which answers `{ ok }` without the key.
+  `start_period` 180 s: the first boot seeds the schema and ontology and
+  fetches the embedding model before it listens.
+- strut's default server empties its own `process.env` after boot
+  (`STRUT_ENV_SCRUB`), so a step cannot read the deployment key.
 
-`SHARED_API_TOKEN` was boltwall's `stakwork_secret` (`boltwall.rs:27-28,175-187`): an opaque random string, copied by Rust into bifrost (`BIFROST_PROVISIONING_TOKEN`, Bearer for `/_plugin/admin-credentials`) and repo2graph (`API_TOKEN`). Nothing fetches it from boltwall at runtime, so a generated `openssl rand -hex 16` replaces it.
+### bootstrap
+- `node:22.20.0-alpine`, runs `stack/bootstrap/org-identity.mjs` once: the org
+  signing key in the `org` volume, and its registration with bifrost.
+  Idempotent; `docker compose … run --rm bootstrap` re-runs it.
 
-## Strut inside repo2graph (answered from source)
+### stadeum-ui
+- Built from `ui/`, port 3000, volume `/data` (`stadeum.db`), the `org`
+  volume read-only.
+- `STRUT_URL=http://strut:3000` (every API call) and
+  `STRUT_PUBLIC_URL=https://strut.${HOST}` (the frame).
+- One strut client, `ui/src/lib/strut/client.ts`, with
+  `Authorization: Bearer <SHARED_API_TOKEN>`: `GET /health` (Status),
+  `GET/PUT/DELETE /llm/delegations[/:actor]` (each person's delegation),
+  `PUT /actors/:actor/secrets/:NAME`, `POST /auth/ticket` (the frame).
+- **The frame.** Per page load the server mints a sign-in ticket for the
+  person (`POST /auth/ticket { actor }` → `{ ticket, expiresAt }`, good once
+  for 60 s) and frames
+  `{STRUT_PUBLIC_URL}/?ticket=<ticket>&embed_origin=<stadeum origin>[&wf=&run=]`.
+  strut's UI trades the ticket for its own session cookie as that person and
+  takes it off the URL (strut `specs/API.md` §13.1).
 
-Read from stakgraph `origin/main` `643e12fd` (`mcp/`, which pins strut
-`dbbc62e6`) and strut `dbbc62e6`. The [stakwork/stakgraph](https://github.com/stakwork/stakgraph) checkout
-was 37 commits behind; refs are to `origin/main`. Every answer below was also
-checked against the running image.
+## The shared token
 
-1. **How Strut finds bifrost: no env var, no default.** The lab strut always
-   mounts the Mothership module (`mcp src/lab/createLabStrut.ts:272,319`,
-   `createMothership({ dataDir: workspacePath })`); the gateway URL is the
-   `baseUrl` of each actor's delegation, pushed with
-   `PUT /lab/llm/delegations/:actor {macaroon, apiKey, baseUrl}` (strut
-   `src/mothership.ts:368-380`; must match `^https?://`). With no delegation
-   on file, steps call the providers directly with the provider keys. Stadeum
-   pushes `baseUrl: http://bifrost.sphinx:8181` in phase 2.
-   Separately, mcp's own non-Strut LLM calls (aieo) read `LLM_GATEWAY_URL`
-   (`mcp src/aieo/src/provider.ts:20`; unset = direct). Stadeum leaves it unset.
-2. **Port and paths.** One Express server on `PORT` (default 3355,
-   `mcp src/index.ts:377`). Strut's API and its web UI are both mounted at
-   `/lab` (`src/lab/mount.ts:310-321`): `/lab` → 308 → `/lab/` serves the UI,
-   `/lab/workflows`, `/lab/llm/mothership`, … are the Strut API. `/health` is
-   public. There is no separate Strut port.
-3. **How mcp sets the embedded Strut's env.**
-   - `STRUT_API_KEY`: **not set, and must not be.** mcp gates `/lab/*` itself
-     with `API_TOKEN` (`src/lab/mount.ts:162-191`); the lab strut "has no key
-     of its own" (`src/lab/proxy.ts:199-206`). Setting `STRUT_API_KEY` would
-     add strut's own Bearer gate behind mcp's and reject mcp's credentials.
-     Accepted at `/lab`: `x-api-token: API_TOKEN` (+ optional `x-strut-actor`),
-     a `/mint-token` JWT as `Authorization: Bearer` or `?key=`, a `lab:peer`
-     JWT (Bearer only), or Basic `admin:API_TOKEN`. `API_TOKEN` unset = open.
-   - `STRUT_MOTHERSHIP`: **not used by mcp.** It only gates the standalone
-     strut server (strut `src/server.ts:126-134`). Inside mcp the module is
-     always mounted (`GET /lab/llm/mothership` → `{"enabled":true}`).
-   - `STRUT_SECRET_KEY`: derived from `API_TOKEN` when unset
-     (`mcp src/index.ts:92-94`), so `SHARED_API_TOKEN` encrypts `secrets.json`
-     and `mothership.json`. Rotating it makes both unreadable (mothership
-     self-heals on re-push; secrets must be re-entered).
-   - `STRUT_WORKSPACE`: **not used.** The lab's data dir is
-     `STRUT_LAB_WORKSPACE` (default `./lab-workspace`,
-     `src/lab/createLabStrut.ts:159-162`), passed explicitly as `dataDir`.
-     Workflows/steps live in Neo4j by default (`STRUT_WORKSPACE_BACKEND=fs`
-     for disk); runs, chats, secrets and `mothership.json` stay on disk there.
-   - The lab scrubs `process.env` on first boot (`src/lab/mount.ts:82-92`);
-     `STRUT_ENV_SCRUB=0` / `STRUT_ENV_KEEP=A,B` control it.
-4. **`/mint-token`** (`mcp src/index.ts:203`, `src/repo/events.ts:118-143`).
-   `POST /mint-token`, header `x-api-token: API_TOKEN` only (a JWT cannot mint;
-   503 when `API_TOKEN` is unset). Body
-   `{expires_in?: string (default "1h"; "60d" for lab:peer), sub?: string, scope?: "api" | "lab:peer"}`
-   → `{token, expires_in, scope, sub?}`. HS256 JWT signed with `API_TOKEN`,
-   payload `{scope, sub?}`. At `/lab`, `labAuthorized` verifies it and grants
-   `actor = sub` (`src/lab/mount.ts:168-181`), stashed on the request and read
-   by strut's `resolveActor: resolveLabActor` (`src/lab/createLabStrut.ts:283`).
-   Verified: a run launched with a JWT minted for `sub: "alice@acme"` records
-   `"actor": "alice@acme"`.
-5. **`STRUT_MOTHERSHIP_REQUIRED` default: off.** mcp sets nothing; strut reads
-   `=== "1"` (`strut src/auth.ts:605-607`), so unset or `0` = off. Swarm only
-   sets it when the image struct says so (`repo2graph.rs:205-213`). Stadeum
-   sets `0` explicitly; phase 2 turns it on.
-   **Phase 2:** fixed at `1` in `stack/stadeum.yml`.
-6. `LLM_PROVIDER`: stadeum defaults to `anthropic`. Its key must be set for
-   the lab to boot (see repo2graph above). **Phase 2:** repo2graph gets a
-   non-secret placeholder for it plus `LLM_GATEWAY_URL=http://bifrost.sphinx:8181`;
-   real keys live only in bifrost.
+`SHARED_API_TOKEN` is the deployment key: bifrost's
+`BIFROST_PROVISIONING_TOKEN` (Bearer on `/_plugin/*`) and strut's
+`STRUT_API_KEY`, which also signs strut's session cookies and tickets
+(rotating it ends every session). `scripts/init-env.sh` generates it. In
+sphinx-swarm it was boltwall's `stakwork_secret`.
+
+## Where it came from
+
+The stack began as sphinx-swarm's containers (`dd0f132d`) under compose.
+Step 2 replaced repo2graph (stakgraph-mcp with Strut embedded at `/lab`,
+behind mcp's `/mint-token`) with strut's own image, Traefik and its Docker
+socket with Caddy, the swarm's network and `<name>.sphinx` hostnames with
+compose's own, and the swarm's Neo4j (5.19 with APOC, GDS and index
+initializers) with the stock image strut needs. repo2graph's arm64 image
+crash-looped, and its lab would not boot without a provider key.
 
 ## Still open
 
-- ~~Whether bifrost accepts a macaroon without `realm_id` / the agent catalog
-  being set~~: answered in `docs/mothership-spec.md` ("Answers (phase 2)").
 - The node `created_by` property: `graph/create-node` passes `ctx.actor`, but
-  the verify run's node came back with `created_by = NULL` although the run's
-  actor was set. Not needed for phase 1; check before relying on it.
+  a verify run's node came back with `created_by = NULL` although the run's
+  actor was set (seen under repo2graph). Check before relying on it.

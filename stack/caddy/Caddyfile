@@ -1,0 +1,22 @@
+# stadeum's router: TLS and the two sites, the only published ports.
+# SCHEME, HOST and ACME_EMAIL come from stack/stadeum.yml (stack/dev.yml:
+# plain http on *.localhost). With https, Caddy fetches and renews the
+# certificates itself.
+{
+	email "{$ACME_EMAIL}"
+}
+
+# stadeum-ui: sign-in, the person, the members, the admin pages.
+{$SCHEME}://{$HOST} {
+	reverse_proxy stadeum-ui:3000
+}
+
+# strut: its API and the UI stadeum-ui frames. A subdomain of HOST, so the
+# two are the same site and strut's session cookie reaches the frame.
+{$SCHEME}://strut.{$HOST} {
+	reverse_proxy strut:3000 {
+		# Run tails and the chat are SSE: pass every chunk on at once.
+		# WebSocket upgrades (/rooms, /channels, /audio/stream) pass as is.
+		flush_interval -1
+	}
+}

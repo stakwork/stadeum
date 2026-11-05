@@ -25,7 +25,7 @@ const need = (name) => {
 };
 
 const KEY_FILE = env("STADEUM_ORG_KEY_FILE", "/org/org-key.json");
-const BIFROST_URL = env("BIFROST_URL", "http://bifrost.sphinx:8181").replace(/\/+$/, "");
+const BIFROST_URL = env("BIFROST_URL", "http://bifrost:8181").replace(/\/+$/, "");
 const TOKEN = need("SHARED_API_TOKEN");
 const SLUG = env("STADEUM_ORG_SLUG", "org");
 const ORG_ID = `stadeum_${SLUG}`;

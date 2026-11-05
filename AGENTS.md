@@ -87,14 +87,15 @@ work on it. Read the rules before adding anything.
 
 ## Where it is going (2026-11-05)
 
-Today the stack runs strut inside repo2graph (mcp's `/lab`) behind Traefik.
-The order of the work, each step its own PR:
+The stack runs strut's own image on the stock Neo4j, behind Caddy. The
+order of the work, each step its own PR:
 
-0. This file.
+0. This file. (Done.)
 1. Strut: a per-person sign-in for its framed UI, the standalone twin of
    mcp's `/mint-token` (a strut PR).
 2. Strut's own image in place of repo2graph, and Caddy in place of Traefik.
    Neo4j becomes the stock image strut needs, pinned, with no plugins.
+   (Done.)
 3. Updates: `ops` follows `strut:stable` on a schedule the admin sets. It
    turns on strut's drain (`PUT /drain`), waits for `idle`, pulls,
    restarts, checks health, and rolls back on failure.
@@ -114,12 +115,13 @@ The order of the work, each step its own PR:
 | Path | What |
 | --- | --- |
 | `stack/stadeum.yml` | The deployment (docker compose). `stack/dev.yml` overlays local mode: plain http on `*.localhost` |
+| `stack/caddy/Caddyfile` | The routes: `$HOST` → stadeum-ui, `strut.$HOST` → strut |
 | `stack/bootstrap/` | First boot: the org signing key and its registration with the gateway |
 | `ui/` | stadeum-ui: Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db`) |
 | `ui/src/lib/mothership/` | Each person's virtual key and delegation, minted, pushed to strut, renewed |
-| `ui/src/lib/strut/` | The strut client (the delegation push in `ui/src/lib/mothership/strut-lab.ts` joins it in step 2) |
-| `scripts/` | `init-env.sh` (generates `.env`'s secrets), the Neo4j plugins, the gateway end-to-end check |
-| `docs/` | `stack-spec.md` (the stack as sphinx-swarm runs it), `mothership-spec.md` (the gateway contract) |
+| `ui/src/lib/strut/` | The strut client: delegations, the status check, the frame's sign-in ticket |
+| `scripts/` | `init-env.sh` (generates `.env`'s secrets), the gateway end-to-end check |
+| `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract) |
 
 ## Running
 
@@ -138,7 +140,7 @@ cd ui && cp .env.example .env && npm install && npx prisma migrate deploy
 ```
 
 Then set `AUTH_SECRET`, `STADEUM_ENCRYPTION_KEY`, `STADEUM_DEV_LOGIN=1` and
-the service URLs (`127.0.0.1:4555/{bifrost,mcp,neo4j}`) in `ui/.env`.
+the service URLs (`127.0.0.1:4555/{bifrost,strut,neo4j}`) in `ui/.env`.
 
 ```bash
 cd ui && npm run fake-stack    # fakes of bifrost, strut and neo4j on :4555

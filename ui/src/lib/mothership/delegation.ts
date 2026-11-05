@@ -1,11 +1,11 @@
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { DelegationsUnsupportedError, listDelegations, putDelegation, type DelegationSummary } from "@/lib/strut/client";
 import { MothershipConfigError } from "./admin-credentials";
 import { STRUT_DELEGATION_TTL_SECONDS } from "./constants";
 import { ensureOrgKeys, ensureUserKeys } from "./keys";
 import { withLock } from "./lock";
 import { mintDelegation } from "./mint";
-import { DelegationsUnsupportedError, listDelegations, putDelegation, type DelegationSummary } from "./strut-lab";
 import { ensureOrgTrust } from "./trust";
 import { ensureVirtualKey } from "./virtual-key";
 
@@ -21,7 +21,7 @@ export type DelegationStatus =
   | "fresh"
   /** Minted and pushed (first time or renewal). */
   | "pushed"
-  /** The lab has no `/llm/delegations` route. */
+  /** Strut has no `/llm/delegations` route. */
   | "unsupported"
   /** SHARED_API_TOKEN (or similar) missing: nothing to talk to. */
   | "not-configured"

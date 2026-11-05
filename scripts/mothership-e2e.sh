@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Phase 2 proof: run scripts/e2e/mothership-e2e.mjs in a container on the
-# stack network, with the org volume mounted read-only. The stack must be up
-# (bootstrap done).
+# The mothership proof: run scripts/e2e/mothership-e2e.mjs in a container on
+# the stack network, against bifrost and strut, with the org volume mounted
+# read-only. The stack must be up (bootstrap done).
 #
 #   scripts/mothership-e2e.sh            # COMPOSE_PROJECT_NAME defaults to stadeum
 #
@@ -20,8 +20,8 @@ real=0
 [ -n "$(val ANTHROPIC_API_KEY)" ] && real=1
 
 exec docker run --rm \
-  --network stadeum_sphinx-swarm \
-  --network-alias fake-llm.sphinx \
+  --network "${PROJECT}_default" \
+  --network-alias fake-llm \
   -v "${PROJECT}_org:/org:ro" \
   -v "$ROOT/scripts/e2e:/e2e" \
   -w /e2e \

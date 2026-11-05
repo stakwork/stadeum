@@ -10,7 +10,6 @@ export type { DelegationResult, DelegationStatus, DelegationUser } from "./deleg
 export { ensureOrgKeys, ensureUserKeys, macaroonOrgId } from "./keys";
 export { ensureVirtualKey } from "./virtual-key";
 export { mintDelegation, MintError } from "./mint";
-export { listDelegations, putDelegation, deleteDelegation, pushActorSecret } from "./strut-lab";
 export { buildActor } from "./actor";
 export { MothershipConfigError } from "./admin-credentials";
 export { renewAllDelegations } from "./renew";

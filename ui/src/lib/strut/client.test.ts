@@ -1,13 +1,14 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { startFakeStack, verifyJwt, type FakeStack } from "@/test/fake-stack";
-import { mintEmbedUrl, StrutUnavailableError } from "./client";
+import { MothershipConfigError } from "@/lib/mothership/admin-credentials";
+import { startFakeStack, type FakeStack } from "@/test/fake-stack";
+import { embedUrl, health, StrutHttpError } from "./client";
 
 let fake: FakeStack;
 const saved = { ...process.env };
 
 beforeAll(async () => {
-  fake = await startFakeStack({ token: "embed-test-token" });
+  fake = await startFakeStack({ token: "strut-test-token" });
 });
 afterAll(() => fake.close());
 afterEach(() => {
@@ -17,8 +18,8 @@ afterEach(() => {
 function configure(over: Record<string, string | undefined> = {}) {
   Object.assign(process.env, {
     SHARED_API_TOKEN: fake.token,
-    MCP_URL: fake.mcpUrl,
-    MCP_PUBLIC_URL: "https://repo2graph.acme.example/",
+    STRUT_URL: fake.strutUrl,
+    STRUT_PUBLIC_URL: "https://strut.acme.example/",
     AUTH_URL: "https://acme.example/some/path",
   });
   for (const [k, v] of Object.entries(over)) {
@@ -27,51 +28,65 @@ function configure(over: Record<string, string | undefined> = {}) {
   }
 }
 
-describe("mintEmbedUrl", () => {
-  it("builds {public mcp}/lab/ with a per-person key, our origin and the deep link", async () => {
+describe("embedUrl", () => {
+  it("frames {public strut}/ with a one-use ticket for the person, our origin and the deep link", async () => {
     configure();
-    const { url, expiresIn } = await mintEmbedUrl("ada-0f3c", {
-      wf: "chat",
-      run: "r1",
-    });
-    const u = new URL(url);
-    expect(u.origin).toBe("https://repo2graph.acme.example");
-    expect(u.pathname).toBe("/lab/");
+    const u = new URL(await embedUrl("ada-0f3c", { wf: "chat", run: "r1" }));
+    expect(u.origin).toBe("https://strut.acme.example");
+    expect(u.pathname).toBe("/");
     expect(u.searchParams.get("embed_origin")).toBe("https://acme.example");
     expect(u.searchParams.get("wf")).toBe("chat");
     expect(u.searchParams.get("run")).toBe("r1");
-    expect(expiresIn).toBe("1h");
 
-    const key = u.searchParams.get("key")!;
-    expect(verifyJwt(key, fake.token)?.sub).toBe("ada-0f3c");
-    expect(url).not.toContain(fake.token);
-    expect(fake.state.requests).toContain("POST /mcp/mint-token");
+    const ticket = u.searchParams.get("ticket")!;
+    expect(fake.state.tickets.get(ticket)?.actor).toBe("ada-0f3c");
+    expect(u.toString()).not.toContain(fake.token);
+    expect(fake.state.requests).toContain("POST /strut/auth/ticket");
   });
 
-  it("leaves out an empty deep link, and falls back to MCP_URL without a public URL", async () => {
-    configure({ MCP_PUBLIC_URL: undefined });
-    const u = new URL((await mintEmbedUrl("ada-0f3c")).url);
-    expect(`${u.origin}${u.pathname}`).toBe(`${fake.mcpUrl}/lab/`);
-    expect(u.searchParams.has("wf")).toBe(false);
-    expect(u.searchParams.has("run")).toBe(false);
+  it("mints a fresh ticket every time, and each opens the UI once", async () => {
+    configure({ STRUT_PUBLIC_URL: undefined });
+    const a = new URL(await embedUrl("ada-0f3c"));
+    const b = new URL(await embedUrl("ada-0f3c"));
+    expect(a.searchParams.get("ticket")).not.toBe(b.searchParams.get("ticket"));
+    // Without a public URL the frame falls back to STRUT_URL.
+    expect(`${a.origin}${a.pathname}`).toBe(`${fake.strutUrl}/`);
+    expect(a.searchParams.has("wf")).toBe(false);
+    expect(a.searchParams.has("run")).toBe(false);
+
+    const first = await fetch(a);
+    expect(first.status).toBe(200);
+    expect(await first.text()).toContain("ada-0f3c");
+    expect((await fetch(a)).status).toBe(401);
   });
 
-  it("refuses without the shared token, and when mcp rejects it", async () => {
+  it("refuses without the shared token, and when strut rejects it", async () => {
     configure({ SHARED_API_TOKEN: undefined });
-    await expect(mintEmbedUrl("ada-0f3c")).rejects.toBeInstanceOf(
-      StrutUnavailableError,
-    );
+    await expect(embedUrl("ada-0f3c")).rejects.toBeInstanceOf(MothershipConfigError);
     configure({ SHARED_API_TOKEN: "wrong" });
-    await expect(mintEmbedUrl("ada-0f3c")).rejects.toThrow("(401)");
+    await expect(embedUrl("ada-0f3c")).rejects.toThrow("returned 401");
   });
 
-  it("refuses when mcp is down", async () => {
+  it("refuses when strut is down", async () => {
     configure();
-    fake.state.down.mcp = true;
+    fake.state.down.strut = true;
     try {
-      await expect(mintEmbedUrl("ada-0f3c")).rejects.toThrow("(503)");
+      await expect(embedUrl("ada-0f3c")).rejects.toBeInstanceOf(StrutHttpError);
     } finally {
-      fake.state.down.mcp = false;
+      fake.state.down.strut = false;
     }
+  });
+});
+
+describe("health", () => {
+  it("reads the keyed view, and only { ok } with a key strut does not hold", async () => {
+    configure();
+    const h = await health();
+    expect(h.ok).toBe(true);
+    expect(h.workspace?.backend).toBe("neo4j");
+    expect(fake.state.requests).toContain("GET /strut/health");
+
+    configure({ SHARED_API_TOKEN: "wrong" });
+    expect(await health()).toEqual({ ok: true });
   });
 });

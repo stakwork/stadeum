@@ -1,14 +1,13 @@
 // Phase 2 end-to-end proof: the mothership is mandatory.
 //
 // Runs inside a container on the stack network (scripts/mothership-e2e.sh),
-// so it talks to bifrost.sphinx and repo2graph.sphinx the way stadeum-ui
-// does. It does what stadeum-ui's ensureDelegation does (docs/mothership-spec.md)
+// so it talks to bifrost and strut the way stadeum-ui does. It does what stadeum-ui's ensureDelegation does (docs/mothership-spec.md)
 // for one test person, then proves:
 //
 //   1. a Strut LLM step run as that person goes through bifrost and is
 //      billed to them (spend by macaroon user, bifrost customer, VK log);
 //   2. bifrost holds the provider key: the upstream sees bifrost's key,
-//      never the VK or mcp's placeholder;
+//      never the VK;
 //   3. no delegation -> refused (Strut), and bifrost itself refuses a call
 //      with no VK or with a VK but no macaroon;
 //   4. a run over its cap is stopped by bifrost (402 run_cost_exceeded);
@@ -33,17 +32,15 @@ import {
   verify,
 } from "gatekey";
 
-const BIFROST = "http://bifrost.sphinx:8181";
-const MCP = "http://repo2graph.sphinx:3355";
-const LAB = `${MCP}/lab`;
+const BIFROST = "http://bifrost:8181";
+const STRUT = "http://strut:3000";
 const T = must("SHARED_API_TOKEN");
 const ADMIN_PASS = must("BIFROST_ADMIN_PASS");
 const REAL = process.env.E2E_REAL_PROVIDER === "1";
 const MODEL = process.env.E2E_MODEL || "claude-haiku-4-5";
-const FAKE_HOST = "fake-llm.sphinx";
+const FAKE_HOST = "fake-llm";
 const FAKE_PORT = 9999;
 const FAKE_KEY = `fake-upstream-${randomBytes(4).toString("hex")}`;
-const MCP_PLACEHOLDER = "stadeum-placeholder-provider-keys-live-in-bifrost";
 const ALICE = "alice@acme.test"; // delegated
 const BOB = "bob@acme.test"; // never delegated
 const CAROL = "carol@acme.test"; // delegated with a tiny ceiling
@@ -101,7 +98,9 @@ async function ok(method, url, opts) {
 }
 const gov = (method, path, body) => ok(method, `${BIFROST}${path}`, { headers: { Authorization: basic }, body });
 const plugin = (method, path, body) => ok(method, `${BIFROST}${path}`, { headers: { Authorization: `Bearer ${T}` }, body });
-const labAdmin = { "x-api-token": T, Authorization: `Bearer ${T}` };
+// The deployment key; beside it, x-strut-actor names who a request is for.
+const strutAdmin = { Authorization: `Bearer ${T}` };
+const as = (actor) => ({ ...strutAdmin, "x-strut-actor": actor });
 
 // ── fake Anthropic upstream ─────────────────────────────────────────────
 const upstreamSeen = [];
@@ -225,16 +224,16 @@ function mintDelegation(org, actor, ceilingUsd) {
 }
 
 // ── Strut ───────────────────────────────────────────────────────────────
+/** Publish, or publish a new version over a previous run's. */
 async function putWorkflow(name, yaml) {
-  await ok("POST", `${LAB}/workflows`, { headers: labAdmin, body: { name, yaml } });
-}
-async function mintJwt(sub) {
-  return (await ok("POST", `${MCP}/mint-token`, { headers: { "x-api-token": T }, body: { expires_in: "10m", sub } })).token;
+  const have = await http("GET", `${STRUT}/workflows/${name}`, { headers: strutAdmin });
+  if (have.status === 404) await ok("POST", `${STRUT}/workflows`, { headers: strutAdmin, body: { name, yaml } });
+  else await ok("POST", `${STRUT}/workflows/${name}`, { headers: strutAdmin, body: { version: `v${Date.now()}`, yaml } });
 }
 async function runAs(workflow, auth) {
-  const { runId } = await ok("POST", `${LAB}/workflows/${workflow}/run`, { headers: auth, body: { input: {} } });
+  const { runId } = await ok("POST", `${STRUT}/workflows/${workflow}/run`, { headers: auth, body: { input: {} } });
   for (let i = 0; i < 120; i++) {
-    const r = await http("GET", `${LAB}/workflows/${workflow}/runs/${runId}`, { headers: labAdmin });
+    const r = await http("GET", `${STRUT}/workflows/${workflow}/runs/${runId}`, { headers: strutAdmin });
     // The run record appears a moment after the 202.
     if (r.status === 404 && i < 15) {
       await new Promise((res) => setTimeout(res, 1000));
@@ -249,7 +248,7 @@ async function runAs(workflow, auth) {
 }
 /** The run's step errors, from its event log. */
 async function runErrors(workflow, runId) {
-  const r = await http("GET", `${LAB}/workflows/${workflow}/runs/${runId}/events`, { headers: labAdmin });
+  const r = await http("GET", `${STRUT}/workflows/${workflow}/runs/${runId}/events`, { headers: strutAdmin });
   const events = Array.isArray(r.json) ? r.json : (r.json?.events ?? []);
   const msgs = events.map((e) => e.error ?? e.data?.error ?? e.payload?.error).filter(Boolean);
   return [...new Set(msgs.map((m) => (typeof m === "string" ? m : (m.message ?? JSON.stringify(m)))))];
@@ -294,24 +293,23 @@ try {
   show("alice VK", { id: vk.id, value: `${vk.value.slice(0, 8)}…` });
 
   const del = mintDelegation(org, ALICE, CEILING_USD);
-  const pushed = await ok("PUT", `${LAB}/llm/delegations/${encodeURIComponent(ALICE)}`, {
-    headers: labAdmin,
+  const pushed = await ok("PUT", `${STRUT}/llm/delegations/${encodeURIComponent(ALICE)}`, {
+    headers: strutAdmin,
     body: { macaroon: del.token, apiKey: vk.value, baseUrl: BIFROST },
   });
-  show("PUT /lab/llm/delegations/alice", pushed);
-  await http("DELETE", `${LAB}/llm/delegations/${encodeURIComponent(BOB)}`, { headers: labAdmin });
+  show("PUT /llm/delegations/alice", pushed);
+  await http("DELETE", `${STRUT}/llm/delegations/${encodeURIComponent(BOB)}`, { headers: strutAdmin });
 
   await putWorkflow("e2e-llm", ONE);
   await putWorkflow("e2e-llm-capped", TWO);
-  await ok("PUT", `${LAB}/workflows/e2e-llm-capped/run-cap`, { headers: labAdmin, body: { maxRunCostUsd: RUN_CAP_USD } });
+  await ok("PUT", `${STRUT}/workflows/e2e-llm-capped/run-cap`, { headers: strutAdmin, body: { maxRunCostUsd: RUN_CAP_USD } });
   await putWorkflow("e2e-llm-ceiling", CEIL);
   // Strut refuses a run cap above the delegation ceiling, so it sits under carol's.
-  await ok("PUT", `${LAB}/workflows/e2e-llm-ceiling/run-cap`, { headers: labAdmin, body: { maxRunCostUsd: CAROL_CEILING_USD / 2 } });
+  await ok("PUT", `${STRUT}/workflows/e2e-llm-ceiling/run-cap`, { headers: strutAdmin, body: { maxRunCostUsd: CAROL_CEILING_USD / 2 } });
 
   section("1. delegated run, billed to alice");
   const usageBefore = (await gov("GET", `/api/governance/customers/${customer.id}`)).customer?.budgets?.[0]?.current_usage ?? 0;
-  const aliceJwt = await mintJwt(ALICE);
-  const a = await runAs("e2e-llm", { Authorization: `Bearer ${aliceJwt}` });
+  const a = await runAs("e2e-llm", as(ALICE));
   show("run", { runId: a.runId, status: a.run.status, actor: a.run.actor, output: a.run.output?.text ?? a.run.output });
   check("alice's run succeeds", a.run.status === "success", a.run.status === "success" ? "" : await errorsOf("e2e-llm", a));
   check("the run's actor is alice", a.run.actor === ALICE);
@@ -361,7 +359,7 @@ try {
     show("upstream /v1/messages calls", calls.length);
     show("upstream saw x-api-key", keys);
     check(
-      "the provider key came from bifrost (not the VK, not mcp's placeholder)",
+      "the provider key came from bifrost (not the VK)",
       calls.length > 0 && keys.every((k) => k === FAKE_KEY),
     );
     check("the macaroon is not forwarded to the provider", upstreamSeen.every((u) => !u.macaroonForwarded));
@@ -369,20 +367,20 @@ try {
 
   section("2. no delegation, no model call");
   const before = upstreamSeen.length;
-  const b = await runAs("e2e-llm", { Authorization: `Bearer ${await mintJwt(BOB)}` });
+  const b = await runAs("e2e-llm", as(BOB));
   const bErr = await errorsOf("e2e-llm", b);
   show("bob's run", { status: b.run.status, actor: b.run.actor, error: bErr });
   check("bob (no delegation) is refused by Strut", b.run.status !== "success" && /no Mothership authorization/i.test(bErr));
-  const n = await runAs("e2e-llm", labAdmin);
+  const n = await runAs("e2e-llm", strutAdmin);
   const nErr = await errorsOf("e2e-llm", n);
   show("run with no actor", { status: n.run.status, actor: n.run.actor ?? null, error: nErr });
   check("a run with no actor is refused by Strut", n.run.status !== "success" && /nobody to bill/i.test(nErr));
   if (!REAL) check("neither refused run reached the provider", upstreamSeen.length === before);
 
   const msg = { model: MODEL, max_tokens: 8, messages: [{ role: "user", content: "hi" }] };
-  const noVk = await http("POST", `${BIFROST}/anthropic/v1/messages`, { headers: { "x-api-key": MCP_PLACEHOLDER, "anthropic-version": "2023-06-01" }, body: msg });
-  show("bifrost, mcp's placeholder key", `${noVk.status} ${noVk.text.slice(0, 200)}`);
-  check("bifrost refuses mcp's own key (mcp cannot call a model directly)", noVk.status === 401 || noVk.status === 403);
+  const noVk = await http("POST", `${BIFROST}/anthropic/v1/messages`, { headers: { "x-api-key": "not-a-virtual-key", "anthropic-version": "2023-06-01" }, body: msg });
+  show("bifrost, a key it never issued", `${noVk.status} ${noVk.text.slice(0, 200)}`);
+  check("bifrost refuses a key it never issued (no model call around it)", noVk.status === 401 || noVk.status === 403);
   const vkOnly = await http("POST", `${BIFROST}/anthropic/v1/messages`, { headers: { "x-api-key": vk.value, "anthropic-version": "2023-06-01" }, body: msg });
   show("bifrost, alice's VK without a macaroon", `${vkOnly.status} ${vkOnly.text.slice(0, 200)}`);
   check("bifrost refuses a VK without a macaroon", vkOnly.status === 401);
@@ -390,7 +388,7 @@ try {
 
   section("3. over the cap");
   const beforeCap = upstreamSeen.length;
-  const c = await runAs("e2e-llm-capped", { Authorization: `Bearer ${aliceJwt}` });
+  const c = await runAs("e2e-llm-capped", as(ALICE));
   const cErr = await errorsOf("e2e-llm-capped", c);
   show("capped run", { runId: c.runId, status: c.run.status, cap: RUN_CAP_USD, error: cErr });
   check("the run is stopped once it is over its cap", c.run.status !== "success" && /run_cost_exceeded|spent \$|cap/i.test(cErr));
@@ -403,11 +401,11 @@ try {
   section("4. over the person's delegation ceiling");
   const carol = await ensureCustomerAndVk(CAROL);
   const cdel = mintDelegation(org, CAROL, CAROL_CEILING_USD);
-  await ok("PUT", `${LAB}/llm/delegations/${encodeURIComponent(CAROL)}`, {
-    headers: labAdmin,
+  await ok("PUT", `${STRUT}/llm/delegations/${encodeURIComponent(CAROL)}`, {
+    headers: strutAdmin,
     body: { macaroon: cdel.token, apiKey: carol.vk.value, baseUrl: BIFROST },
   });
-  const carolAuth = { Authorization: `Bearer ${await mintJwt(CAROL)}` };
+  const carolAuth = as(CAROL);
   const c1 = await runAs("e2e-llm-ceiling", carolAuth);
   show("carol run 1", { status: c1.run.status, ceiling: CAROL_CEILING_USD });
   check("carol's first run is allowed (nothing spent yet)", c1.run.status === "success", c1.run.status === "success" ? "" : await errorsOf("e2e-llm-ceiling", c1));
@@ -421,7 +419,7 @@ try {
   check("e2e script ran to completion", false, err.stack ?? String(err));
 } finally {
   for (const who of [ALICE, CAROL]) {
-    await http("DELETE", `${LAB}/llm/delegations/${encodeURIComponent(who)}`, { headers: labAdmin }).catch(() => {});
+    await http("DELETE", `${STRUT}/llm/delegations/${encodeURIComponent(who)}`, { headers: strutAdmin }).catch(() => {});
   }
   if (!REAL) await unwireFakeProvider();
   server?.close();
