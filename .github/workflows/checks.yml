@@ -1,7 +1,7 @@
 name: checks
 
-# What a change must pass: stadeum-ui's types, lint and tests, and ops's
-# types and tests.
+# What a change must pass: stadeum-ui's types, lint and tests, ops's types
+# and tests, and shellcheck on the scripts.
 
 on:
   pull_request:
@@ -46,3 +46,11 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
+  scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # shellcheck comes with the runner image.
+      - run: shellcheck --severity=warning scripts/*.sh
