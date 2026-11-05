@@ -92,7 +92,7 @@ order of the work, each step its own PR:
 
 0. This file. (Done.)
 1. Strut: a per-person sign-in for its framed UI, the standalone twin of
-   mcp's `/mint-token` (a strut PR).
+   mcp's `/mint-token` (stakwork/strut#530). (Done.)
 2. Strut's own image in place of repo2graph, and Caddy in place of Traefik.
    Neo4j becomes the stock image strut needs, pinned, with no plugins.
    (Done.)

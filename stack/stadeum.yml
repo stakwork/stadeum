@@ -147,7 +147,7 @@ services:
     <<: *common
     # TODO: default to `stable` once strut promotes one (stakwork/strut#527
     # added the channel); until then, a published commit tag.
-    image: ghcr.io/stakwork/strut:${STRUT_IMAGE_TAG:-7498d21}
+    image: ghcr.io/stakwork/strut:${STRUT_IMAGE_TAG:-2fe953a}
     depends_on:
       # bolt.verify() fails the boot when nothing is listening.
       neo4j: { condition: service_healthy }

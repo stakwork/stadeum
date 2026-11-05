@@ -17,7 +17,7 @@ eight (`ui/src/lib/status.ts`, `SERVICES`).
 | `redis` | `redis:7.4.2-alpine` | bifrost's plugin state | None (stadeum-ui never calls it) |
 | `bifrost` | `ghcr.io/stakwork/stakgraph-gateway` | Model gateway: provider keys, a virtual key and a cap per person | `/_plugin/trust/status` |
 | `strut-browser` | `ghcr.io/stakwork/strut-browser:1.63.0` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
-| `strut` | `ghcr.io/stakwork/strut:7498d21` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
+| `strut` | `ghcr.io/stakwork/strut:2fe953a` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
 | `bootstrap` | `node:22.20.0-alpine` | One shot: org signing key + trust registration | Org key registered with bifrost, same key as stadeum-ui's |
 | `stadeum-ui` | built from `ui/` | Sign-in, the person, Members, Status | Running (it serves the page) |
 
@@ -114,7 +114,7 @@ checked".
   page it loads must not be able to guess it.
 
 ### strut
-- `ghcr.io/stakwork/strut:${STRUT_IMAGE_TAG:-7498d21}`, amd64 + arm64, port
+- `ghcr.io/stakwork/strut:${STRUT_IMAGE_TAG:-2fe953a}`, amd64 + arm64, port
   3000. A published commit tag until strut promotes a `stable` channel
   (stakwork/strut#527 added it); then the default becomes `stable`.
 - Based on strut's own `docker-compose.yml`:
