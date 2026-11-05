@@ -133,7 +133,8 @@ export function Providers({ providers }: { providers: ProviderState[] }) {
       {providers.map((p) => (
         <ProviderRow key={p.id} p={p} />
       ))}
-      <AddProvider />
+      {/* A new list (a provider added or removed) starts the form afresh: the new row says how its key fared. */}
+      <AddProvider key={providers.map((p) => p.id).join(",")} />
     </ul>
   );
 }
@@ -203,7 +204,7 @@ function AddProvider() {
   );
 }
 
-const dollars = (n: number) => (n === 0 ? "0" : n < 1 ? n.toFixed(2) : String(+n.toFixed(2)));
+const dollars = (n: number) => n.toFixed(2);
 
 function PriceNote({ price }: { price?: { input: number; output: number } }) {
   if (!price) return null;
@@ -220,7 +221,7 @@ function PriceNote({ price }: { price?: { input: number; output: number } }) {
  * pick. Saving changes every person's key in the gateway and what Jamie
  * offers.
  */
-export function ModelsForm({ groups }: { groups: Array<{ label: string; models: ModelRow[] }> }) {
+export function ModelsForm({ groups }: { groups: Array<{ label: string; prefix: string; models: ModelRow[] }> }) {
   const [state, action] = useActionState<Result, FormData>(saveModels, {});
   return (
     <form action={action} className="flex flex-col gap-5">
@@ -246,6 +247,13 @@ export function ModelsForm({ groups }: { groups: Array<{ label: string; models: 
                   {g.label}
                 </th>
               </tr>
+              {g.models.length === 0 && (
+                <tr className="border-t border-rule-soft">
+                  <td colSpan={3} className="px-5 py-3 text-[13px] text-ink-3">
+                    None yet. Allow one below, as {g.prefix}/&lt;model id&gt;, with its price.
+                  </td>
+                </tr>
+              )}
               {g.models.map((m) => (
                 <tr key={m.name} className="border-t border-rule-soft">
                   <td className="px-5 py-3">
