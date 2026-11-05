@@ -53,12 +53,26 @@ docker compose --env-file .env -f stack/stadeum.yml -f stack/dev.yml up -d --wai
 
 Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db` in the
 container), port 3000. The shell is vertical-neutral: sign-in, the person,
-Organisation (Members, Status; admins only), an Apps launcher and Recent activity.
-Everything else is an app from the registry in `ui/src/lib/apps.ts`
-(`{id, name, description, entry}`). v1 ships with no apps. An entry with
-`strutApp: { wf }` frames strut's UI there instead, signed in as the person
-with a one-use ticket (`ui/src/lib/strut/client.ts`).
+Organisation (Members, Status; admins only) and strut's apps.
 
+- Apps: `ui/src/lib/apps.ts` reads strut's `GET /apps` through the strut
+  client (`ui/src/lib/strut/client.ts`) and orders them: the assistant,
+  Jamie (`strut/jamie`, which strut seeds on every server), first, then the
+  apps pinned as tabs, then the rest by title. `strut/views`, the component
+  library other apps import, is left out: the listing cannot tell a library
+  from a page.
+- Opening one frames strut's own host page showing the app alone,
+  `{STRUT_PUBLIC_URL}/?ticket=…&app=<name>&solo=1&embed_origin=<stadeum's origin>`,
+  signed in as the person with a ticket minted per page load
+  (`POST /auth/ticket`). The frame fills the page beside the rail, with no
+  title or margin of stadeum's. It opens in the theme stadeum shows
+  (`&theme=light|dark`, which strut reads once), so a theme switch reloads
+  it with a fresh ticket. Jamie is the home, `/`. Every other app is
+  at `/apps/<its name, encoded>` (`/apps/acme%2Flegal`). Without Jamie, the
+  home lists the apps.
+- The app's own deep link, `input`, rides in stadeum's URL:
+  `/?input=session%3D<id>` opens that conversation, and the app's
+  `strut:location` reports update it.
 - Sign-in: Microsoft Entra ID and Google when their `AUTH_*` vars are set;
   `STADEUM_DEV_LOGIN=1` adds a password-less email login for local work.
   The first person becomes admin; others need an invite or an email at
