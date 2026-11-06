@@ -70,7 +70,7 @@ curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/insta
 | `ui/` | stadeum-ui: single sign-on, members, status, updates, backups, per-person model access, app launcher |
 | `ops/` | stadeum-ops: releases, updates and backups (the Docker socket's one holder, no port). Its image carries the release's stack files |
 | `.github/workflows/` | Checks; stadeum's images, published from main and promoted to `stable` |
-| `scripts/` | The server install, env setup, the end-to-end gateway check, the backup-and-restore proof, the release proof |
+| `scripts/` | The server install, env setup, promoting a release (`promote.sh strut` or `promote.sh stadeum`), the end-to-end gateway check, the backup-and-restore proof, the release proof |
 | `docs/` | Stack and gateway specs |
 
 ## Run the stack
