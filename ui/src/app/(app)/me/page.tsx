@@ -1,18 +1,19 @@
 import type { Metadata } from "next";
 import { revalidatePath } from "next/cache";
 
-import { signOut } from "@/auth";
 import { buttonClass } from "@/components/button";
 import { describeDelegation } from "@/components/delegation";
 import { PageHeader, SectionLabel } from "@/components/page-header";
 import { Dot } from "@/components/state";
+import { ThemeCards } from "@/components/theme-switch";
 import { db } from "@/lib/db";
 import { absoluteTime, longDate, relativeTime } from "@/lib/format";
 import { ensureDelegation } from "@/lib/mothership/delegation";
 import { roleLabel, isRole } from "@/lib/roles";
 import { requireUser } from "@/lib/session";
+import { signOutAction } from "../actions";
 
-export const metadata: Metadata = { title: "You" };
+export const metadata: Metadata = { title: "Account" };
 export const dynamic = "force-dynamic";
 
 async function checkAgain() {
@@ -22,11 +23,6 @@ async function checkAgain() {
   revalidatePath("/me");
 }
 
-async function signOutAction() {
-  "use server";
-  await signOut({ redirectTo: "/signin" });
-}
-
 export default async function MePage() {
   const user = await requireUser();
   const m = await db.mothershipUser.findUnique({ where: { userId: user.id } });
@@ -34,13 +30,28 @@ export default async function MePage() {
 
   return (
     <>
-      <PageHeader title={user.name || user.email} lede={user.name ? user.email : undefined}>
-        <form action={signOutAction}>
-          <button type="submit" className={buttonClass.secondary}>
-            Sign out
-          </button>
-        </form>
-      </PageHeader>
+      <PageHeader title="Account" />
+
+      <section aria-labelledby="profile" className="flex max-w-3xl flex-col gap-3">
+        <SectionLabel id="profile">Profile</SectionLabel>
+        <div className="rounded-[14px] border border-rule bg-surface p-5 shadow-soft md:p-7">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-1">
+              <span className="truncate text-[15px] font-medium text-ink">{user.name || user.email}</span>
+              {user.name && <span className="truncate text-[14px] text-ink-3">{user.email}</span>}
+            </div>
+            <form action={signOutAction}>
+              <button type="submit" className={buttonClass.secondary}>
+                Sign out
+              </button>
+            </form>
+          </div>
+
+          <dl className="mt-7 grid grid-cols-1 gap-x-10 gap-y-1 border-t border-rule-soft pt-6 text-[14.5px] sm:grid-cols-[max-content_1fr] sm:gap-y-4">
+            <Row label="Role">{isRole(user.role) ? roleLabel[user.role] : user.role}</Row>
+          </dl>
+        </div>
+      </section>
 
       <section aria-labelledby="access" className="flex max-w-3xl flex-col gap-3">
         <SectionLabel id="access">AI access</SectionLabel>
@@ -72,7 +83,6 @@ export default async function MePage() {
             <Row label="Billed as">
               <code className="font-mono text-[13px] text-ink-2 [overflow-wrap:anywhere]">{user.actor}</code>
             </Row>
-            <Row label="Role">{isRole(user.role) ? roleLabel[user.role] : user.role}</Row>
             {m?.delegationError && !access.ready && (
               <Row label="Technical detail">
                 <span className="text-ink-2 [overflow-wrap:anywhere]">{m.delegationError}</span>
@@ -80,6 +90,12 @@ export default async function MePage() {
             )}
           </dl>
         </div>
+      </section>
+
+      <section aria-labelledby="appearance" className="flex max-w-3xl flex-col gap-3">
+        <SectionLabel id="appearance">Appearance</SectionLabel>
+        <ThemeCards />
+        <p className="text-[13px] text-ink-3">System follows your computer’s setting. Apps open in the same theme.</p>
       </section>
     </>
   );

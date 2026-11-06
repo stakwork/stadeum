@@ -1,18 +1,13 @@
 export function PageHeader({
   title,
-  lede,
   children,
 }: {
   title: React.ReactNode;
-  lede?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   return (
     <header className="flex flex-wrap items-end justify-between gap-4">
-      <div className="flex flex-col gap-2">
-        <h1 className="font-serif text-[34px] leading-[1.1] font-normal tracking-[-0.02em] text-ink md:text-[44px]">{title}</h1>
-        {lede && <p className="text-[15px] text-ink-2">{lede}</p>}
-      </div>
+      <h1 className="font-serif text-[34px] leading-[1.1] font-normal tracking-[-0.02em] text-ink md:text-[44px]">{title}</h1>
       {children}
     </header>
   );

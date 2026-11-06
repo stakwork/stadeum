@@ -125,6 +125,59 @@ const redactKey = (k: FakeKey) => ({
   value: typeof k.value === "string" ? `${k.value.slice(0, 3)}****${k.value.slice(-4)}` : { ...k.value, value: k.value.value ? "****" : "" },
 });
 
+/** One logged model call. */
+export interface FakeCall {
+  ts: string;
+  user_id: string;
+  provider: string;
+  model: string;
+  cost: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+}
+
+const WINDOW_MS: Record<string, number> = { "24h": 864e5, "7d": 7 * 864e5, "30d": 30 * 864e5, "90d": 90 * 864e5 };
+
+/** The gateway's rollups over its logged calls (`/_plugin/spend/*`, `/_plugin/histogram/*`). */
+function rollup(calls: FakeCall[], path: string, url: URL) {
+  const window = url.searchParams.get("window") ?? "24h";
+  const since = Date.now() - (WINDOW_MS[window] ?? 864e5);
+  const rows = calls.filter((c) => Date.parse(c.ts) >= since);
+  const group = (key: (c: FakeCall) => string) => {
+    const out = new Map<string, FakeCall[]>();
+    for (const c of rows) out.set(key(c), [...(out.get(key(c)) ?? []), c]);
+    return [...out];
+  };
+  const sum = (cs: FakeCall[]) => ({
+    total_cost: cs.reduce((a, c) => a + c.cost, 0),
+    total_tokens: cs.reduce((a, c) => a + c.prompt_tokens + c.completion_tokens, 0),
+    request_count: cs.length,
+  });
+  if (path === "/_plugin/spend/by-user") {
+    return { window, results: group((c) => c.user_id).map(([user_id, cs]) => ({ user_id, user_name: user_id, ...sum(cs) })) };
+  }
+  if (path === "/_plugin/spend/by-model") {
+    const results = group((c) => JSON.stringify([c.provider, c.model])).map(([k, cs]) => {
+      const [provider, model] = JSON.parse(k) as [string, string];
+      return { provider, model, ...sum(cs) };
+    });
+    return { window, results };
+  }
+  const size = url.searchParams.get("bucket") === "1h" ? 3600 : 86400;
+  const bucket = (c: FakeCall) => new Date(Math.floor(Date.parse(c.ts) / (size * 1000)) * size * 1000).toISOString();
+  const points = group(bucket).map(([ts, cs]) =>
+    path === "/_plugin/histogram/cost"
+      ? { ts, cost: sum(cs).total_cost }
+      : {
+          ts,
+          prompt_tokens: cs.reduce((a, c) => a + c.prompt_tokens, 0),
+          completion_tokens: cs.reduce((a, c) => a + c.completion_tokens, 0),
+          total_tokens: sum(cs).total_tokens,
+        },
+  );
+  return { bucket_size_seconds: size, dimension: "agent-name", series: rows.length ? [{ dimension_value: "strut-agent", points }] : [] };
+}
+
 /** A custom provider bifrost holds (`POST /api/providers`). */
 export interface FakeCustomProvider {
   base_url: string;
@@ -143,7 +196,14 @@ export interface FakeState {
   clientConfig: Record<string, unknown>;
   /** strut's deployment secret store (`PUT /secrets/:name`). */
   deploymentSecrets: Map<string, string>;
-  customers: Array<{ id: string; name: string; created_at: string }>;
+  customers: Array<{
+    id: string;
+    name: string;
+    created_at: string;
+    budget?: { max_limit: number; reset_duration: string; last_reset?: string };
+  }>;
+  /** Model calls the gateway logged: what its spend rollups and each customer's budget usage sum. `user_id` is the actor (= customer name). */
+  calls: FakeCall[];
   vks: Array<{ id: string; name: string; value: string; customer_id: string; created_at: string; provider_configs: unknown[] }>;
   trust: Map<string, { org_id: string; pubkey: string; issuer_url: string; revocation_poll_seconds: number }>;
   realmId: string;
@@ -196,6 +256,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     clientConfig: { log_retention_days: 365, enable_logging: true, disable_content_logging: false, drop_excess_requests: false },
     deploymentSecrets: new Map(),
     customers: [],
+    calls: [],
     vks: [],
     trust: new Map(),
     realmId: "",
@@ -273,6 +334,9 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
         }
         return send(res, 200, state.pricing);
       }
+      if (m === "GET" && (path.startsWith("/_plugin/spend/") || path.startsWith("/_plugin/histogram/"))) {
+        return send(res, 200, rollup(state.calls, path, url));
+      }
       if (path === "/_plugin/agents" && m === "POST") {
         state.agents = body.agents;
         return send(res, 200, { written: { agents: body.agents.length, prompts: 0, tools: 0, skills: 0 } });
@@ -330,9 +394,28 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       }
       if (path === "/api/governance/customers" && m === "GET") {
         const q = url.searchParams.get("search") ?? "";
-        const customers = state.customers.filter((c) => c.name.includes(q));
-        return send(res, 200, { customers, count: customers.length, total_count: customers.length, limit: 50, offset: 0 });
+        // Reads return `budgets[]`, with what each budget has counted: its customer's calls since its last reset.
+        const customers = state.customers
+          .filter((c) => c.name.includes(q))
+          .map(({ budget, ...c }) => ({
+            ...c,
+            budgets: budget
+              ? [
+                  {
+                    ...budget,
+                    current_usage: state.calls
+                      .filter((k) => k.user_id === c.name && k.ts >= (budget.last_reset ?? ""))
+                      .reduce((a, k) => a + k.cost, 0),
+                  },
+                ]
+              : [],
+          }));
+        const limit = Number(url.searchParams.get("limit") ?? 50);
+        const offset = Number(url.searchParams.get("offset") ?? 0);
+        const page = customers.slice(offset, offset + limit);
+        return send(res, 200, { customers: page, count: page.length, total_count: customers.length, limit, offset });
       }
+
       if (path === "/api/governance/customers" && m === "POST") {
         if (state.customers.some((c) => c.name === body.name)) return send(res, 400, { error: "duplicate key value" });
         const customer = { id: randomUUID(), name: body.name, created_at: new Date().toISOString(), budget: body.budget, rate_limit: body.rate_limit };

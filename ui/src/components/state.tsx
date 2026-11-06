@@ -5,7 +5,7 @@
  */
 export type Tone = "ok" | "attention" | "pending" | "muted";
 
-const dot: Record<Tone, string> = {
+export const dot: Record<Tone, string> = {
   ok: "bg-ok",
   attention: "border-[1.5px] border-warn",
   pending: "border-[1.5px] border-ink-3",

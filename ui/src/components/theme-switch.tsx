@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 
 import { applyTheme, readTheme, type Theme } from "@/lib/theme";
 
-const LABEL: Record<Theme, string> = { system: "System theme", light: "Light theme", dark: "Dark theme" };
+const LABEL: Record<Theme, string> = {
+  system: "System theme",
+  light: "Light theme",
+  dark: "Dark theme",
+};
 const ORDER: Theme[] = ["system", "light", "dark"];
 
 function Icon({ theme }: { theme: Theme }) {
@@ -72,27 +76,86 @@ export function ThemeButton({ className = "" }: { className?: string }) {
   );
 }
 
-/** Three icon segments, one per choice. */
-export function ThemeSegments() {
+const NAME: Record<Theme, string> = {
+  system: "System",
+  light: "Light",
+  dark: "Dark",
+};
+
+/** A small drawing of the app in one scheme. Its colours are the scheme's own, whatever the page shows. */
+function Sketch({ scheme }: { scheme: "light" | "dark" }) {
+  const c =
+    scheme === "light"
+      ? {
+          paper: "bg-[#f6f4ee]",
+          surface: "bg-[#ffffff]",
+          rule: "border-[#e4e0d6]",
+          line: "bg-[#d6d1c4]",
+          on: "bg-[#ece8de]",
+        }
+      : {
+          paper: "bg-[#161513]",
+          surface: "bg-[#1f1e1b]",
+          rule: "border-[#34322d]",
+          line: "bg-[#46433c]",
+          on: "bg-[#2a2824]",
+        };
+  return (
+    <span className={`absolute inset-0 flex ${c.paper}`}>
+      <span className={`flex w-[30%] flex-col gap-1.5 border-r p-2 ${c.rule}`}>
+        <span className={`h-1.5 w-3/5 rounded-full ${c.line}`} />
+        <span className={`mt-1 h-2.5 rounded ${c.on}`} />
+        <span className={`h-1.5 w-4/5 rounded-full ${c.line}`} />
+        <span className={`h-1.5 w-3/5 rounded-full ${c.line}`} />
+      </span>
+      <span className={`m-2 flex flex-1 flex-col gap-1.5 rounded-md p-2 ${c.surface}`}>
+        <span className={`h-2 w-1/2 rounded-full ${c.line}`} />
+        <span className={`h-1.5 w-4/5 rounded-full ${c.line}`} />
+        <span className={`h-1.5 w-3/5 rounded-full ${c.line}`} />
+      </span>
+    </span>
+  );
+}
+
+/** The theme as three cards, each a sketch of the app in that scheme. System shows both. */
+export function ThemeCards() {
   const [theme, set] = useTheme();
   return (
-    <div role="radiogroup" aria-label="Theme" className="inline-flex gap-0.5 rounded-lg bg-raised p-0.5">
-      {ORDER.map((t) => (
-        <button
-          key={t}
-          type="button"
-          role="radio"
-          aria-checked={theme === t}
-          aria-label={LABEL[t]}
-          title={LABEL[t]}
-          onClick={() => set(t)}
-          className={`grid h-7 w-8 place-items-center rounded-md transition-colors duration-150 ${
-            theme === t ? "bg-surface text-ink shadow-soft" : "text-ink-3 hover:text-ink"
-          }`}
-        >
-          <Icon theme={t} />
-        </button>
-      ))}
+    <div role="radiogroup" aria-label="Theme" className="grid grid-cols-3 gap-3 md:gap-4">
+      {ORDER.map((t) => {
+        const on = theme === t;
+        return (
+          <button
+            key={t}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => set(t)}
+            className={`flex flex-col gap-3 rounded-[14px] bg-surface p-2.5 text-left transition-[border-color,transform] duration-150 active:scale-[0.99] md:p-3 ${
+              on ? "border-2 border-accent" : "m-px border border-rule hover:border-rule-strong"
+            }`}
+          >
+            <span className="relative block h-20 overflow-hidden rounded-lg border border-rule md:h-24">
+              <Sketch scheme={t === "dark" ? "dark" : "light"} />
+              {t === "system" && (
+                <span className="absolute inset-0 [clip-path:polygon(60%_0,100%_0,100%_100%,40%_100%)]">
+                  <Sketch scheme="dark" />
+                </span>
+              )}
+            </span>
+            <span className="flex items-center justify-between gap-2 px-0.5 text-[14px] font-medium text-ink">
+              <span className="flex items-center gap-2">
+                <Icon theme={t} />
+                {NAME[t]}
+              </span>
+              <span
+                aria-hidden
+                className={`size-2.5 rounded-full ${on ? "bg-accent" : "border-[1.5px] border-rule-strong"}`}
+              />
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

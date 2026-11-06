@@ -4,9 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { AccountMenu, type Person } from "./account-menu";
 import { CallRailCard, useCall } from "./call";
-import { Dot, type Tone } from "./state";
-import { ThemeSegments } from "./theme-switch";
 import { LogoMark } from "./logo-mark";
 
 export interface RailProps {
@@ -16,32 +15,56 @@ export interface RailProps {
   /** Strut's other apps, in launcher order. */
   apps: Array<{ title: string; href: string }>;
   admin: boolean;
-  person: { name: string; tone: Tone; state: string };
+  person: Person;
+}
+
+/** The pages that make up Settings: the person's own, then the organisation's (admins). */
+const SETTINGS = {
+  you: [{ href: "/me", label: "Account" }],
+  organisation: [
+    { href: "/members", label: "Members" },
+    { href: "/models", label: "Models" },
+    { href: "/spending", label: "Spending" },
+    { href: "/apps", label: "Apps" },
+    { href: "/branding", label: "Branding" },
+  ],
+  server: [
+    { href: "/status", label: "Status" },
+    { href: "/updates", label: "Updates" },
+    { href: "/backups", label: "Backups" },
+  ],
+};
+
+const SETTINGS_PATHS = [...SETTINGS.you, ...SETTINGS.organisation, ...SETTINGS.server].map((p) => p.href);
+
+/** The admin Apps page and an app's versions are Settings; `/apps/<name>` alone is the app's frame. */
+function settingsPage(path: string): string | undefined {
+  if (/^\/apps\/[^/]+\/versions(\/|$)/.test(path)) return "/apps";
+  return SETTINGS_PATHS.find((href) => path === href || (href !== "/apps" && path.startsWith(`${href}/`)));
 }
 
 /**
- * The left rail: wordmark, the home (the assistant), Calls, Apps,
- * Organisation, and the person with their run state. A call that is on
- * shows above the person (on phones, in the top bar), so it is in reach
- * from every page. On phones the rail folds behind a menu button and, when
- * opened, sits above the page in the flow: it pushes content down, never
- * covers it.
+ * The left rail. Working, it holds the home (the assistant), Calls, the
+ * apps and the person's menu; on a Settings page it holds Settings' own
+ * pages and a way back. A call that is on shows at the bottom, on every
+ * page but Calls (on phones, in the top bar), so it is in reach anywhere.
+ * On phones the rail folds behind a menu button and, when opened, sits
+ * above the page in the flow: it pushes content down, never covers it.
  */
 export function Rail({ orgName, home, apps, admin, person }: RailProps) {
   const path = usePathname();
-  const call = useCall();
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
 
-  const is = (href: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
-  // The admin Apps page and an app's versions; an app's own item is only its frame.
-  const managingApps = path === "/apps" || /^\/apps\/[^/]+\/versions(\/|$)/.test(path);
+  const current = settingsPage(path);
+  const call = useCall();
+  const showCall = call.active && path !== "/calls";
 
   return (
     <>
       <div className="flex items-center justify-between border-b border-rule px-4 py-3 md:hidden">
         <Wordmark orgName={orgName} small />
-        {call.active && !is("/calls") && (
+        {showCall && (
           <span className="mr-2 ml-auto">
             <CallRailCard compact />
           </span>
@@ -54,7 +77,16 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
           onClick={() => setOpen((o) => !o)}
           className="grid size-11 place-items-center rounded-[10px] border border-rule-strong bg-surface text-ink active:scale-[0.97]"
         >
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 18 18"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            aria-hidden
+          >
             {open ? <path d="M4.5 4.5l9 9M13.5 4.5l-9 9" /> : <path d="M3 5h12M3 9h12M3 13h12" />}
           </svg>
         </button>
@@ -62,80 +94,98 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
 
       <nav
         id="rail"
-        aria-label="Main"
-        className={`${open ? "flex" : "hidden"} flex-col gap-6 border-b border-rule px-5 py-6 md:sticky md:top-0 md:flex md:h-dvh md:w-[232px] md:shrink-0 md:overflow-y-auto md:border-r md:border-b-0 md:py-7`}
+        aria-label={current ? "Settings" : "Main"}
+        className={`${open ? "flex" : "hidden"} flex-col gap-6 border-b border-rule px-5 py-6 md:sticky md:top-0 md:flex md:h-dvh md:w-[232px] md:shrink-0 md:overflow-y-auto md:border-r md:border-b-0 md:pt-7 md:pb-4`}
       >
-        <div className="hidden px-3 md:block">
-          <Wordmark orgName={orgName} />
-        </div>
-
-        <div className="flex flex-col gap-0.5">
-          <Item href="/" active={is("/")} strong>
-            {home}
-          </Item>
-          <Item href="/calls" active={is("/calls")}>
-            Calls
-          </Item>
-        </div>
-
-        {apps.length > 0 && (
-          <Section label="Apps">
-            {apps.map((a) => (
-              <Item key={a.href} href={a.href} active={path === a.href}>
-                {a.title}
-              </Item>
-            ))}
-          </Section>
-        )}
-
-        {admin && (
-          <Section label="Organisation">
-            <Item href="/members" active={is("/members")}>
-              Members
-            </Item>
-            <Item href="/status" active={is("/status")}>
-              Status
-            </Item>
-            <Item href="/apps" active={managingApps}>
-              Apps
-            </Item>
-            <Item href="/models" active={is("/models")}>
-              Models
-            </Item>
-            <Item href="/branding" active={is("/branding")}>
-              Branding
-            </Item>
-            <Item href="/updates" active={is("/updates")}>
-              Updates
-            </Item>
-            <Item href="/backups" active={is("/backups")}>
-              Backups
-            </Item>
-          </Section>
-        )}
-
-        <div className="mt-auto flex flex-col gap-2 border-t border-rule pt-2">
-          {call.active && !is("/calls") && (
-            <div className="hidden pt-1 md:block">
-              <CallRailCard />
+        {current ? (
+          <>
+            <Link
+              href="/"
+              className="flex h-9 items-center gap-2 rounded-lg px-3 text-[14px] text-ink-2 transition-colors duration-150 hover:bg-raised hover:text-ink"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M10 3.5L5.5 8l4.5 4.5" />
+              </svg>
+              Back to {orgName}
+            </Link>
+            <SettingsSection label="You" pages={SETTINGS.you} current={current} />
+            {admin && <SettingsSection label="Organisation" pages={SETTINGS.organisation} current={current} />}
+            {admin && <SettingsSection label="This server" pages={SETTINGS.server} current={current} />}
+            {showCall && (
+              <div className="mt-auto hidden md:block">
+                <CallRailCard />
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="hidden px-3 md:block">
+              <Wordmark orgName={orgName} />
             </div>
-          )}
-          <Link
-            href="/me"
-            aria-current={is("/me") ? "page" : undefined}
-            className={`flex flex-col gap-2 rounded-lg p-3 transition-colors duration-150 hover:bg-raised ${is("/me") ? "bg-raised" : ""}`}
-          >
-            <span className="truncate text-[14px] font-medium text-ink">{person.name}</span>
-            <span className="text-[12px]">
-              <Dot tone={person.tone} label={person.state} />
-            </span>
-          </Link>
-          <div className="px-3 pb-1">
-            <ThemeSegments />
-          </div>
-        </div>
+
+            <div className="flex flex-col gap-0.5">
+              <Item href="/" active={path === "/"} strong>
+                {home}
+              </Item>
+              <Item href="/calls" active={path === "/calls"}>
+                Calls
+              </Item>
+            </div>
+
+            {apps.length > 0 && (
+              <Section label="Apps">
+                {apps.map((a) => (
+                  <Item key={a.href} href={a.href} active={path === a.href}>
+                    {a.title}
+                  </Item>
+                ))}
+              </Section>
+            )}
+
+            <div className="mt-auto flex flex-col gap-2.5">
+              {showCall && (
+                <div className="hidden md:block">
+                  <CallRailCard />
+                </div>
+              )}
+              <div className="border-t border-rule pt-2.5">
+                <AccountMenu person={person} admin={admin} />
+              </div>
+            </div>
+          </>
+        )}
       </nav>
     </>
+  );
+}
+
+function SettingsSection({
+  label,
+  pages,
+  current,
+}: {
+  label: string;
+  pages: Array<{ href: string; label: string }>;
+  current: string;
+}) {
+  return (
+    <Section label={label}>
+      {pages.map((p) => (
+        <Item key={p.href} href={p.href} active={current === p.href}>
+          {p.label}
+        </Item>
+      ))}
+    </Section>
   );
 }
 
@@ -144,7 +194,9 @@ function Wordmark({ orgName, small }: { orgName: string; small?: boolean }) {
     <Link href="/" className="flex flex-col gap-0.5 text-ink">
       <span className="flex items-center gap-2">
         <LogoMark size={small ? 22 : 24} />
-        <span className={`font-serif leading-none tracking-[-0.02em] ${small ? "text-[22px]" : "text-[24px]"}`}>stadeum</span>
+        <span className={`font-serif leading-none tracking-[-0.02em] ${small ? "text-[22px]" : "text-[24px]"}`}>
+          stadeum
+        </span>
       </span>
       <span className={`${small ? "text-[12px]" : "text-[13px]"} text-ink-3`}>{orgName}</span>
     </Link>

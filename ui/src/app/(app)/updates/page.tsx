@@ -52,7 +52,6 @@ export default async function UpdatesPage() {
     <>
       <PageHeader
         title="Updates"
-        lede="strut and stadeum follow their stable channels. A stadeum release brings the stack files it runs with, and every pin in them. In the window each night, ops moves them, checks their health, and puts the previous ones back if they fail it."
       >
         <div className="flex flex-wrap gap-3">
           <form action={checkNow}>
