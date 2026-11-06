@@ -530,7 +530,8 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     if (!lk) return send(res, 503, { error: "no voice service is configured (STRUT_VOICE_URL)" });
     // An empty body is `{}`, as the voice service reads it.
     if (body !== undefined && (!body || typeof body !== "object" || Array.isArray(body))) return send(res, 400, { error: "the body must be a JSON object" });
-    const { key, voice } = body ?? {};
+    const { key, voice, artifacts } = body ?? {};
+    if (artifacts !== undefined && typeof artifacts !== "boolean") return send(res, 400, { error: "artifacts must be a boolean" });
     if (key !== undefined && (typeof key !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(key) || Buffer.from(key, "base64").length !== 32)) {
       return send(res, 400, { error: "key must be 32 bytes, as base64" });
     }
@@ -700,11 +701,17 @@ function html(res: ServerResponse, body: string, status = 200) {
 /** Strut's UI showing one app alone (`?app=<name>&solo=1`), as the frame opens it. */
 function embedPage(who: { actor: string; role: string } | undefined, q: URLSearchParams, apps: FakeApp[] = []): string {
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-  const name = q.get("app") ?? "";
+  const name = (q.get("app") ?? "").replace(/@v\d+$/, "");
   const app = apps.find((a) => a.name === name);
+  const artifact = q.get("artifact");
   const body = !who
     ? "<p>This sign-in link has expired. Reload the page from the app you opened it in to sign in again.</p>"
-    : !app
+    : artifact
+      ? `<h1 style="font-weight:600;font-size:18px">${esc(artifact.split("/").pop() ?? artifact)}</h1>
+<p>strut's artifact viewer${q.get("solo") === "1" ? " alone" : ""}: <code>${esc(artifact)}</code>, theme <code>${esc(q.get("theme") ?? "dark")}</code></p>
+<p>Signed in as actor: <code>${esc(who.actor)}</code>, role <code>${esc(who.role)}</code></p>
+<p>This page stands in for the file strut would show. It was opened with a one-use sign-in ticket, not the shared token.</p>`
+      : !app
       ? `<p>No app <code>${esc(name || "(none)")}</code>.</p>`
       : `<h1 style="font-weight:600;font-size:18px">${esc(app.title)}</h1>
 <p>App: <code>${esc(app.name)}</code>${q.get("solo") === "1" ? " alone" : ""}, input <code>${esc(q.get("input") ?? "(none)")}</code>, theme <code>${esc(q.get("theme") ?? "dark")}</code></p>

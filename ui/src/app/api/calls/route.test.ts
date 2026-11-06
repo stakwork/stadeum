@@ -61,7 +61,7 @@ describe("POST /api/calls", () => {
   });
 
   it("never makes a call without a key, and checks what it hands on", async () => {
-    for (const body of [{}, { key: "short" }, { key: KEY, voice: "../x" }, "not json"]) {
+    for (const body of [{}, { key: "short" }, { key: KEY, voice: "../x" }, { key: KEY, artifacts: "yes" }, "not json"]) {
       expect((await call(body)).status).toBe(400);
     }
     expect((await call({ key: KEY, pad: "x".repeat(17 * 1024) })).status).toBe(413);
@@ -96,9 +96,9 @@ describe("POST /api/calls", () => {
     const { port } = voice.address() as { port: number };
     fake.state.voice.forward = { url: `http://127.0.0.1:${port}`, token: "voice-secret" };
     try {
-      const res = await call({ key: KEY, voice: "af_heart" });
+      const res = await call({ key: KEY, voice: "af_heart", artifacts: true });
       expect(res.status).toBe(402);
-      expect(seen).toEqual([{ actor: "ada-c1", auth: "Bearer voice-secret", body: JSON.stringify({ key: KEY, voice: "af_heart" }) }]);
+      expect(seen).toEqual([{ actor: "ada-c1", auth: "Bearer voice-secret", body: JSON.stringify({ key: KEY, voice: "af_heart", artifacts: true }) }]);
     } finally {
       voice.close();
     }

@@ -92,7 +92,7 @@ docker compose --env-file .env -f stack/stadeum.yml -f stack/dev.yml up -d --wai
 - The mothership is mandatory: bifrost rejects any model call without a valid macaroon (401) or over a cap (402), and strut refuses an LLM step with no person or no delegation. These are fixed on in `stack/stadeum.yml`.
 - An admin sets each provider's key on the Models page, which writes it to bifrost only, and picks the models people may use and the default (`docs/models.md`). strut has no key: it calls a model only through bifrost, on each person's delegation.
 - `scripts/mothership-e2e.sh` proves it end to end (a fake provider is used unless bifrost holds an Anthropic key).
-- **Calls.** A person talks to the assistant by voice on the Calls page, end-to-end encrypted with a key their browser makes for each call, through a LiveKit server that carries audio it cannot read (`LIVEKIT_URL`, default `wss://livekit.sphinx.chat`; any LiveKit server works). The box reaches it outbound only. Calls are off until `.env` has `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` (and `STRUT_VOICE_TOKEN`, from `scripts/init-env.sh`).
+- **Calls.** A person talks to the assistant by voice on the Calls page, with a live transcript of both sides and the artifacts it hands over (opened through strut), end-to-end encrypted with a key their browser makes for each call, through a LiveKit server that carries audio it cannot read (`LIVEKIT_URL`, default `wss://livekit.sphinx.chat`; any LiveKit server works). The box reaches it outbound only. Calls are off until `.env` has `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` (and `STRUT_VOICE_TOKEN`, from `scripts/init-env.sh`).
 
 ## Updates and backups
 

@@ -275,8 +275,9 @@ checked".
 - One strut client, `ui/src/lib/strut/client.ts`, with
   `Authorization: Bearer <SHARED_API_TOKEN>`: `GET /health` (Status),
   `GET/PUT/DELETE /llm/delegations[/:actor]` (each person's delegation),
-  `PUT /actors/:actor/secrets/:NAME`, `POST /auth/ticket` (the frame),
-  `POST /voice/calls` with the person as `x-strut-actor` (a call).
+  `PUT /actors/:actor/secrets/:NAME`, `POST /auth/ticket` (the frame, and
+  a call's artifact), `POST /voice/calls` with the person as
+  `x-strut-actor` (a call).
 - **The frame.** Per page load the server mints a sign-in ticket for the
   person (`POST /auth/ticket { actor, role }` → `{ ticket, expiresAt }`, good
   once for 60 s; `role` is the person's stadeum role, `admin` or `member`:
@@ -300,6 +301,29 @@ checked".
   only on a call). Nothing logs, keeps or puts in a URL the key, the room
   or the tokens. The page knows a call, never a conversation, a run or a
   job.
+- **What a call shows** (`ui/src/lib/call-transcript.ts`). Both sides' words
+  as LiveKit Agents publish them on `lk.transcription`, folded one line per
+  speaker and `lk.segment_id` (the agent's reply word by word in time with
+  its audio; the person's words replaced as the recogniser revises them);
+  whose they are is `lk.transcribed_track_id`, the agent's own track or the
+  person's. With `artifacts: true` on the call, sphinx-voice sends the
+  artifacts strut's turn ended with on `sphinx.artifacts`, strut's
+  `ArtifactRef`s untouched, and its agent may say "on your screen". Each
+  becomes a card under the reply it came with. A text stream is read only
+  from the agent's identity and only when it came encrypted (GCM). A card
+  opens through strut: a file in strut's artifact viewer alone
+  (`?artifact=<served path>&solo=1`, a peer's through `/peers/<id>`), an
+  app by its key (`?app=<name>[@vN]&solo=1`), each framed beside the call
+  with a one-use ticket minted by a server action (which checks the path or
+  key again); an `https` link in a new tab; anything else is shown, not
+  linked. The words and the cards are in memory only: they stay after the
+  call to read and open, until the next one.
+- **The page** has no header: the waveform in its orb (bars that breathe,
+  follow the assistant's voice or the person's microphone, roll while it
+  thinks, lie flat when muted; still under reduced motion), and Talk. As
+  the call starts the orb rises, the transcript flows in under it, and Mute
+  (`M`) and End settle at the bottom; a card's viewer sits beside the
+  transcript, or over it on a phone (`Esc` closes it).
 
 ### ops
 - `ghcr.io/stakwork/stadeum-ops:${STADEUM_IMAGE_TAG:-stable}`, built from
@@ -544,8 +568,7 @@ crash-looped, and its lab would not boot without a provider key.
 
 - **Calls.** One LiveKit key per box, minted as the box is provisioned, once
   the LiveKit server has a way to add keys without a restart. sphinx-voice's
-  voice turns on strut's default model when `VOICE_MODEL` is unset. The call's on-screen deliverables
-  (`artifacts: true`, sphinx-voice's `sphinx.artifacts` text stream).
+  voice turns on strut's default model when `VOICE_MODEL` is unset.
 
 - The node `created_by` property: `graph/create-node` passes `ctx.actor`, but
   a verify run's node came back with `created_by = NULL` although the run's

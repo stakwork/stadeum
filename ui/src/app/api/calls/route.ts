@@ -3,7 +3,7 @@ import { currentUser } from "@/lib/session";
 import { startVoiceCall } from "@/lib/strut/client";
 
 /**
- * `POST /api/calls { key, voice? }`: a voice call with Jamie for the person
+ * `POST /api/calls { key, voice?, artifacts? }`: a voice call with Jamie for the person
  * signed in (strut `specs/API.md` §15.2). The browser makes the call's key;
  * this hands it to strut `POST /voice/calls` with the deployment key and the
  * person as `x-strut-actor`, and answers with what strut answered: the
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
 
   const text = await req.text();
   if (text.length > BODY_MAX) return answer({ error: `a body is at most ${BODY_MAX} bytes` }, 413);
-  let body: { key?: unknown; voice?: unknown };
+  let body: { key?: unknown; voice?: unknown; artifacts?: unknown };
   try {
     body = JSON.parse(text) as typeof body;
   } catch {
@@ -60,10 +60,16 @@ export async function POST(req: Request) {
   if (body.voice !== undefined && (typeof body.voice !== "string" || !VOICE_RE.test(body.voice))) {
     return answer({ error: "voice must be a voice name, like af_heart" }, 400);
   }
+  // The page shows the assistant's artifacts: the voice service sends them, and tells the assistant it may.
+  if (body.artifacts !== undefined && typeof body.artifacts !== "boolean") return answer({ error: "artifacts must be a boolean" }, 400);
 
   let reply: { status: number; data: unknown };
   try {
-    reply = await startVoiceCall(user.actor, { key: body.key, ...(body.voice ? { voice: body.voice as string } : {}) });
+    reply = await startVoiceCall(user.actor, {
+      key: body.key,
+      ...(body.voice ? { voice: body.voice as string } : {}),
+      ...(body.artifacts === true ? { artifacts: true } : {}),
+    });
   } catch (err) {
     console.warn(`[calls] strut did not answer for ${user.actor}: ${err instanceof Error ? err.name : "error"}`);
     return answer({ error: "strut isn’t answering" }, 503);

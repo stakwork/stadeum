@@ -38,9 +38,12 @@ work on it. Read the rules before adding anything.
      its frame allows no connections (`connect-src 'none'`). The page
      knows a call, never a conversation, a run or a job. It gets a room
      from strut (`POST /voice/calls`) and joins it; what is said lands in
-     the assistant's conversation through strut. The `(app)` layout holds
-     the call, so it goes on across stadeum's pages, the framed apps among
-     them.
+     the assistant's conversation through strut. It shows the call's own
+     live words, both sides, and the artifacts the assistant hands over as
+     links that open through strut (its viewer, or the app, framed and
+     signed in as the person); it keeps none of it. The `(app)` layout
+     holds the call, so it goes on across stadeum's pages, the framed apps
+     among them.
 
 3. **Strut is reached only through its HTTP API**, as strut's
    `specs/API.md` documents it, from one client module in each program
@@ -147,10 +150,10 @@ order of the work, each step its own PR:
    stadeum-ui hands it to strut's `POST /voice/calls` as the person; the
    voice service beside strut (sphinx-voice's 1:1 mode) answers with a
    room on LiveKit its agent joined with that key. LiveKit stays central
-   and end-to-end encrypted, as Peel's Talk does. (Voice: done.) Next:
-   the call's on-screen deliverables (`artifacts: true`), and one LiveKit
-   key per box once a box's provisioning can mint one (the LiveKit server
-   has no API for it yet).
+   and end-to-end encrypted, as Peel's Talk does. The page shows the live
+   transcript and the artifacts handed over, opened through strut. (Done.)
+   Next: one LiveKit key per box once a box's provisioning can mint one
+   (the LiveKit server has no API for it yet).
 
 ## Layout
 
@@ -162,7 +165,7 @@ order of the work, each step its own PR:
 | `ui/` | stadeum-ui: Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db`) |
 | `ui/src/lib/mothership/` | Each person's virtual key and delegation, minted, pushed to strut, renewed |
 | `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the brand, the frame's sign-in ticket, a call's room |
-| `ui/src/components/call.tsx`, `ui/src/lib/call*.ts` | A call: held by the `(app)` layout, its key and its checks, its LiveKit room (loaded only on a call); `ui/src/app/api/calls/` hands it to strut |
+| `ui/src/components/call.tsx`, `ui/src/lib/call*.ts` | A call: held by the `(app)` layout, its key and its checks, its LiveKit room (loaded only on a call), its transcript and artifacts; `ui/src/app/api/calls/` hands it to strut, `ui/src/app/(app)/calls/` draws it |
 | `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
 | `ui/src/lib/models/` | The Models page's work: each provider's key in the gateway, the org's model list and default, carried to every person's virtual key and to strut |
 | `ops/` | stadeum-ops: the update and backup loop, driving `docker compose` and restic, and the release (`src/release.ts`): its image carries `stack/`, built from the repository's root. No runtime dependencies |

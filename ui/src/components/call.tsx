@@ -4,6 +4,7 @@ import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import type { CallRoom, NoticeKind } from "@/lib/call-room";
+import { EMPTY_TRANSCRIPT, receiveArtifacts, receiveChunk, type Transcript } from "@/lib/call-transcript";
 import { agentStateLabel, callDuration, newCallKey, readCallAnswer, refusalMessage } from "@/lib/calls";
 
 /**
@@ -12,7 +13,9 @@ import { agentStateLabel, callDuration, newCallKey, readCallAnswer, refusalMessa
  * live media). It is held here, in the `(app)` layout, so it keeps going
  * while the person moves between stadeum's pages, the framed apps among
  * them. The page knows a call, never a conversation, a run or a job: what
- * is said lands in the assistant's conversation through strut.
+ * is said lands in the assistant's conversation through strut. The live
+ * transcript and the artifacts handed over are the call's own, in memory:
+ * shown until the next call, never kept.
  */
 
 export type CallPhase = "idle" | "starting" | "connecting" | "live" | "reconnecting" | "ended";
@@ -29,6 +32,8 @@ export interface CallState {
   liveSince: number | null;
   /** An ended call: how long it was live, and why it ended when not by the person's hand. */
   ended: { after: number | null; reason: string | null } | null;
+  /** What both sides said, and what the assistant handed over (lib/call-transcript.ts). */
+  transcript: Transcript;
 }
 
 export interface Call extends CallState {
@@ -40,9 +45,12 @@ export interface Call extends CallState {
   hangUp(): void;
   toggleMicrophone(): void;
   startAudio(): void;
+  /** How loud each side is now, 0…1: read on the waveform's own clock, so nothing re-renders for it. */
+  levels(): { agent: number; you: number };
 }
 
-const IDLE: CallState = { phase: "idle", agent: null, microphone: false, error: null, notices: {}, liveSince: null, ended: null };
+const IDLE: CallState = { phase: "idle", agent: null, microphone: false, error: null, notices: {}, liveSince: null, ended: null, transcript: EMPTY_TRANSCRIPT };
+const SILENT = { agent: 0, you: 0 };
 
 const CallContext = createContext<Call | null>(null);
 
@@ -72,7 +80,8 @@ export function CallProvider({ assistant, children }: { assistant: string; child
     const r = room.current;
     room.current = null;
     void r?.leave();
-    setState((s) => ({ ...IDLE, phase: "ended", ended: { after: s.liveSince ? Date.now() - s.liveSince : null, reason } }));
+    // The transcript stays to read, and its artifacts to open, until the next call.
+    setState((s) => ({ ...IDLE, phase: "ended", transcript: s.transcript, ended: { after: s.liveSince ? Date.now() - s.liveSince : null, reason } }));
   }, []);
 
   const talk = useCallback(() => {
@@ -90,7 +99,13 @@ export function CallProvider({ assistant, children }: { assistant: string; child
       const key = newCallKey();
       let res: Response;
       try {
-        res = await fetch("/api/calls", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key }), cache: "no-store" });
+        res = await fetch("/api/calls", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          // `artifacts`: this page shows what the assistant hands over, so it may say "on your screen".
+          body: JSON.stringify({ key, artifacts: true }),
+          cache: "no-store",
+        });
       } catch {
         return fail("Stadeum isn’t answering. Check your connection and try again.");
       }
@@ -120,6 +135,8 @@ export function CallProvider({ assistant, children }: { assistant: string; child
               else delete notices[kind];
               return { ...s, notices };
             }),
+          words: (chunk) => update(id, (s) => ({ ...s, transcript: receiveChunk(s.transcript, chunk) })),
+          artifacts: (text) => update(id, (s) => ({ ...s, transcript: receiveArtifacts(s.transcript, text) })),
           ended: (reason) => {
             if (id === generation.current) endCall(reason);
           },
@@ -144,12 +161,14 @@ export function CallProvider({ assistant, children }: { assistant: string; child
     void room.current?.startAudio();
   }, []);
 
+  const levels = useCallback(() => room.current?.levels() ?? SILENT, []);
+
   // Leaving stadeum (a full reload, signing out) hangs up.
   useEffect(() => () => void room.current?.leave(), []);
 
   const call = useMemo<Call>(
-    () => ({ ...state, assistant, active: isActive(state.phase), talk, hangUp, toggleMicrophone, startAudio }),
-    [state, assistant, talk, hangUp, toggleMicrophone, startAudio],
+    () => ({ ...state, assistant, active: isActive(state.phase), talk, hangUp, toggleMicrophone, startAudio, levels }),
+    [state, assistant, talk, hangUp, toggleMicrophone, startAudio, levels],
   );
   return <CallContext.Provider value={call}>{children}</CallContext.Provider>;
 }

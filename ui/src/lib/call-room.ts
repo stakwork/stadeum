@@ -6,17 +6,20 @@
  * As Peel's `TalkSession` joins (stakwork/peel#501) and the voice service's
  * agent expects (stakwork/sphinx-voice#33):
  * - `encryption`, not the deprecated `e2ee`, so what the agent sends on the
- *   data channel is encrypted as well as the audio;
+ *   data channel (the words, the artifacts) is encrypted as well as the audio;
  * - a shared key, the call's key STRING as given to `setKey` (its UTF-8
  *   bytes, PBKDF2 with LiveKit's salt), never its base64 decoding;
  * - the microphone without Opus RED, which the server cannot repackage for
  *   an encrypted track, and without DTX, so packets keep a steady rate
  *   through silence.
- * The key and the token go to LiveKit and nowhere else.
+ * The key and the token go to LiveKit and nowhere else. Text streams are
+ * read only from the agent and only when they came encrypted.
  */
 import {
   ConnectionState,
+  createAudioAnalyser,
   DisconnectReason,
+  Encryption_Type,
   ExternalE2EEKeyProvider,
   isE2EESupported,
   isLocalParticipant,
@@ -25,12 +28,15 @@ import {
   RoomEvent,
   setLogLevel,
   Track,
+  type LocalTrackPublication,
   type Participant,
   type RemoteParticipant,
   type RemoteTrack,
+  type TextStreamReader,
 } from "livekit-client";
 
 import { AGENT_STATE_ATTRIBUTE, type CallAnswer } from "@/lib/calls";
+import { ARTIFACTS_TOPIC, TRANSCRIPT_TOPIC, type Chunk } from "@/lib/call-transcript";
 
 // LiveKit logs each room's name and identities at info: warnings only.
 setLogLevel(LogLevel.warn);
@@ -45,6 +51,10 @@ export interface CallRoomHandlers {
   microphone(on: boolean): void;
   /** Something the person should know, or null once it passes. */
   notice(kind: NoticeKind, text: string | null): void;
+  /** A chunk of the words said (`lk.transcription`). */
+  words(chunk: Chunk): void;
+  /** A payload of the agent's artifacts (`sphinx.artifacts`), as it came. */
+  artifacts(text: string): void;
   /** The room is gone, not by the person's hand: why, in their words. */
   ended(reason: string): void;
 }
@@ -53,12 +63,16 @@ export interface CallRoom {
   setMicrophone(on: boolean): Promise<void>;
   /** Plays the agent after the browser held its audio back (autoplay). A click calls it. */
   startAudio(): Promise<void>;
+  /** How loud each side is now, 0…1: the agent's voice, the person's microphone (0 while muted). */
+  levels(): { agent: number; you: number };
   /** Hangs up: the voice service ends the call when the person leaves. */
   leave(): Promise<void>;
 }
 
 /** Whether this browser can join an end-to-end encrypted room. */
 export const canEncrypt = (): boolean => isE2EESupported();
+
+type Meter = ReturnType<typeof createAudioAnalyser>;
 
 export async function joinCallRoom(answer: CallAnswer, key: string, assistant: string, on: CallRoomHandlers): Promise<CallRoom> {
   const keyProvider = new ExternalE2EEKeyProvider();
@@ -76,9 +90,16 @@ export async function joinCallRoom(answer: CallAnswer, key: string, assistant: s
 
   let leaving = false;
   let agentSeen = false;
+  let agentMeter: Meter | null = null;
+  let micMeter: Meter | null = null;
+  const agentTracks = new Set<string>();
+
   const cleanUp = () => {
     speakers.remove();
     worker.terminate();
+    void agentMeter?.cleanup();
+    void micMeter?.cleanup();
+    agentMeter = micMeter = null;
   };
   const end = (reason: string) => {
     if (leaving) return;
@@ -89,9 +110,38 @@ export async function joinCallRoom(answer: CallAnswer, key: string, assistant: s
 
   const tellAgent = () => {
     const p = room.remoteParticipants.get(answer.agent);
-    if (p) agentSeen = true;
+    if (p) {
+      agentSeen = true;
+      for (const pub of p.trackPublications.values()) agentTracks.add(pub.trackSid);
+    }
     on.agent(p ? (p.attributes[AGENT_STATE_ATTRIBUTE] ?? "") : null);
   };
+
+  /** A text stream from the agent, encrypted as the room is; anything else is not read. */
+  const fromAgent = (reader: TextStreamReader, sender: string) => sender === answer.agent && reader.info.encryptionType === Encryption_Type.GCM;
+
+  // Before the room connects, so no word is missed.
+  room.registerTextStreamHandler(TRANSCRIPT_TOPIC, (reader, { identity }) => {
+    if (!fromAgent(reader, identity)) return;
+    const { id: stream, attributes = {} } = reader.info;
+    void (async () => {
+      try {
+        for await (const chunk of reader) {
+          if (leaving) return;
+          on.words({ chunk, stream, attributes, sender: identity, you: answer.identity, agentTracks });
+        }
+      } catch {
+        // A stream cut off mid-word: what came stays.
+      }
+    })();
+  });
+  room.registerTextStreamHandler(ARTIFACTS_TOPIC, (reader, { identity }) => {
+    if (!fromAgent(reader, identity)) return;
+    reader
+      .readAll()
+      .then((text) => !leaving && on.artifacts(text))
+      .catch(() => undefined);
+  });
 
   room
     .on(RoomEvent.ConnectionStateChanged, (state: ConnectionState) => {
@@ -112,11 +162,25 @@ export async function joinCallRoom(answer: CallAnswer, key: string, assistant: s
     .on(RoomEvent.ParticipantDisconnected, (p: RemoteParticipant) => {
       if (p.identity === answer.agent && agentSeen) end(`${assistant} left the call.`);
     })
-    .on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
-      if (track.kind === Track.Kind.Audio) speakers.append(track.attach());
+    .on(RoomEvent.TrackPublished, (_pub, p: RemoteParticipant) => {
+      if (p.identity === answer.agent) tellAgent();
+    })
+    .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
+      if (track.kind !== Track.Kind.Audio) return;
+      speakers.append(track.attach());
+      if (p.identity === answer.agent && track.sid) {
+        agentTracks.add(track.sid);
+        void agentMeter?.cleanup();
+        agentMeter = createAudioAnalyser(track as Parameters<typeof createAudioAnalyser>[0], { smoothingTimeConstant: 0.5 });
+      }
     })
     .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
       for (const el of track.detach()) el.remove();
+    })
+    .on(RoomEvent.LocalTrackPublished, (pub: LocalTrackPublication) => {
+      if (pub.source !== Track.Source.Microphone || !pub.audioTrack) return;
+      void micMeter?.cleanup();
+      micMeter = createAudioAnalyser(pub.audioTrack, { smoothingTimeConstant: 0.5 });
     })
     .on(RoomEvent.AudioPlaybackStatusChanged, () => {
       on.notice("audio", room.canPlaybackAudio ? null : `Your browser held ${assistant}’s voice back.`);
@@ -137,7 +201,7 @@ export async function joinCallRoom(answer: CallAnswer, key: string, assistant: s
       on.notice(
         "microphone",
         blocked
-          ? `Your browser blocked the microphone, so ${assistant} can’t hear you. Allow it for this site, then unmute.`
+          ? `Microphone blocked: allow it for this site, then unmute.`
           : `The microphone didn’t turn on${err instanceof Error && err.message ? `: ${err.message}` : "."}`,
       );
     }
@@ -159,9 +223,19 @@ export async function joinCallRoom(answer: CallAnswer, key: string, assistant: s
   tellAgent();
   void setMicrophone(true);
 
+  const loudness = (m: Meter | null) => {
+    if (!m) return 0;
+    try {
+      return Math.min(1, Math.sqrt(m.calculateVolume()) * 1.9);
+    } catch {
+      return 0;
+    }
+  };
+
   return {
     setMicrophone,
     startAudio: () => room.startAudio(),
+    levels: () => ({ agent: loudness(agentMeter), you: room.localParticipant.isMicrophoneEnabled ? loudness(micMeter) : 0 }),
     async leave() {
       if (leaving) return;
       leaving = true;
