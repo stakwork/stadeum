@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 import { requireSharedToken } from "@/lib/mothership/admin-credentials";
+import { isAdmin } from "@/lib/roles";
 
 /**
  * The strut client: stadeum-ui reaches strut through its HTTP API (strut
@@ -399,16 +400,18 @@ export async function putBrand(brand: StrutBrand): Promise<{ brand: StrutBrand; 
 // ── the frame ───────────────────────────────────────────────────────────
 
 /**
- * One strut app for one person, to frame: `POST /auth/ticket { actor }`
+ * One strut app for one person, to frame: `POST /auth/ticket { actor, role }`
  * mints a sign-in ticket (good once, for a minute), and strut's UI loaded
  * with `?ticket=` trades it for its own session cookie as that actor
  * (strut `specs/API.md` §13.1), then shows the app's page alone (`solo=1`,
- * §14.3). `input` is the app's own query, the deep link it reports back
+ * §14.3). `role` is the person's stadeum role: strut gives an admin's
+ * session the operator console and a member's their apps alone (strut
+ * `plans/member-rights.md`); anything but `admin` is sent as `member`. `input` is the app's own query, the deep link it reports back
  * (`strut:location`). Mint one per page load. The cookie reaches the frame
  * only because STRUT_PUBLIC_URL is a subdomain of stadeum-ui's site.
  */
-export async function embedUrl(actor: string, app: string, input?: string): Promise<string> {
-  const res = await strutFetch("POST", "/auth/ticket", { actor });
+export async function embedUrl(actor: string, role: string, app: string, input?: string): Promise<string> {
+  const res = await strutFetch("POST", "/auth/ticket", { actor, role: isAdmin(role) ? "admin" : "member" });
   if (!res.ok) await fail("POST", "/auth/ticket", res);
   const { ticket } = (await res.json()) as { ticket?: unknown };
   if (typeof ticket !== "string" || !ticket) throw new Error("POST /auth/ticket returned no ticket");

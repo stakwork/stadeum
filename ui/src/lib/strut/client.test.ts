@@ -32,7 +32,7 @@ function configure(over: Record<string, string | undefined> = {}) {
 describe("embedUrl", () => {
   it("frames {public strut}/ with a one-use ticket for the person, the app alone, our origin and its input", async () => {
     configure();
-    const u = new URL(await embedUrl("ada-0f3c", "strut/jamie", "session=ada-0f3c/s1"));
+    const u = new URL(await embedUrl("ada-0f3c", "member", "strut/jamie", "session=ada-0f3c/s1"));
     expect(u.origin).toBe("https://strut.acme.example");
     expect(u.pathname).toBe("/");
     expect([...u.searchParams.keys()]).toEqual(["ticket", "app", "solo", "embed_origin", "input"]);
@@ -44,14 +44,25 @@ describe("embedUrl", () => {
 
     const ticket = u.searchParams.get("ticket")!;
     expect(fake.state.tickets.get(ticket)?.actor).toBe("ada-0f3c");
+    expect(fake.state.tickets.get(ticket)?.role).toBe("member");
     expect(u.toString()).not.toContain(fake.token);
     expect(fake.state.requests).toContain("POST /strut/auth/ticket");
   });
 
+  it("signs an admin in as an admin, and anyone else as a member", async () => {
+    configure();
+    const role = async (r: string) => fake.state.tickets.get(new URL(await embedUrl("ada-0f3c", r, "strut/jamie")).searchParams.get("ticket")!)?.role;
+    expect(await role("admin")).toBe("admin");
+    expect(await role("member")).toBe("member");
+    // A role stadeum does not know never reaches strut as anything but a member.
+    expect(await role("owner")).toBe("member");
+    expect(await role("")).toBe("member");
+  });
+
   it("mints a fresh ticket every time, and each opens the UI once", async () => {
     configure({ STRUT_PUBLIC_URL: undefined });
-    const a = new URL(await embedUrl("ada-0f3c", "strut/jamie"));
-    const b = new URL(await embedUrl("ada-0f3c", "strut/jamie"));
+    const a = new URL(await embedUrl("ada-0f3c", "member", "strut/jamie"));
+    const b = new URL(await embedUrl("ada-0f3c", "member", "strut/jamie"));
     expect(a.searchParams.get("ticket")).not.toBe(b.searchParams.get("ticket"));
     // Without a public URL the frame falls back to STRUT_URL.
     expect(`${a.origin}${a.pathname}`).toBe(`${fake.strutUrl}/`);
@@ -61,22 +72,23 @@ describe("embedUrl", () => {
     expect(first.status).toBe(200);
     const page = await first.text();
     expect(page).toContain("ada-0f3c");
+    expect(page).toContain("role <code>member</code>");
     expect(page).toContain("Jamie");
     expect((await fetch(a)).status).toBe(401);
   });
 
   it("refuses without the shared token, and when strut rejects it", async () => {
     configure({ SHARED_API_TOKEN: undefined });
-    await expect(embedUrl("ada-0f3c", "strut/jamie")).rejects.toBeInstanceOf(MothershipConfigError);
+    await expect(embedUrl("ada-0f3c", "member", "strut/jamie")).rejects.toBeInstanceOf(MothershipConfigError);
     configure({ SHARED_API_TOKEN: "wrong" });
-    await expect(embedUrl("ada-0f3c", "strut/jamie")).rejects.toThrow("returned 401");
+    await expect(embedUrl("ada-0f3c", "member", "strut/jamie")).rejects.toThrow("returned 401");
   });
 
   it("refuses when strut is down", async () => {
     configure();
     fake.state.down.strut = true;
     try {
-      await expect(embedUrl("ada-0f3c", "strut/jamie")).rejects.toBeInstanceOf(StrutHttpError);
+      await expect(embedUrl("ada-0f3c", "member", "strut/jamie")).rejects.toBeInstanceOf(StrutHttpError);
     } finally {
       fake.state.down.strut = false;
     }

@@ -140,8 +140,8 @@ export interface FakeState {
   refuseRelease: string | null;
   /** `GET /brand`'s record, as strut keeps it (normalized). */
   brand: StrutBrand;
-  /** Sign-in tickets strut minted: who each signs in, until when, whether spent. */
-  tickets: Map<string, { actor: string; exp: number; used: boolean }>;
+  /** Sign-in tickets strut minted: who each signs in, as what, until when, whether spent. */
+  tickets: Map<string, { actor: string; role: "admin" | "member"; exp: number; used: boolean }>;
   /** Set to make strut's /health report a drain. */
   drain: { since: string; reason: string; idle: boolean } | null;
   requests: string[];
@@ -399,15 +399,18 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       const t = state.tickets.get(url.searchParams.get("ticket") ?? "");
       if (!t || t.used || t.exp <= Date.now()) return html(res, embedPage(undefined, url.searchParams), 401);
       t.used = true;
-      return html(res, embedPage(t.actor, url.searchParams, state.apps));
+      return html(res, embedPage(t, url.searchParams, state.apps));
     }
     if (!keyed) return send(res, 401, { error: "unauthorized" });
     if (path === "/auth/ticket" && m === "POST") {
       const actor = typeof body?.actor === "string" ? body.actor.trim() : "";
       if (!actor || actor.length > 120) return send(res, 400, { error: "actor is required" });
+      // No role is a member; a role that is neither is refused (strut plans/member-rights.md).
+      const role = body?.role ?? "member";
+      if (role !== "admin" && role !== "member") return send(res, 400, { error: 'role must be "admin" or "member"' });
       const ticket = `strut-ticket.${randomBytes(16).toString("base64url")}`;
       const exp = Date.now() + 60_000;
-      state.tickets.set(ticket, { actor, exp, used: false });
+      state.tickets.set(ticket, { actor, role, exp, used: false });
       return send(res, 200, { ticket, expiresAt: exp });
     }
     if (path === "/apps" && m === "GET") {
@@ -594,17 +597,17 @@ function html(res: ServerResponse, body: string, status = 200) {
 }
 
 /** Strut's UI showing one app alone (`?app=<name>&solo=1`), as the frame opens it. */
-function embedPage(actor: string | undefined, q: URLSearchParams, apps: FakeApp[] = []): string {
+function embedPage(who: { actor: string; role: string } | undefined, q: URLSearchParams, apps: FakeApp[] = []): string {
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
   const name = q.get("app") ?? "";
   const app = apps.find((a) => a.name === name);
-  const body = !actor
+  const body = !who
     ? "<p>This sign-in link has expired. Reload the page from the app you opened it in to sign in again.</p>"
     : !app
       ? `<p>No app <code>${esc(name || "(none)")}</code>.</p>`
       : `<h1 style="font-weight:600;font-size:18px">${esc(app.title)}</h1>
 <p>App: <code>${esc(app.name)}</code>${q.get("solo") === "1" ? " alone" : ""}, input <code>${esc(q.get("input") ?? "(none)")}</code>, theme <code>${esc(q.get("theme") ?? "dark")}</code></p>
-<p>Signed in as actor: <code>${esc(actor)}</code></p>
+<p>Signed in as actor: <code>${esc(who.actor)}</code>, role <code>${esc(who.role)}</code></p>
 <p>This page stands in for strut's app host. It was opened with a one-use sign-in ticket, not the shared token.</p>`;
   return `<!doctype html><meta charset="utf-8"><title>Strut (fake)</title>
 <style>body{font:15px system-ui;margin:0;padding:32px;color:#333;background:#fafafa}code{background:#eee;padding:2px 6px;border-radius:4px}</style>

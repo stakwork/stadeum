@@ -213,8 +213,10 @@ checked".
   `GET/PUT/DELETE /llm/delegations[/:actor]` (each person's delegation),
   `PUT /actors/:actor/secrets/:NAME`, `POST /auth/ticket` (the frame).
 - **The frame.** Per page load the server mints a sign-in ticket for the
-  person (`POST /auth/ticket { actor }` → `{ ticket, expiresAt }`, good once
-  for 60 s) and frames
+  person (`POST /auth/ticket { actor, role }` → `{ ticket, expiresAt }`, good
+  once for 60 s; `role` is the person's stadeum role, `admin` or `member`:
+  strut gives an admin the operator console and a member their apps alone,
+  strut `plans/member-rights.md`) and frames
   `{STRUT_PUBLIC_URL}/?ticket=<ticket>&embed_origin=<stadeum origin>[&wf=&run=]`.
   strut's UI trades the ticket for its own session cookie as that person and
   takes it off the URL (strut `specs/API.md` §13.1).

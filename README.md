@@ -159,7 +159,8 @@ admins only) and strut's apps.
 - Opening one frames strut's own host page showing the app alone,
   `{STRUT_PUBLIC_URL}/?ticket=…&app=<name>&solo=1&embed_origin=<stadeum's origin>`,
   signed in as the person with a ticket minted per page load
-  (`POST /auth/ticket`). The frame fills the page beside the rail, with no
+  (`POST /auth/ticket`, with the person's role: strut opens its operator
+  console to an admin's session and only their apps to a member's). The frame fills the page beside the rail, with no
   title or margin of stadeum's. It opens in the theme stadeum shows
   (`&theme=light|dark`, which strut reads once), so a theme switch reloads
   it with a fresh ticket. Jamie is the home, `/`. Every other app is
