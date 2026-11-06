@@ -46,6 +46,8 @@ checked".
   `.env.example` or `scripts/init-env.sh` for stadeum-ops, which carries
   them. `promote-images.yml` moves `stable` for both to a commit's images,
   as strut's `promote-image.yml` does for strut's: that is a release.
+  `scripts/promote.sh strut|stadeum` runs either on main's newest images
+  and waits for it.
   `stack/dev.yml` builds them from the checkout instead (`stadeum-ui:dev`,
   `stadeum-ops:dev`), and ops never pulls a service that has a build.
 - A box's own changes go in `stack/local.yml`: a compose override beside
