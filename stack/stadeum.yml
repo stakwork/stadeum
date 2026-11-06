@@ -278,7 +278,7 @@ services:
     # only: no port, no route in the Caddyfile. No state.
     # PINNED (Docker Hub, its release tags; amd64 + arm64 from 0.42): it
     # moves with a stadeum release that changes this pin.
-    image: sphinxlightning/sphinx-voice:${VOICE_TAG:-0.42}
+    image: sphinxlightning/sphinx-voice:${VOICE_TAG:-0.43}
     depends_on:
       strut: { condition: service_healthy }
     # tini as PID 1, so a stop reaches node (or the sleep below) at once.
