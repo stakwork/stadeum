@@ -253,6 +253,9 @@ services:
       # says so.
       STRUT_VOICE_URL: ${LIVEKIT_API_KEY:+${LIVEKIT_API_SECRET:+${STRUT_VOICE_TOKEN:+http://voice:8080}}}
       STRUT_VOICE_TOKEN: ${STRUT_VOICE_TOKEN:-}
+      # Packages strut installs at first boot, when they are not installed
+      # yet (strut's STRUT_PACKAGES). Empty: none.
+      STRUT_PACKAGES: ${STRUT_PACKAGES:-}
     volumes:
       - strut-workspace:/data/workspace
       - strut-models:/data/models

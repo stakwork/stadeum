@@ -205,6 +205,14 @@ checked".
   either. The URL is set only when LiveKit's key, its secret and the token
   are all in `.env` (compose's `${…:+…}`); without them strut answers 503,
   no voice service is configured, and the Calls page says so.
+- `STRUT_PACKAGES` (`.env`, empty by default): packages strut installs at
+  first boot, a JSON list of `{ ref, url?, digest? }`, what `POST
+  /packages/install` takes (`specs/API.md` §16). A listed package not
+  installed yet is installed once strut is up, in the background; one
+  already installed is left alone, so the list never updates anything. A
+  failed install is logged and tried again at the next boot; it never holds
+  the box. Stadeum passes the value through and knows nothing of what is
+  in it.
 - Healthcheck: `GET /health`, which answers `{ ok }` without the key.
   `start_period` 180 s: the first boot seeds the schema and ontology and
   fetches the embedding model before it listens.
