@@ -8,7 +8,7 @@ import { absoluteTime } from "@/lib/format";
 import { env } from "@/lib/env";
 import { ensureOrgTrust } from "@/lib/mothership/trust";
 import { requireAdmin } from "@/lib/session";
-import { CHECKS, lastResults, NEEDED_TO_RUN, runChecks, SERVICES } from "@/lib/status";
+import { lastResults, runChecks, SERVICES } from "@/lib/status";
 
 export const metadata: Metadata = { title: "Status" };
 export const dynamic = "force-dynamic";
@@ -41,14 +41,11 @@ export default async function StatusPage() {
     await runChecks();
     results = await lastResults();
   }
-  const passing = CHECKS.filter((c) => results.get(c.name)?.ok).length;
-  const canRun = NEEDED_TO_RUN.every((n) => results.get(n)?.ok);
 
   return (
     <>
       <PageHeader
         title="Status"
-        lede={`${passing} of ${CHECKS.length} checks passing. ${canRun ? "Apps can run." : "Apps can't run."}`}
       >
         <form action={recheck}>
           <button type="submit" className={buttonClass.secondary}>

@@ -27,7 +27,7 @@ export default async function AppsAdminPage() {
 
   return (
     <>
-      <PageHeader title="Apps" lede="What everyone gets when they open each app." />
+      <PageHeader title="Apps" />
       {!apps || apps.length === 0 ? (
         <p className="rounded-xl border border-dashed border-dash px-5 py-8 text-[14px] text-ink-2">
           {apps ? "No apps yet." : "Strut isn’t answering, so the apps can’t be read right now."}

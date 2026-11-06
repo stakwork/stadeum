@@ -64,7 +64,7 @@ export default async function AppVersionsPage({ params }: Params) {
 
   return (
     <>
-      <PageHeader title={app.title} lede={<span className="font-mono text-[13.5px] text-ink-3">{app.name}</span>}>
+      <PageHeader title={app.title}>
         {!app.seeded && <PinToggle name={app.name} pinned={app.pinned} note={pinNote(app.pinned, app.active, app.live)} />}
       </PageHeader>
 
