@@ -25,7 +25,7 @@ export default async function BrandingPage() {
 
   return (
     <>
-      <PageHeader title="Branding" lede="The color, corners and font of every app on this box. No app needs rebuilding." />
+      <PageHeader title="Branding" />
       {"problem" in read ? (
         <p className="rounded-xl border border-dashed border-dash px-5 py-8 text-[14px] text-ink-2">{read.problem}</p>
       ) : (

@@ -25,7 +25,7 @@ export default async function ModelsPage() {
 
   return (
     <>
-      <PageHeader title="Models" lede="The providers this workspace calls, and the models people may pick." />
+      <PageHeader title="Models" />
       {!view ? (
         <p className={note}>The gateway isn&rsquo;t answering, so the providers can&rsquo;t be read right now.</p>
       ) : (
