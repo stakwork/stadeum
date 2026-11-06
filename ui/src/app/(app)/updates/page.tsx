@@ -7,6 +7,7 @@ import { History, OpsNow, shortImage, tagOf } from "@/components/ops";
 import { PageHeader, SectionLabel } from "@/components/page-header";
 import { Dot } from "@/components/state";
 import { absoluteTime, relativeTime } from "@/lib/format";
+import { channelLine } from "@/lib/ops/channel";
 import type { ReleaseStatus, ServiceImage } from "@/lib/ops/contract";
 import { history, openRequests, readStatus, settingsForOps, settingsRow } from "@/lib/ops/store";
 import { requireAdmin } from "@/lib/session";
@@ -112,10 +113,11 @@ export default async function UpdatesPage() {
             )}{" "}
             {checkedAt ? (
               <>
-                Last checked <time title={absoluteTime(checkedAt)}>{relativeTime(checkedAt)}</time>.
+                Asked the registries what the channels name <time title={absoluteTime(checkedAt)}>{relativeTime(checkedAt)}</time>; ops asks every 10
+                minutes.
               </>
             ) : (
-              "Not checked yet."
+              "ops has not asked the registries yet."
             )}
           </p>
         </div>
@@ -207,11 +209,15 @@ function ImageRow({ s, channel }: { s: ServiceImage; channel: React.ReactNode })
 }
 
 function Channel({ s, failed, held }: { s: ServiceImage; failed: Set<string>; held: boolean }) {
-  if (!s.available) return <Dot tone="ok" label="Up to date" />;
-  const label = `${shortImage(s.available)} is out`;
-  if (failed.has(s.available.id)) return <Dot tone="attention" label={`${label}, held back: it failed its health check`} />;
-  if (s.release && held) return <Dot tone="attention" label={`${label}, waiting for you: it upgrades Neo4j`} />;
-  return <Dot tone="pending" label={`${label}: next window, or Update now`} />;
+  const line = channelLine(s, { failed, held });
+  return (
+    <span className="flex flex-col gap-0.5" title={line.title}>
+      <span>
+        <Dot tone={line.tone} label={line.label} />
+      </span>
+      {line.note && <span className="text-[12.5px] text-ink-3 [overflow-wrap:anywhere]">{line.note}</span>}
+    </span>
+  );
 }
 
 /** stadeum's release: what runs, and what the next one changes. */

@@ -63,8 +63,8 @@ describe("old images after strut's updates", () => {
   it("removes a channel image the box never ran once the channel has a newer one", async () => {
     const { ops, stack, stadeum } = loop();
     stack.publish("strut", "sha256:strut-2");
-    stadeum.current = settings({ requests: [{ id: "c1", kind: "check", at: "2026-11-05T11:59:00Z" }] });
-    await ops.tick();
+    // A pull that moved nothing (an update held back) leaves the channel's image here.
+    await ops.check();
     stack.publish("strut", "sha256:strut-3");
     stadeum.current = update("u1");
     await ops.tick();

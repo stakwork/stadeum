@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deps, FakeStack, FakeStrut, svc } from "./test/fakes.js";
+import { deps, FakeStack, FakeStrut, ref, svc } from "./test/fakes.js";
 import { checkGroup, handOver, releaseGroup, updateGroup, updateGroups } from "./update.js";
 
 const opts = { force: false, failed: new Set<string>(), drainMinutes: 30 };
@@ -51,8 +51,8 @@ describe("updating a group", () => {
 
     expect(event?.outcome).toBe("ok");
     expect(event?.changes).toEqual([
-      { service: "strut-browser", from: { id: "sha256:strut-browser-1", revision: "strut-browser-1" }, to: { id: "sha256:browser-2", revision: "browser-2" } },
-      { service: "strut", from: { id: "sha256:strut-1", revision: "strut-1" }, to: { id: "sha256:strut-2", revision: "strut-2" } },
+      { service: "strut-browser", from: ref("sha256:strut-browser-1"), to: ref("sha256:browser-2") },
+      { service: "strut", from: ref("sha256:strut-1"), to: ref("sha256:strut-2") },
     ]);
     expect(strut.calls[0]).toBe("drain 60 updating strut-browser strut-b → browser, strut strut-1 → strut-2");
     expect(strut.calls.at(-1)).toBe("lift");

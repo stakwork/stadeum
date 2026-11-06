@@ -135,6 +135,19 @@ describe("the ops routes", () => {
     expect((await putStatus(call("PUT", status({ release: { held: [{ service: "neo4j" }] } as never })))).status).toBe(400);
   });
 
+  it("keep what the registry said of each service, and what runs was pulled as", async () => {
+    const strut = {
+      service: "strut",
+      image: "ghcr.io/stakwork/strut:stable",
+      group: "strut",
+      running: { id: "sha256:fcb2", revision: "5c3fb86", digests: ["sha256:fcb2"] },
+      latest: { checkedAt: "2026-11-05T12:00:00.000Z", digest: "sha256:1e90", current: false, revision: "c15177a", created: "2026-11-06T01:02:32Z" },
+    };
+    const ui = { service: "stadeum-ui", image: "ghcr.io/stakwork/stadeum-ui:stable", latest: { problem: "could not reach ghcr.io: ENOTFOUND", triedAt: "2026-11-05T12:00:00.000Z" } };
+    expect((await putStatus(call("PUT", status({ services: [strut, ui] })))).status).toBe(204);
+    expect((await readStatus())?.status.services).toEqual([strut, ui]);
+  });
+
   it("keep the last status, its snapshots and its window when the next leaves them out", async () => {
     const snapshots = [{ id: "abc", time: "2026-11-05T03:05:00Z", added: 10 }];
     await putStatus(call("PUT", status({ phase: "backing-up", detail: "taking the snapshot", snapshots, lastCycle: "2026-11-05" })));
@@ -155,10 +168,11 @@ describe("the ops routes", () => {
       startedAt: "2026-11-05T03:01:00.000Z",
       endedAt: "2026-11-05T03:04:00.000Z",
       detail: "strut 2fe953a → 9a1b2c3 did not come up healthy, so the images it replaced were put back.",
-      changes: [{ service: "strut", from: { id: "sha256:old", revision: "2fe953a" }, to: { id: "sha256:bad", revision: "9a1b2c3" } }],
+      changes: [{ service: "strut", from: { id: "sha256:old", revision: "2fe953a" }, to: { id: "sha256:bad", revision: "9a1b2c3", digests: ["sha256:bad-index"] } }],
     };
     expect((await postHistory(call("POST", event))).status).toBe(201);
-    expect((await settings()).failedImages).toEqual(["sha256:bad"]);
+    // By its digest too: the registry names an image by that.
+    expect((await settings()).failedImages).toEqual(["sha256:bad", "sha256:bad-index"]);
     const [entry] = await history(["update"]);
     expect(entry).toMatchObject({ outcome: "rolled-back", changes: event.changes });
     expect((await postHistory(call("POST", { ...event, kind: "party" }))).status).toBe(400);

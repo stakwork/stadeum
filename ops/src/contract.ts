@@ -66,7 +66,10 @@ export interface ServiceImage {
   /** One of stadeum's release's own images (stadeum-ui, ops): it moves with the release. */
   release?: boolean;
   running?: ImageRef;
+  /** What the channel had at the last pull, when it is not what runs: here, not yet running. */
   available?: ImageRef;
+  /** What the registry says the reference names now: for a service ops moves. */
+  latest?: Latest;
 }
 
 export interface ImageRef {
@@ -75,6 +78,28 @@ export interface ImageRef {
   /** Its `org.opencontainers.image.revision` label: the commit it was built from. */
   revision?: string;
   created?: string;
+  /** The registry digests it was pulled as (its RepoDigests): a multi-arch image's index. */
+  digests?: string[];
+}
+
+/**
+ * What a service's registry said its tag names, the last time ops asked
+ * (every 10 minutes, on Check now, and after an update). Nothing else
+ * makes the page call an image current.
+ */
+export interface Latest {
+  /** When the registry last answered. */
+  checkedAt?: string;
+  /** The digest the tag named then. */
+  digest?: string;
+  /** Whether that is what runs: the running image was pulled as that digest. */
+  current?: boolean;
+  /** When it is not: what the newer image says of itself. */
+  revision?: string;
+  created?: string;
+  /** Why the last try told nothing (the registry failed, or what runs has no digest), and when it was. */
+  problem?: string;
+  triedAt?: string;
 }
 
 export interface Snapshot {
@@ -113,7 +138,7 @@ export interface OpsStatus {
   version: string;
   services: ServiceImage[];
   release?: ReleaseStatus;
-  /** When ops last compared the channels with what runs. */
+  /** When ops last asked the registries what the channels name. */
   checkedAt?: string;
   lastCycle?: string;
   /** The newest snapshots in the repository, newest first. */

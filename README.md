@@ -108,8 +108,11 @@ with no port. An admin sets it up on two pages in stadeum-ui.
   if it fails. A release is applied by the ops it brings. It moves every pin
   in its files (Caddy, Redis, the gateway), except Neo4j's: a release that
   upgrades Neo4j waits, whole, until the admin presses **Upgrade Neo4j** on
-  the Updates page, and ops backs up first. The admin can turn updates off,
-  check now, or update now. Old images go after each update: ops keeps what
+  the Updates page, and ops backs up first. Every 10 minutes ops asks the
+  registry what each channel names (a `HEAD`, nothing pulled), and the page
+  says an image is current only from that answer, with when it was given.
+  The admin can turn updates off, check now, or update now. Old images go
+  after each update: ops keeps what
   runs and the one before it (`…:ops-previous`), and says in the history
   what it removed and the space it freed.
 - **Backups.** In the same window, before the updates: drain strut, stop the

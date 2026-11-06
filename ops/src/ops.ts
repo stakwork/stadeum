@@ -1,13 +1,14 @@
 import type { ServiceDef, Stack } from "./compose.js";
-import type { Destination, OpsEvent, OpsSettings, OpsStatus, ReleaseStatus, ServiceImage } from "./contract.js";
+import type { Destination, ImageRef, Latest, OpsEvent, OpsSettings, OpsStatus, ReleaseStatus, ServiceImage } from "./contract.js";
 import { backup } from "./backup.js";
 import { errorText, type Deps } from "./deps.js";
 import { describePruned, Images } from "./images.js";
+import type { RegistryApi } from "./registry.js";
 import { planRelease, upgrades, type Plan } from "./release.js";
 import type { ResticApi } from "./restic.js";
 import { Outbox, type StadeumApi } from "./stadeum.js";
 import type { StrutApi } from "./strut.js";
-import { checkGroup, handOver, isNewer, releaseGroup, short, updateGroup, updateGroups, type Check, type Group } from "./update.js";
+import { checkGroup, handOver, isNewer, lookUp, releaseGroup, short, updateGroup, updateGroups, type Check, type Group } from "./update.js";
 import { currentWindow } from "./window.js";
 
 /**
@@ -16,13 +17,18 @@ import { currentWindow } from "./window.js";
  * and once in each day's window runs the daily pass: the backup, then the
  * updates (held when tonight's backup failed): strut's channel first, then
  * stadeum's release, which the ops it brings applies. While that one-off
- * runs, this ops waits.
+ * runs, this ops waits. Every 10 minutes between, it asks the registries
+ * what the channels name (look): what the Updates page says.
  */
+
+/** How often ops asks the registries what the channels name. */
+export const LOOK_EVERY_MS = 10 * 60_000;
 
 export interface OpsDeps {
   stack: Stack;
   strut: StrutApi;
   stadeum: StadeumApi;
+  registry: RegistryApi;
   restic: (dest: Destination) => ResticApi;
   log: (msg: string) => void;
   now: () => Date;
@@ -70,6 +76,9 @@ export class Ops {
   private heldSaid: string | null = null;
   /** Old images: what ops keeps, and what it removes after an update. */
   readonly images: Images;
+  /** What each followed service's registry said last, by service. */
+  private latest = new Map<string, Latest>();
+  private lookedAt: number | null = null;
 
   constructor(private readonly o: OpsDeps) {
     this.status = { phase: "idle", version: o.version, services: [] };
@@ -109,6 +118,11 @@ export class Ops {
     return this.outbox.pending;
   }
 
+  /** What ops would report now. */
+  get state(): OpsStatus {
+    return this.status;
+  }
+
   async tick(): Promise<void> {
     // A release is being applied by the ops it brings: it reports, and this one keeps still.
     const handing = await this.o.stack.handingOver().catch(() => false);
@@ -130,7 +144,7 @@ export class Ops {
     }
     await this.outbox.flush();
     // What runs now is the release, or the one it rolled back to: say so.
-    if (handedOver) await this.check(new Set(settings.failedImages)).catch((err) => this.o.log(`check failed: ${errorText(err)}`));
+    if (handedOver) await this.look().catch((err) => this.o.log(`registry check failed: ${errorText(err)}`));
     if (!this.status.services.length) await this.refresh();
 
     for (const id of [...this.handled]) if (!settings.requests.some((r) => r.id === id)) this.handled.delete(id);
@@ -139,6 +153,9 @@ export class Ops {
 
     const window = currentWindow(this.o.now(), settings.window);
     if (window && window !== settings.lastCycle && window !== this.lastCycle) return this.daily(settings, window);
+    if (this.lookedAt === null || this.o.now().getTime() - this.lookedAt >= LOOK_EVERY_MS) {
+      await this.look().catch((err) => this.o.log(`registry check failed: ${errorText(err)}`));
+    }
     await this.report({ phase: "idle" });
   }
 
@@ -153,7 +170,7 @@ export class Ops {
       else {
         if (kinds.has("backup")) await this.backup(settings);
         if (kinds.has("update")) next = await this.update(settings, true);
-        else if (kinds.has("check")) await this.check(new Set(settings.failedImages));
+        else if (kinds.has("check")) await this.look();
       }
     } finally {
       this.unsentDone.push(...requests.map((r) => r.id));
@@ -183,8 +200,62 @@ export class Ops {
   }
 
   /**
+   * Ask each channel's registry what its tag names, and compare with what
+   * runs (lookUp): what the Updates page says. Nothing is pulled, except
+   * stadeum's release once its channel names another: its two small images
+   * carry what it would change (the stack files, a Neo4j held for an
+   * admin), so the page can say so before the window.
+   */
+  async look(): Promise<Map<string, Latest>> {
+    const at = this.o.now();
+    this.lookedAt = at.getTime();
+    const defs = await this.o.stack.services();
+    const self = this.o.stack.self;
+    const followed = [...updateGroups(defs, self).flatMap((g) => g.services), ...releaseGroup(defs, self)];
+    const runs = new Map<string, ImageRef>();
+    await Promise.all(
+      followed.map(async (s) => {
+        const id = await this.o.stack.running(s.name).catch(() => undefined);
+        const running = id ? await this.o.stack.describe(id).catch((): ImageRef => ({ id })) : undefined;
+        if (running) runs.set(s.name, running);
+        this.latest.set(s.name, await lookUp(this.o.registry, s, running, this.latest.get(s.name), at.toISOString()));
+      }),
+    );
+    for (const name of [...this.latest.keys()]) if (!followed.some((s) => s.name === name)) this.latest.delete(name);
+    const checks = await this.lookAtRelease(defs, runs.get(self));
+    this.status.checkedAt = at.toISOString();
+    await this.refresh(defs, checks);
+    return this.latest;
+  }
+
+  /** The release's status, as the registry's answer for ops's own image has it. Its checks, when it was pulled. */
+  private async lookAtRelease(defs: ServiceDef[], running: ImageRef | undefined): Promise<Check[]> {
+    const l = this.latest.get(this.o.stack.self);
+    if (!l?.digest || l.problem) return [];
+    if (l.current) {
+      this.status.release = running ? { running } : {};
+      return [];
+    }
+    // Read once for each release the channel names.
+    if (this.status.release?.available?.digests?.includes(l.digest)) return [];
+    await this.report({ phase: "checking", detail: `Reading release ${(l.revision ?? l.digest.replace(/^sha256:/, "")).slice(0, 7)}` });
+    try {
+      const release = await this.checkRelease(defs);
+      for (const c of release?.checks ?? []) {
+        await this.images.channel(c.service, c.available, c.before, c.running).catch((err) => this.o.log(`could not name ${c.service.name}'s channel image: ${errorText(err)}`));
+      }
+      this.status.release = await this.releaseStatus(release);
+      return release?.checks ?? [];
+    } catch (err) {
+      this.o.log(`could not read the release: ${errorText(err)}`);
+      this.status.release = { ...(running ? { running } : {}), problem: errorText(err) };
+      return [];
+    }
+  }
+
+  /**
    * Pull every update group and stadeum's release, and compare with what
-   * runs. Nothing that runs is touched, and the release's tags stay on
+   * runs: what an update moves. Nothing that runs is touched, and the release's tags stay on
    * what runs: only applying it moves them, so a person's `compose up`
    * does not bring half a release in. An image that failed before keeps
    * its tag off too.
@@ -217,7 +288,7 @@ export class Ops {
       await this.images.channel(c.service, c.available, c.before, c.running).catch((err) => this.o.log(`could not name ${c.service.name}'s channel image: ${errorText(err)}`));
     }
     this.status.release = await this.releaseStatus(release);
-    await this.report({ phase: "idle", checkedAt: this.o.now().toISOString(), ...(problems.length ? { detail: `Could not check ${problems.join("; ")}` } : {}) });
+    await this.report({ phase: "idle", ...(problems.length ? { detail: `Could not check ${problems.join("; ")}` } : {}) });
     return { groups, ...(release ? { release } : {}) };
   }
 
@@ -281,7 +352,10 @@ export class Ops {
       }
     }
     for (const e of events) await this.outbox.record(e);
-    await this.refresh();
+    await this.look().catch(async (err) => {
+      this.o.log(`registry check failed: ${errorText(err)}`);
+      await this.refresh();
+    });
     if (!release?.plan) return null;
     const moving = release.checks.filter(isNewer);
     const held = release.plan.held.filter((h) => !confirmed.has(h.to));
@@ -357,7 +431,7 @@ export class Ops {
     return event;
   }
 
-  /** Every service's image: what runs, and what its channel has when a check just pulled it. */
+  /** Every service's image: what runs, what a pull brought that does not run yet, and what the registry said. */
   async refresh(defs?: ServiceDef[], checks: Check[] = []): Promise<void> {
     try {
       defs ??= await this.o.stack.services();
@@ -368,6 +442,7 @@ export class Ops {
       for (const s of defs) {
         const running = await this.o.stack.running(s.name);
         const availableId = fresh.has(s.name) ? fresh.get(s.name) : previous.get(s.name)?.id;
+        const latest = this.latest.get(s.name);
         services.push({
           service: s.name,
           image: s.image,
@@ -376,6 +451,7 @@ export class Ops {
           ...(release.has(s.name) ? { release: true } : {}),
           ...(running ? { running: await this.o.stack.describe(running) } : {}),
           ...(availableId && availableId !== running ? { available: await this.o.stack.describe(availableId) } : {}),
+          ...(latest ? { latest } : {}),
         });
       }
       this.status.services = services;

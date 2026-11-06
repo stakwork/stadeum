@@ -8,6 +8,7 @@ import { errorText, type Deps } from "./deps.js";
 import { run } from "./exec.js";
 import { readFiles, RELEASE_STACK } from "./files.js";
 import { Ops } from "./ops.js";
+import { Registry } from "./registry.js";
 import { applyRelease } from "./release.js";
 import { destinationFromEnv, Restic } from "./restic.js";
 import { Stadeum } from "./stadeum.js";
@@ -18,7 +19,9 @@ import { handOver } from "./update.js";
  * stadeum-ops. No port: it starts every connection itself.
  *
  *   ops run                 the loop (the service's command)
- *   ops check               pull what ops moves and say what is new
+ *   ops check               ask the registries what the channels name, and
+ *                           say what is new (stadeum's release is pulled
+ *                           when it moved, to say what it changes)
  *   ops update              update now, as the admin page's "Update now"
  *   ops backup              back up now
  *   ops snapshots           list the repository's snapshots
@@ -52,6 +55,7 @@ async function main(argv: string[]): Promise<number> {
     stack,
     strut,
     stadeum,
+    registry: new Registry(),
     restic: (dest) => new Restic(dest, run),
     log,
     now: () => new Date(),
@@ -88,16 +92,22 @@ async function main(argv: string[]): Promise<number> {
       }
     }
     case "check": {
-      const { groups, release } = await ops.check();
-      for (const c of [...groups.flatMap((g) => g.checks), ...(release?.checks ?? [])]) {
-        const state = !c.available ? "not found" : c.available === c.running ? "up to date" : "new image";
-        console.log(`${c.service.name.padEnd(16)} ${c.service.image.padEnd(44)} ${state}`);
+      await ops.look();
+      const { services, release } = ops.state;
+      for (const s of services) {
+        const l = s.latest;
+        if (!l) continue;
+        const state = l.problem
+          ? `could not check: ${l.problem}`
+          : l.current
+            ? "current"
+            : `newer: ${(l.revision ?? l.digest ?? "").replace(/^sha256:/, "").slice(0, 12)}${l.created ? `, built ${l.created}` : ""}`;
+        console.log(`${s.service.padEnd(16)} ${s.image.padEnd(44)} ${state}`);
       }
-      const p = release?.plan;
-      if (p) {
-        console.log(`\nThe release on the channel changes ${p.files.length ? p.files.join(", ") : "no stack file"}.`);
-        for (const m of p.images) console.log(`  ${m.service}: ${m.from ?? "(new)"} → ${m.to ?? "(removed)"}`);
-        if (p.held.length) console.log(`Held: ${p.held.map((h) => `${h.service} ${h.from} → ${h.to}`).join(", ")} waits for an admin (Updates page).`);
+      if (release?.available) {
+        console.log(`\nThe release on the channel changes ${release.files?.length ? release.files.join(", ") : "no stack file"}.`);
+        for (const m of release.images ?? []) console.log(`  ${m.service}: ${m.from ?? "(new)"} → ${m.to ?? "(removed)"}`);
+        if (release.held?.length) console.log(`Held: ${release.held.map((h) => `${h.service} ${h.from} → ${h.to}`).join(", ")} waits for an admin (Updates page).`);
       }
       if (release?.problem) console.log(`\nThe release: ${release.problem}`);
       return 0;

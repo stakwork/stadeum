@@ -5,6 +5,7 @@ import { basename, dirname, join, relative } from "node:path";
 import type { ImageRef } from "./contract.js";
 import { CommandError, must, type Exec } from "./exec.js";
 import { readFiles, RELEASE_STACK, type Files } from "./files.js";
+import { digestsOf } from "./registry.js";
 
 /**
  * How ops drives the containers: `docker compose`, run here against the
@@ -296,10 +297,11 @@ export class ComposeStack implements Stack {
   }
 
   async describe(id: string): Promise<ImageRef> {
-    const out = await must(this.exec, "docker", ["image", "inspect", id, "--format", "{{json .Config.Labels}}\t{{.Created}}"]);
-    const [labels = "null", created] = out.trim().split("\t");
+    const out = await must(this.exec, "docker", ["image", "inspect", id, "--format", "{{json .Config.Labels}}\t{{.Created}}\t{{json .RepoDigests}}"]);
+    const [labels = "null", created, repoDigests = "null"] = out.trim().split("\t");
     const revision = (JSON.parse(labels) as Record<string, string> | null)?.["org.opencontainers.image.revision"];
-    return { id, ...(revision ? { revision } : {}), ...(created ? { created } : {}) };
+    const digests = digestsOf(JSON.parse(repoDigests) as string[] | null);
+    return { id, ...(revision ? { revision } : {}), ...(created ? { created } : {}), ...(digests.length ? { digests } : {}) };
   }
 
   async pull(services: string[]): Promise<void> {
