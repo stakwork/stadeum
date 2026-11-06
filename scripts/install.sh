@@ -16,7 +16,8 @@
 #      channel's; after, the release the box's ops runs. It makes .env with
 #      the release's scripts/init-env.sh;
 #   3. asks for what .env still lacks: the domain, an email for Let's
-#      Encrypt, a sign-in provider and, the first time, the org's name.
+#      Encrypt, a sign-in provider and, the first time, the org's name and
+#      the LiveKit keys calls need (both can be skipped).
 #      Model keys are not asked for: an admin sets them on the Models page,
 #      which writes them to the gateway and nowhere else (docs/models.md);
 #   4. checks that DNS points $HOST and strut.$HOST at this machine, which
@@ -55,6 +56,9 @@
 #   STADEUM_AUTH_MICROSOFT_ENTRA_ID_ID, STADEUM_AUTH_MICROSOFT_ENTRA_ID_SECRET,
 #   STADEUM_AUTH_MICROSOFT_ENTRA_ID_ISSUER (the issuer URL, or the tenant ID)
 #   STADEUM_ORG_NAME (optional)
+#   STADEUM_LIVEKIT_API_KEY, STADEUM_LIVEKIT_API_SECRET (optional: calls stay
+#                             off without them; STADEUM_LIVEKIT_URL for a
+#                             LiveKit server other than the central one)
 #   STADEUM_SKIP_DNS_CHECK=1  start without the DNS check, when a load
 #                             balancer or proxy sits in front of the box
 #   STADEUM_DIR               the box's directory (default /opt/stadeum)
@@ -376,6 +380,10 @@ configure() {
     note "one sign-in provider is needed: a server has no other way in"
   done
   optional STADEUM_ORG_NAME "Your organisation's name, shown beside the logo (Enter to skip)" any
+  # Calls: the LiveKit server's keys. Without them the box runs with calls off.
+  optional LIVEKIT_URL "LiveKit server for calls (Enter for wss://livekit.sphinx.chat)" any
+  optional LIVEKIT_API_KEY "LiveKit API key for calls (Enter to skip: calls stay off)" any
+  [ -z "$(env_get LIVEKIT_API_KEY)" ] || setting LIVEKIT_API_SECRET "LiveKit API secret" given secret
 }
 
 # --- DNS ---

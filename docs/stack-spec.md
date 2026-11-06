@@ -7,8 +7,8 @@ named.
 ## Containers
 
 `docker compose -f stack/stadeum.yml [-f stack/dev.yml] up` starts exactly
-these; there are no profiles. The Status page in stadeum-ui lists the same
-nine (`ui/src/lib/status.ts`, `SERVICES`).
+these; there are no profiles. The Status page in stadeum-ui lists them all
+but maple (`ui/src/lib/status.ts`, `SERVICES`).
 
 | Service | Image | Role | Status page check |
 | --- | --- | --- | --- |
@@ -19,8 +19,9 @@ nine (`ui/src/lib/status.ts`, `SERVICES`).
 | `maple` | `ghcr.io/mapleprivacylabs/maple-proxy:0.4.5` | Maple's inference proxy: encrypts each request to Maple's enclave. The gateway's `maple` provider | None (stadeum-ui never calls it) |
 | `strut-browser` | `ghcr.io/stakwork/strut-browser:stable` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
 | `strut` | `ghcr.io/stakwork/strut:stable` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
+| `voice` | `sphinxlightning/sphinx-voice:0.42` | A person's voice call with the assistant (sphinx-voice's 1:1 mode): the LiveKit room and the agent in it | None (stadeum-ui never calls it) |
 | `bootstrap` | `node:22.20.0-alpine` | One shot: org signing key + trust registration | Org key registered with bifrost, same key as stadeum-ui's |
-| `stadeum-ui` | `ghcr.io/stakwork/stadeum-ui:stable` (built from `ui/`) | Sign-in, the person, Members, Status, Updates, Backups | Running (it serves the page) |
+| `stadeum-ui` | `ghcr.io/stakwork/stadeum-ui:stable` (built from `ui/`) | Sign-in, the person, Calls, Members, Status, Updates, Backups | Running (it serves the page) |
 | `ops` | `ghcr.io/stakwork/stadeum-ops:stable` (built from `ops/`, carrying `stack/`) | stadeum's releases, strut's updates, backups; the Docker socket | Reported in the last 3 minutes |
 
 stadeum-ui has no Docker socket, so it cannot see container state; each
@@ -190,13 +191,74 @@ checked".
 - `STRUT_PUBLIC_URL=https://strut.${HOST}`: the base of the links strut hands
   a caller outside its UI (MCP artifact links, `ui` deep links).
 - Volumes: `strut-workspace` (runs, chats, artifacts, apps, the secret
-  stores) and `strut-models` (the embedding and speech models, fetched on
-  first boot). strut's uv cache is not kept: it is a cache.
+  stores) and `strut-models` (`STRUT_MODEL_DIR`: the embedding model,
+  fetched on first boot, and the speech models, fetched on first use: Kroko
+  for speech to text, 57 MB, and Kokoro for text to speech, 350 MB; about
+  500 MB in all). `strut-models` is not in the backup: a restored box
+  fetches the models again. strut's uv cache is not kept: it is a cache.
+- Calls: `STRUT_VOICE_URL=http://voice:8080` and `STRUT_VOICE_TOKEN`, the
+  secret strut and the voice service share. strut's `POST /voice/calls`
+  (`specs/API.md` §15.2) hands a person's call to the voice service as they
+  sent it, with the person as `x-strut-actor` and the token as the bearer,
+  and answers what the service answers; it logs and keeps nothing of
+  either. The URL is set only when LiveKit's key, its secret and the token
+  are all in `.env` (compose's `${…:+…}`); without them strut answers 503,
+  no voice service is configured, and the Calls page says so.
 - Healthcheck: `GET /health`, which answers `{ ok }` without the key.
   `start_period` 180 s: the first boot seeds the schema and ontology and
   fetches the embedding model before it listens.
 - strut's default server empties its own `process.env` after boot
   (`STRUT_ENV_SCRUB`), so a step cannot read the deployment key.
+
+### voice
+- `sphinxlightning/sphinx-voice:${VOICE_TAG:-0.42}` (Docker Hub, its release
+  tags; amd64 + arm64 from 0.42: an amd64-only image crash-loops on an arm64
+  box without emulation, and `up --wait` fails with it), run as
+  `node dist/one-to-one.js`: sphinx-voice's 1:1 mode, not the image's
+  default meeting mode. Port 8080 on the network only (`LISTEN_HOST=0.0.0.0`):
+  no published port, no route in Caddy. No state, so no volume and no backup
+  label; pinned, so a release that changes the pin moves it.
+- **A call** (strut `plans/private-voice.md` §4.1). The person's browser
+  makes a fresh 32-byte key and sends it, as base64, to stadeum-ui's
+  `POST /api/calls`, which hands it to strut's `POST /voice/calls` as the
+  person; strut hands it here (`POST /calls`, `STRUT_VOICE_TOKEN` as the
+  bearer). The service names a fresh room (`sphinx.call.voice.<32 hex>`)
+  and two random identities, mints the person's token (this room, the
+  microphone, 10 minutes to join), joins the room itself with the key,
+  and only then answers `{ url, room, token, identity, agent, encrypted:
+  true, voice }`. Each turn runs strut's orchestrator as the person
+  (`x-strut-actor`, on the session `<person>/voice/<call>`), so what is said
+  lands in the assistant's conversation; speech goes through strut's
+  `/audio/transcribe` and `/audio/speak` with the deployment key
+  (`STRUT_API_KEY=${SHARED_API_TOKEN}`). strut posts a turn's end back to
+  `CALLBACK_URL_BASE=http://voice:8080`.
+- **End-to-end encrypted.** Both sides key the room with the key STRING's
+  UTF-8 bytes (LiveKit's PBKDF2, salt `LKFrameEncryptionKey`), not its
+  base64 decoding, with `encryption` (audio and data channel), not the
+  legacy `e2ee`. The browser publishes without Opus RED and DTX. The
+  LiveKit server, the network and any relay carry audio and text they
+  cannot read; the room name, the identities and the agent's state
+  attribute go over LiveKit's signaling in the clear. The key crosses TLS
+  to the box, so whoever runs the box could read it there.
+- **LiveKit** is reached outbound only, by this container and by the
+  person's browser: `LIVEKIT_URL` (default `wss://livekit.sphinx.chat`, the
+  central server; any LiveKit server works), `LIVEKIT_API_KEY`,
+  `LIVEKIT_API_SECRET`. A LiveKit key is admin over every room on its
+  server; with the calls encrypted, one that leaks lets its holder join or
+  end a call but not hear it. One key per box would make one revocable
+  alone; livekit.sphinx.chat has no API to mint keys (they are static in
+  its `livekit.yaml`), so for now a box takes whatever key its `.env`
+  names. `scripts/install.sh` asks for them on a fresh box
+  (`STADEUM_LIVEKIT_API_KEY`, `STADEUM_LIVEKIT_API_SECRET`).
+- **Calls off.** Without LiveKit's key and secret, or the token, its config
+  refuses to start, so the command waits instead (`sleep infinity`, under
+  `init: true`) and says why in its log: the box comes up, strut has no
+  `STRUT_VOICE_URL`, and the Calls page says no voice service is
+  configured. `scripts/init-env.sh` generates `STRUT_VOICE_TOKEN`; a box
+  from before calls gets one from a re-run.
+- The voice turns ask for `VOICE_MODEL`, sphinx-voice's default `sonnet`,
+  not the org's model from the Models page: what strut resolves for
+  `sonnet`.
 
 ### bootstrap
 - `node:22.20.0-alpine`, runs `stack/bootstrap/org-identity.mjs` once: the org
@@ -213,7 +275,9 @@ checked".
 - One strut client, `ui/src/lib/strut/client.ts`, with
   `Authorization: Bearer <SHARED_API_TOKEN>`: `GET /health` (Status),
   `GET/PUT/DELETE /llm/delegations[/:actor]` (each person's delegation),
-  `PUT /actors/:actor/secrets/:NAME`, `POST /auth/ticket` (the frame).
+  `PUT /actors/:actor/secrets/:NAME`, `POST /auth/ticket` (the frame, and
+  a call's artifact), `POST /voice/calls` with the person as
+  `x-strut-actor` (a call).
 - **The frame.** Per page load the server mints a sign-in ticket for the
   person (`POST /auth/ticket { actor, role }` → `{ ticket, expiresAt }`, good
   once for 60 s; `role` is the person's stadeum role, `admin` or `member`:
@@ -222,6 +286,44 @@ checked".
   `{STRUT_PUBLIC_URL}/?ticket=<ticket>&embed_origin=<stadeum origin>[&wf=&run=]`.
   strut's UI trades the ticket for its own session cookie as that person and
   takes it off the URL (strut `specs/API.md` §13.1).
+- **Calls.** The one live thing stadeum draws: a strut app's frame cannot
+  carry media. The `(app)` layout holds the call (`ui/src/components/call.tsx`),
+  so it goes on while the person moves between pages, the framed apps among
+  them; the rail shows it and hangs it up. Talk makes the call's key in the
+  browser and posts it to `POST /api/calls`, which checks the person's
+  session and that the request came from stadeum's own origin (strut's
+  subdomain is the same site, so the cookie alone would not do), and hands
+  it to strut. The answer passes through, `no-store`; 400, 402 and 503 are
+  strut's, said plainly on the page. The browser refuses an answer without
+  `encrypted: true`, a LiveKit server that is not `wss://` (or `ws://` on
+  this machine) and a token for another room (`ui/src/lib/calls.ts`), then
+  joins with livekit-client's E2EE worker (`ui/src/lib/call-room.ts`, loaded
+  only on a call). Nothing logs, keeps or puts in a URL the key, the room
+  or the tokens. The page knows a call, never a conversation, a run or a
+  job.
+- **What a call shows** (`ui/src/lib/call-transcript.ts`). Both sides' words
+  as LiveKit Agents publish them on `lk.transcription`, folded one line per
+  speaker and `lk.segment_id` (the agent's reply word by word in time with
+  its audio; the person's words replaced as the recogniser revises them);
+  whose they are is `lk.transcribed_track_id`, the agent's own track or the
+  person's. With `artifacts: true` on the call, sphinx-voice sends the
+  artifacts strut's turn ended with on `sphinx.artifacts`, strut's
+  `ArtifactRef`s untouched, and its agent may say "on your screen". Each
+  becomes a card under the reply it came with. A text stream is read only
+  from the agent's identity and only when it came encrypted (GCM). A card
+  opens through strut: a file in strut's artifact viewer alone
+  (`?artifact=<served path>&solo=1`, a peer's through `/peers/<id>`), an
+  app by its key (`?app=<name>[@vN]&solo=1`), each framed beside the call
+  with a one-use ticket minted by a server action (which checks the path or
+  key again); an `https` link in a new tab; anything else is shown, not
+  linked. The words and the cards are in memory only: they stay after the
+  call to read and open, until the next one.
+- **The page** has no header: the waveform in its orb (bars that breathe,
+  follow the assistant's voice or the person's microphone, roll while it
+  thinks, lie flat when muted; still under reduced motion), and Talk. As
+  the call starts the orb rises, the transcript flows in under it, and Mute
+  (`M`) and End settle at the bottom; a card's viewer sits beside the
+  transcript, or over it on a phone (`Esc` closes it).
 
 ### ops
 - `ghcr.io/stakwork/stadeum-ops:${STADEUM_IMAGE_TAG:-stable}`, built from
@@ -246,8 +348,10 @@ checked".
   already knows how to recreate a container with its networks, volumes,
   labels and healthcheck, so an update is the `compose pull` + `compose up`
   a person would type, and ops reimplements none of it.
-- **Every volume** is mounted at `/volumes/<name>`, for the snapshot and the
-  restore, and the box's `backups/` at `/backups` (a local destination).
+- **Every volume but `strut-models`** is mounted at `/volumes/<name>`, for
+  the snapshot and the restore (strut fetches its models again; a restore
+  leaves a volume the snapshot lacks as it is), and the box's `backups/` at
+  `/backups` (a local destination).
 - **Three labels** in `stack/stadeum.yml` say what ops does to a service:
   `stadeum.ops.update: <group>` (strut + strut-browser in `strut`;
   stadeum-ui + ops in `stadeum`, ops's own group: the release),
@@ -461,6 +565,10 @@ initializers) with the stock image strut needs. repo2graph's arm64 image
 crash-looped, and its lab would not boot without a provider key.
 
 ## Still open
+
+- **Calls.** One LiveKit key per box, minted as the box is provisioned, once
+  the LiveKit server has a way to add keys without a restart. sphinx-voice's
+  voice turns on strut's default model when `VOICE_MODEL` is unset.
 
 - The node `created_by` property: `graph/create-node` passes `ctx.actor`, but
   a verify run's node came back with `created_by = NULL` although the run's

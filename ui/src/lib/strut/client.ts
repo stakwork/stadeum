@@ -397,6 +397,28 @@ export async function putBrand(brand: StrutBrand): Promise<{ brand: StrutBrand; 
   return readBrand(await res.json());
 }
 
+// ── a voice call (strut specs/API.md §15.2) ─────────────────────────────
+
+/**
+ * Strut waits up to 15 s for the voice service, which answers once its
+ * agent is in the room.
+ */
+export const VOICE_CALL_TIMEOUT_MS = 30_000;
+
+/**
+ * `POST /voice/calls { key, voice?, artifacts? }` as `actor`: strut hands the body to
+ * the voice service beside it, which answers with the LiveKit room its
+ * agent joined with the key. Strut's status and JSON come back as they
+ * are, a refusal (400, 402, 503) included: the caller shows it. The body
+ * and the answer hold the call's key and tokens, so nothing of either is
+ * logged or put in an error message.
+ */
+export async function startVoiceCall(actor: string, body: { key: string; voice?: string; artifacts?: true }): Promise<{ status: number; data: unknown }> {
+  const res = await strutFetch("POST", "/voice/calls", body, VOICE_CALL_TIMEOUT_MS, actor);
+  const data = (await res.json().catch(() => ({}))) as unknown;
+  return { status: res.status, data };
+}
+
 // ── the frame ───────────────────────────────────────────────────────────
 
 /**
@@ -411,6 +433,20 @@ export async function putBrand(brand: StrutBrand): Promise<{ brand: StrutBrand; 
  * only because STRUT_PUBLIC_URL is a subdomain of stadeum-ui's site.
  */
 export async function embedUrl(actor: string, role: string, app: string, input?: string): Promise<string> {
+  return framed(actor, role, input ? { app, input } : { app });
+}
+
+/**
+ * One of strut's files for one person, to frame: strut's artifact viewer
+ * alone (`?artifact=<path>&solo=1`, `specs/API.md` §14.3, "One file
+ * alone"), signed in as `embedUrl` signs in. `path` is a file strut serves
+ * (`/jobs/<job>/files/…`, `/artifacts/<runId>/…`, behind any `/peers/<id>`).
+ */
+export async function embedArtifactUrl(actor: string, role: string, path: string): Promise<string> {
+  return framed(actor, role, { artifact: path });
+}
+
+async function framed(actor: string, role: string, open: Record<string, string>): Promise<string> {
   const res = await strutFetch("POST", "/auth/ticket", { actor, role: isAdmin(role) ? "admin" : "member" });
   if (!res.ok) await fail("POST", "/auth/ticket", res);
   const { ticket } = (await res.json()) as { ticket?: unknown };
@@ -418,9 +454,9 @@ export async function embedUrl(actor: string, role: string, app: string, input?:
 
   const url = new URL(`${env.strutPublicUrl()}/`);
   url.searchParams.set("ticket", ticket);
-  url.searchParams.set("app", app);
+  for (const k of ["app", "artifact"]) if (open[k]) url.searchParams.set(k, open[k]);
   url.searchParams.set("solo", "1");
   url.searchParams.set("embed_origin", new URL(env.publicUrl()).origin);
-  if (input) url.searchParams.set("input", input);
+  if (open.input) url.searchParams.set("input", open.input);
   return url.toString();
 }

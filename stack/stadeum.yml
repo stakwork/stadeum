@@ -45,7 +45,8 @@ volumes:
   # strut's runs, chats, artifacts, apps and secret stores (sealed under
   # STRUT_SECRET_KEY). Workflows and steps live in Neo4j.
   strut-workspace:
-  # strut's embedding and speech models, fetched on first boot.
+  # strut's embedding and speech models (~500 MB), fetched on first use.
+  # Not in the backup: a restored box fetches them again (AGENTS.md rule 8).
   strut-models:
   # Org macaroon signing key (stack/bootstrap/org-identity.mjs writes it,
   # stadeum-ui reads it). Contract: docs/mothership-spec.md.
@@ -245,6 +246,13 @@ services:
       # until stadeum-ui first sets it.
       STRUT_HOST_CONFIG: /config/host-config.json
       STRUT_DEFAULT_MODEL: anthropic/claude-sonnet-5-5
+      # Calls: strut hands each person's call (`POST /voice/calls`) to the
+      # voice service, with the secret the two share. Set only when calls
+      # can work (LiveKit's keys and the token in .env); unset, strut
+      # answers that no voice service is configured, and the Calls page
+      # says so.
+      STRUT_VOICE_URL: ${LIVEKIT_API_KEY:+${LIVEKIT_API_SECRET:+${STRUT_VOICE_TOKEN:+http://voice:8080}}}
+      STRUT_VOICE_TOKEN: ${STRUT_VOICE_TOKEN:-}
     volumes:
       - strut-workspace:/data/workspace
       - strut-models:/data/models
@@ -257,6 +265,48 @@ services:
       # First boot seeds the schema and ontology and fetches the embedding
       # model before it listens.
       start_period: 180s
+
+  voice:
+    <<: *common
+    # sphinx-voice's 1:1 mode (stakwork/sphinx-voice): a person's voice call
+    # with the assistant, from the Calls page. strut hands it each call with
+    # the person and STRUT_VOICE_TOKEN; it names a fresh room on LiveKit,
+    # mints the person's token for it, joins it itself end-to-end encrypted
+    # with the key the person's browser made, and runs each turn through
+    # strut as the person (the orchestrator, and speech on strut's
+    # /audio/transcribe and /audio/speak). LiveKit is reached outbound
+    # only: no port, no route in the Caddyfile. No state.
+    # PINNED (Docker Hub, its release tags; amd64 + arm64 from 0.42): it
+    # moves with a stadeum release that changes this pin.
+    image: sphinxlightning/sphinx-voice:${VOICE_TAG:-0.42}
+    depends_on:
+      strut: { condition: service_healthy }
+    # tini as PID 1, so a stop reaches node (or the sleep below) at once.
+    init: true
+    environment:
+      STRUT_URL: http://strut:3000
+      STRUT_API_KEY: ${SHARED_API_TOKEN}
+      STRUT_VOICE_TOKEN: ${STRUT_VOICE_TOKEN:-}
+      # It binds loopback unless told otherwise; strut calls it, and posts
+      # a turn's end back, at http://voice:8080.
+      LISTEN_HOST: 0.0.0.0
+      PORT: "8080"
+      CALLBACK_URL_BASE: http://voice:8080
+      # Any LiveKit server; the default is the central one.
+      LIVEKIT_URL: ${LIVEKIT_URL:-wss://livekit.sphinx.chat}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+    # The 1:1 mode, not the image's default (meeting Jamie). Without
+    # LiveKit's keys or the token it refuses to start, so it waits instead,
+    # and the box comes up with calls off (strut has no STRUT_VOICE_URL).
+    command:
+      - sh
+      - -c
+      - >-
+        if [ -z "$$LIVEKIT_API_KEY" ] || [ -z "$$LIVEKIT_API_SECRET" ] || [ -z "$$STRUT_VOICE_TOKEN" ]; then
+        echo "[voice] calls are off: set LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env, and run scripts/init-env.sh";
+        exec sleep infinity; fi;
+        exec node dist/one-to-one.js
 
   # One-shot: org signing key + bifrost trust registration. Idempotent;
   # re-run with `docker compose ... run --rm bootstrap`. An update never
@@ -353,13 +403,13 @@ services:
       # A local backup destination: the box's backups/ (testing, or a disk
       # mounted there). Not off the box.
       - ../backups:/backups
-      # Every volume, for the snapshot and the restore.
+      # Every volume, for the snapshot and the restore, but strut-models:
+      # models are fetched again, not kept.
       - caddy:/volumes/caddy
       - neo4j:/volumes/neo4j
       - redis:/volumes/redis
       - bifrost:/volumes/bifrost
       - strut-workspace:/volumes/strut-workspace
-      - strut-models:/volumes/strut-models
       - org:/volumes/org
       - stadeum-ui:/volumes/stadeum-ui
     healthcheck:

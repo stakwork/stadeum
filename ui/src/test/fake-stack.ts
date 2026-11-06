@@ -7,13 +7,17 @@
  *   /strut    — strut: /health, /apps (the list, each app's versions,
  *               usage, what is live and the pin), /brand, /auth/ticket and
  *               the app page a ticket opens, /llm/delegations, /llm/models,
- *               /secrets/:name, /actors/:actor/secrets (strut specs/API.md)
+ *               /secrets/:name, /actors/:actor/secrets, /voice/calls (strut
+ *               specs/API.md): a call's answer carries a real LiveKit token
+ *               for `livekit` (default `livekit-server --dev`), but no agent
+ *               joins the room, unless the call is forwarded to a voice
+ *               service, as strut does
  *   /neo4j    — HTTP discovery
  * Wire shapes follow docs/mothership-spec.md. The delegation PUT runs
  * Strut's own shape check and verifies the macaroon against the org key
  * the trust registry holds, like the real gateway would.
  */
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { decodeMacaroon, verify } from "gatekey";
@@ -28,7 +32,21 @@ export interface FakeStackOptions {
   adminUser?: string;
   adminPass?: string;
   providers?: string[];
+  /** The LiveKit server `/voice/calls` mints tokens for. Default: `livekit-server --dev` on this machine. */
+  livekit?: FakeLivekit;
 }
+
+export interface FakeLivekit {
+  url: string;
+  apiKey: string;
+  apiSecret: string;
+}
+
+/** `livekit-server --dev`'s address and keys. */
+export const DEV_LIVEKIT: FakeLivekit = { url: "ws://127.0.0.1:7880", apiKey: "devkey", apiSecret: "secret" };
+
+/** The voices strut's `/audio/speak` has, as the voice service checks a call's `voice` against them. */
+const FAKE_VOICES = ["af_heart", "am_michael", "bf_emma", "bm_george"];
 
 /** One entry of strut's `GET /apps` (specs/API.md §14, `AppListEntry`). */
 export interface FakeApp {
@@ -207,6 +225,19 @@ export interface FakeState {
   requests: string[];
   /** Flip to simulate an outage of one service. */
   down: { bifrost: boolean; strut: boolean; neo4j: boolean };
+  /**
+   * `POST /voice/calls`: the LiveKit server its tokens are for (null: strut
+   * has no voice service, a 503), a refusal to give instead (a 402 with
+   * `{ error, balance, minimum }`, say), a voice service to hand calls to
+   * instead, as strut does with STRUT_VOICE_URL and STRUT_VOICE_TOKEN, and
+   * each call answered here: whose and which room, never its key.
+   */
+  voice: {
+    livekit: FakeLivekit | null;
+    refuse: { status: number; body: unknown } | null;
+    forward: { url: string; token: string } | null;
+    calls: Array<{ actor: string; room: string }>;
+  };
 }
 
 export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
@@ -240,6 +271,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     drain: null,
     requests: [],
     down: { bifrost: false, strut: false, neo4j: false },
+    voice: { livekit: opts.livekit ?? DEV_LIVEKIT, refuse: null, forward: null, calls: [] },
   };
 
   const server = createServer(async (req, res) => {
@@ -496,6 +528,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       state.tickets.set(ticket, { actor, role, exp, used: false });
       return send(res, 200, { ticket, expiresAt: exp });
     }
+    if (path === "/voice/calls" && m === "POST") return voiceCall(req, res, body);
     if (path === "/apps" && m === "GET") {
       const listed = [...state.apps].sort((a, b) => a.name.localeCompare(b.name)).map((a) => {
         const warnings = state.appRecords.get(a.name)?.warnings.filter((w) => w.version === a.activeVersion).length ?? 0;
@@ -550,6 +583,55 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       return send(res, 200, { ok: true });
     }
     send(res, 404, { error: "not found" });
+  }
+
+  /**
+   * `POST /voice/calls` (strut §15.2) with the voice service's checks
+   * (sphinx-voice `calls-route.ts`): a fresh room, two random identities,
+   * the person's token for the room, `encrypted: true` for a call with a
+   * key. The real service answers once its agent is in the room; here none
+   * ever joins.
+   */
+  function voiceCall(req: IncomingMessage, res: ServerResponse, body: any) {
+    const actor = typeof req.headers["x-strut-actor"] === "string" ? req.headers["x-strut-actor"] : "";
+    if (!actor) return send(res, 403, { error: "a call runs as a person: x-strut-actor is required with the deployment key" });
+    if (state.voice.refuse) return send(res, state.voice.refuse.status, state.voice.refuse.body);
+    const forward = state.voice.forward;
+    if (forward) {
+      // As strut does: the body unchanged, the person as x-strut-actor, the shared secret as the bearer, the answer as it came.
+      void fetch(`${forward.url}/calls`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-strut-actor": actor, authorization: `Bearer ${forward.token}` },
+        body: JSON.stringify(body ?? {}),
+        signal: AbortSignal.timeout(15_000),
+      })
+        .then(async (r) => send(res, r.status, await r.json().catch(() => ({}))))
+        .catch(() => send(res, 503, { error: "the voice service is not answering" }));
+      return;
+    }
+    const lk = state.voice.livekit;
+    if (!lk) return send(res, 503, { error: "no voice service is configured (STRUT_VOICE_URL)" });
+    // An empty body is `{}`, as the voice service reads it.
+    if (body !== undefined && (!body || typeof body !== "object" || Array.isArray(body))) return send(res, 400, { error: "the body must be a JSON object" });
+    const { key, voice, artifacts } = body ?? {};
+    if (artifacts !== undefined && typeof artifacts !== "boolean") return send(res, 400, { error: "artifacts must be a boolean" });
+    if (key !== undefined && (typeof key !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(key) || Buffer.from(key, "base64").length !== 32)) {
+      return send(res, 400, { error: "key must be 32 bytes, as base64" });
+    }
+    if (voice !== undefined && !FAKE_VOICES.includes(voice)) return send(res, 400, { error: `unknown voice ${JSON.stringify(voice)}` });
+    const hex = () => randomBytes(16).toString("hex");
+    const room = `sphinx.call.voice.${hex()}`;
+    const identity = hex();
+    state.voice.calls.push({ actor, room });
+    return send(res, 200, {
+      url: lk.url,
+      room,
+      token: livekitToken(lk, identity, room),
+      identity,
+      agent: hex(),
+      encrypted: key !== undefined,
+      voice: voice ?? "af_heart",
+    });
   }
 
   /** One app's versions, usage, what is live and the pin (strut §14.5, §14.6). */
@@ -668,6 +750,26 @@ async function readJson(req: IncomingMessage): Promise<any> {
   }
 }
 
+/**
+ * The person's LiveKit token, as the voice service mints it
+ * (`memberToken`): this room only, the microphone in, audio out, its own
+ * attributes; good for joining for ten minutes. HS256 over the API secret,
+ * which is all a LiveKit access token is.
+ */
+export function livekitToken(lk: FakeLivekit, identity: string, room: string): string {
+  const now = Math.floor(Date.now() / 1000);
+  const part = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const unsigned = `${part({ alg: "HS256", typ: "JWT" })}.${part({
+    iss: lk.apiKey,
+    sub: identity,
+    jti: identity,
+    nbf: now,
+    exp: now + 600,
+    video: { room, roomJoin: true, canPublish: true, canPublishSources: ["microphone"], canSubscribe: true, canPublishData: false, canUpdateOwnMetadata: true },
+  })}`;
+  return `${unsigned}.${createHmac("sha256", lk.apiSecret).update(unsigned).digest("base64url")}`;
+}
+
 function send(res: ServerResponse, status: number, body: unknown) {
   const text = typeof body === "string" ? body : JSON.stringify(body);
   res.writeHead(status, { "Content-Type": typeof body === "string" ? "text/plain" : "application/json" });
@@ -682,11 +784,17 @@ function html(res: ServerResponse, body: string, status = 200) {
 /** Strut's UI showing one app alone (`?app=<name>&solo=1`), as the frame opens it. */
 function embedPage(who: { actor: string; role: string } | undefined, q: URLSearchParams, apps: FakeApp[] = []): string {
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-  const name = q.get("app") ?? "";
+  const name = (q.get("app") ?? "").replace(/@v\d+$/, "");
   const app = apps.find((a) => a.name === name);
+  const artifact = q.get("artifact");
   const body = !who
     ? "<p>This sign-in link has expired. Reload the page from the app you opened it in to sign in again.</p>"
-    : !app
+    : artifact
+      ? `<h1 style="font-weight:600;font-size:18px">${esc(artifact.split("/").pop() ?? artifact)}</h1>
+<p>strut's artifact viewer${q.get("solo") === "1" ? " alone" : ""}: <code>${esc(artifact)}</code>, theme <code>${esc(q.get("theme") ?? "dark")}</code></p>
+<p>Signed in as actor: <code>${esc(who.actor)}</code>, role <code>${esc(who.role)}</code></p>
+<p>This page stands in for the file strut would show. It was opened with a one-use sign-in ticket, not the shared token.</p>`
+      : !app
       ? `<p>No app <code>${esc(name || "(none)")}</code>.</p>`
       : `<h1 style="font-weight:600;font-size:18px">${esc(app.title)}</h1>
 <p>App: <code>${esc(app.name)}</code>${q.get("solo") === "1" ? " alone" : ""}, input <code>${esc(q.get("input") ?? "(none)")}</code>, theme <code>${esc(q.get("theme") ?? "dark")}</code></p>

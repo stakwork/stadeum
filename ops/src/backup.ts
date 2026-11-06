@@ -12,10 +12,12 @@ import { resticError, type ResticApi } from "./restic.js";
  * `stadeum.ops.backup: stop`, snapshot, start them again. A few minutes
  * of downtime in the window.
  *
- * What is in it: every volume, each mounted in ops at /volumes/<name>
- * (stack/stadeum.yml), and the env file, which holds the secrets that
- * read them (NEO4J_PASSWORD, STRUT_SECRET_KEY, STADEUM_ENCRYPTION_KEY).
- * The restic password is not: the admin keeps it off the box.
+ * What is in it: every volume mounted in ops at /volumes/<name>
+ * (stack/stadeum.yml), which is every volume but strut-models, whose
+ * models strut fetches again; and the env file, which holds the secrets
+ * that read them (NEO4J_PASSWORD, STRUT_SECRET_KEY, STADEUM_ENCRYPTION_KEY).
+ * The restic password is not: the admin keeps it off the box. A restore
+ * puts back what the snapshot has and leaves any other volume as it is.
  */
 
 export const VOLUMES = "/volumes";

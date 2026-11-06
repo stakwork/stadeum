@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AccountMenu, type Person } from "./account-menu";
+import { CallRailCard, useCall } from "./call";
 import { LogoMark } from "./logo-mark";
 
 export interface RailProps {
@@ -43,9 +44,11 @@ function settingsPage(path: string): string | undefined {
 }
 
 /**
- * The left rail. Working, it holds the home (the assistant), the apps and
- * the person's menu; on a Settings page it holds Settings' own pages and a
- * way back. On phones it folds behind a menu button and, when opened, sits
+ * The left rail. Working, it holds the home (the assistant), Calls, the
+ * apps and the person's menu; on a Settings page it holds Settings' own
+ * pages and a way back. A call that is on shows at the bottom, on every
+ * page but Calls (on phones, in the top bar), so it is in reach anywhere.
+ * On phones the rail folds behind a menu button and, when opened, sits
  * above the page in the flow: it pushes content down, never covers it.
  */
 export function Rail({ orgName, home, apps, admin, person }: RailProps) {
@@ -54,11 +57,18 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
   useEffect(() => setOpen(false), [path]);
 
   const current = settingsPage(path);
+  const call = useCall();
+  const showCall = call.active && path !== "/calls";
 
   return (
     <>
       <div className="flex items-center justify-between border-b border-rule px-4 py-3 md:hidden">
         <Wordmark orgName={orgName} small />
+        {showCall && (
+          <span className="mr-2 ml-auto">
+            <CallRailCard compact />
+          </span>
+        )}
         <button
           type="button"
           aria-label={open ? "Close menu" : "Open menu"}
@@ -111,6 +121,11 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
             <SettingsSection label="You" pages={SETTINGS.you} current={current} />
             {admin && <SettingsSection label="Organisation" pages={SETTINGS.organisation} current={current} />}
             {admin && <SettingsSection label="This server" pages={SETTINGS.server} current={current} />}
+            {showCall && (
+              <div className="mt-auto hidden md:block">
+                <CallRailCard />
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -118,9 +133,14 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
               <Wordmark orgName={orgName} />
             </div>
 
-            <Item href="/" active={path === "/"} strong>
-              {home}
-            </Item>
+            <div className="flex flex-col gap-0.5">
+              <Item href="/" active={path === "/"} strong>
+                {home}
+              </Item>
+              <Item href="/calls" active={path === "/calls"}>
+                Calls
+              </Item>
+            </div>
 
             {apps.length > 0 && (
               <Section label="Apps">
@@ -132,8 +152,15 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
               </Section>
             )}
 
-            <div className="mt-auto border-t border-rule pt-2.5">
-              <AccountMenu person={person} admin={admin} />
+            <div className="mt-auto flex flex-col gap-2.5">
+              {showCall && (
+                <div className="hidden md:block">
+                  <CallRailCard />
+                </div>
+              )}
+              <div className="border-t border-rule pt-2.5">
+                <AccountMenu person={person} admin={admin} />
+              </div>
             </div>
           </>
         )}
