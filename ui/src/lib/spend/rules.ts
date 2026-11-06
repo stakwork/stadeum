@@ -20,13 +20,21 @@ export function budgetFor(own: number | null | undefined, s: LimitSettings) {
   return { max_limit: own ?? s.limitUsd, reset_duration: s.reset };
 }
 
-/** A limit as typed: a positive amount of dollars, at most two decimals. */
-export function parseLimit(raw: string): number | { error: string } {
+/**
+ * A limit as typed: a positive amount of dollars, at most two decimals, and
+ * no more than `max`: the ceiling every person's delegation carries
+ * (`delegationMaxCostUsd()`). The gateway checks that ceiling too, so a
+ * limit above it would never take effect.
+ */
+export function parseLimit(raw: string, max: number): number | { error: string } {
   const cleaned = raw.replace(/[$,\s]/g, "");
   if (!cleaned) return { error: "Enter an amount." };
   if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return { error: "Enter an amount in dollars, like 200." };
   const n = Number(cleaned);
   if (n <= 0) return { error: "A limit has to be more than $0." };
-  if (n > 1_000_000) return { error: "That’s more than $1,000,000." };
+  if (n > max) {
+    const most = `$${max.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+    return { error: `A limit can be at most ${most}, the most a person’s key can ever spend.` };
+  }
   return n;
 }

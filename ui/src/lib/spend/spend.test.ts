@@ -176,11 +176,15 @@ describe("formats", () => {
 
 describe("limit rules", () => {
   it("parses dollars and refuses anything else", () => {
-    expect(parseLimit("200")).toBe(200);
-    expect(parseLimit("$1,500.50")).toBe(1500.5);
-    for (const bad of ["", "0", "-5", "ten", "1.234", "1e3", "2000000"]) {
-      expect(parseLimit(bad)).toEqual({ error: expect.any(String) });
+    expect(parseLimit("200", 10_000)).toBe(200);
+    expect(parseLimit("$1,500.50", 10_000)).toBe(1500.5);
+    expect(parseLimit("10000", 10_000)).toBe(10_000);
+    for (const bad of ["", "0", "-5", "ten", "1.234", "1e3", "10000.01", "2000000"]) {
+      expect(parseLimit(bad, 10_000)).toEqual({ error: expect.any(String) });
     }
+    expect(parseLimit("20000", 10_000)).toEqual({
+      error: "A limit can be at most $10,000, the most a person’s key can ever spend.",
+    });
   });
 
   it("uses a person's own limit, else everyone's, over the org's period", () => {

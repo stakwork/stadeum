@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { delegationMaxCostUsd } from "@/lib/mothership/mint";
 import { requireAdmin } from "@/lib/session";
 import { changeDefaults, changePersonLimit, NotAMember, type Change } from "@/lib/spend/limits";
 import { isReset, parseLimit } from "@/lib/spend/rules";
@@ -21,7 +22,7 @@ function said(change: Change): Result {
 /** Everyone's limit and how often it resets. */
 export async function saveDefaults(_prev: Result, form: FormData): Promise<Result> {
   const admin = await requireAdmin();
-  const limit = parseLimit(String(form.get("limit") ?? ""));
+  const limit = parseLimit(String(form.get("limit") ?? ""), delegationMaxCostUsd());
   if (typeof limit !== "number") return limit;
   const reset = String(form.get("reset") ?? "");
   if (!isReset(reset)) return { error: "Pick how often limits reset." };
@@ -36,7 +37,7 @@ export async function setPersonLimit(userId: string, _prev: Result, form: FormDa
   const raw = String(form.get("limit") ?? "").trim();
   let own: number | null = null;
   if (raw) {
-    const limit = parseLimit(raw);
+    const limit = parseLimit(raw, delegationMaxCostUsd());
     if (typeof limit !== "number") return limit;
     own = limit;
   }
