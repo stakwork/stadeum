@@ -62,6 +62,13 @@ export class BifrostClient {
     return this.request<CreateCustomerResponse>("POST", `/api/governance/customers`, input);
   }
 
+  /** Replace a customer's budget. The gateway keeps the budget's id and its usage so far. */
+  updateCustomerBudget(customerId: string, budget: { max_limit: number; reset_duration: string }) {
+    return this.request<CreateCustomerResponse>("PUT", `/api/governance/customers/${encodeURIComponent(customerId)}`, {
+      budget,
+    });
+  }
+
   listVirtualKeys(params: { search?: string; customer_id?: string; limit?: number; offset?: number } = {}) {
     return this.request<ListVirtualKeysResponse>("GET", `/api/governance/virtual-keys${buildQuery(params)}`);
   }

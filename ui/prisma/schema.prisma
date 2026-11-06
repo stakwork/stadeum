@@ -18,6 +18,8 @@ model User {
   actor     String   @unique
   createdAt DateTime @default(now())
   lastSeenAt DateTime?
+  /// This person's own spending limit in USD, over the org's reset period. Null: the org default.
+  spendLimitUsd Float?
 
   mothership MothershipUser?
   invitesSent Invite[] @relation("InvitedBy")
@@ -54,6 +56,11 @@ model Org {
   /// provider's): JSON `{ "<provider>/<id>": { input, output } }`, USD per
   /// million tokens. Pushed to the gateway's price table.
   modelPrices         String?
+  /// Each person's spending limit in USD unless they have their own (User.spendLimitUsd).
+  /// Null: lib/mothership/constants.ts DEFAULT_CUSTOMER_BUDGET_USD.
+  spendLimitUsd       Float?
+  /// How often every person's spending resets: 1d | 1w | 1M. Null: the constants' default.
+  spendReset          String?
   updatedAt           DateTime  @updatedAt
 }
 
@@ -143,4 +150,17 @@ model OpsEvent {
   createdAt  DateTime @default(now())
 
   @@index([kind, endedAt])
+}
+
+/// Every change to a spending limit, newest last: who made it, whose limit, and what it was and became.
+model LimitChange {
+  id        String   @id @default(cuid())
+  /// The admin who made the change, by email at the time.
+  byEmail   String
+  /// "everyone" for the default limit, else the person's email.
+  subject   String
+  /// As shown: "$200 every month", "$75", "everyone's".
+  before    String
+  after     String
+  createdAt DateTime @default(now())
 }

@@ -80,9 +80,9 @@ work on it. Read the rules before adding anything.
 6. **Off-the-shelf before custom.** Caddy, restic, Auth.js, Prisma: a
    maintained tool beats code of ours. Stadeum's own code is the glue
    nobody else can write. Its database holds people, invites, roles, the
-   org's settings (the upkeep window and the backup destination among
-   them), each person's gateway records, the status checks and what ops
-   did, nothing more.
+   org's settings (the upkeep window, the backup destination and the
+   spending limits among them), each person's gateway records, the status
+   checks, what ops did and who changed a spending limit, nothing more.
 
 7. **Pinned, moved on purpose, reversible.** Every image is pinned to a
    version or a channel (`stable`), never `latest`. A release is

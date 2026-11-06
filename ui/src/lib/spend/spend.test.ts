@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { compact, money } from "@/lib/format";
 import { buckets, modelRows, personRows, tokenTotals } from "./report";
+import { budgetFor, parseLimit } from "./rules";
 
 const now = Date.parse("2026-11-06T15:30:00Z");
 
@@ -170,5 +171,25 @@ describe("formats", () => {
   it("shows cents under $100 unless the column is whole dollars", () => {
     expect([0, 0.82, 64.47, 1284].map((n) => money(n))).toEqual(["$0", "$0.82", "$64.47", "$1,284"]);
     expect(money(90.9, { whole: true })).toBe("$91");
+  });
+});
+
+describe("limit rules", () => {
+  it("parses dollars and refuses anything else", () => {
+    expect(parseLimit("200", 10_000)).toBe(200);
+    expect(parseLimit("$1,500.50", 10_000)).toBe(1500.5);
+    expect(parseLimit("10000", 10_000)).toBe(10_000);
+    for (const bad of ["", "0", "-5", "ten", "1.234", "1e3", "10000.01", "2000000"]) {
+      expect(parseLimit(bad, 10_000)).toEqual({ error: expect.any(String) });
+    }
+    expect(parseLimit("20000", 10_000)).toEqual({
+      error: "A limit can be at most $10,000, the most a person’s key can ever spend.",
+    });
+  });
+
+  it("uses a person's own limit, else everyone's, over the org's period", () => {
+    const s = { limitUsd: 200, reset: "1w" as const };
+    expect(budgetFor(null, s)).toEqual({ max_limit: 200, reset_duration: "1w" });
+    expect(budgetFor(75, s)).toEqual({ max_limit: 75, reset_duration: "1w" });
   });
 });
