@@ -1,9 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { shownTheme } from "@/lib/theme";
+import { openApp } from "./open";
 
 /**
  * A strut app's page, framed for one person, in the theme stadeum shows
@@ -12,6 +12,11 @@ import { shownTheme } from "@/lib/theme";
  * mirroring its `input` (the app's own deep link, e.g. `session=<id>`)
  * into our URL makes a reload or a shared link land on the same place.
  *
+ * The frame asks for its address each time it opens (`openApp`), with a
+ * one-use ticket minted then. The server's render never carries one: Next
+ * shows a page it already has again (Back, a page a redirect rendered)
+ * without rendering it, and the ticket in it would be spent.
+ *
  * The frame stays hidden until the app is on screen, then fades in: strut
  * posts `{type: "strut:ready"}` once the app's page has started (strut
  * `specs/API.md` §14.3). The frame's own load is only strut's page, whose
@@ -19,43 +24,26 @@ import { shownTheme } from "@/lib/theme";
  * says so is shown a few seconds after its page loads; a slow one gets a
  * quiet "Opening…" after a second.
  */
-export function StrutFrame({ src, origin, title }: { src: string; origin: string; title: string }) {
-  const router = useRouter();
+export function StrutFrame({ app, input, origin, title }: { app: string; input?: string; origin: string; title: string }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [loaded, setLoaded] = useState(false);
   const [slow, setSlow] = useState(false);
   const [pageLoaded, setPageLoaded] = useState(false);
-  // Set after mount: an iframe that loads before hydration never reports
-  // onLoad, and the theme lives in this browser, not on the server.
-  const [frame, setFrame] = useState<{ src: string; theme: "light" | "dark" } | undefined>(undefined);
-  useEffect(() => {
-    const theme = shownTheme();
-    const url = new URL(src);
-    url.searchParams.set("theme", theme);
-    // Hidden until the app is on screen, a reload too.
-    setLoaded(false);
-    setPageLoaded(false);
-    setSlow(false);
-    setFrame({ src: url.toString(), theme });
-    const slowly = setTimeout(() => setSlow(true), 1000);
-    return () => clearTimeout(slowly);
-  }, [src]);
+  const [failed, setFailed] = useState(false);
+  const [src, setSrc] = useState<string | undefined>(undefined);
+  // Read after mount: the theme lives in this browser, not on the server.
+  const [theme, setTheme] = useState<"light" | "dark" | undefined>(undefined);
+  // Where the person is in the app: the page's `input`, then what strut reports.
+  const where = useRef(input);
 
-  // A strut that never posts `strut:ready` (one older than it) is shown anyway.
   useEffect(() => {
-    if (!pageLoaded || loaded) return;
-    const fallback = setTimeout(() => setLoaded(true), 3000);
-    return () => clearTimeout(fallback);
-  }, [pageLoaded, loaded]);
+    where.current = input;
+  }, [input]);
 
-  // A new theme needs a new frame, and a new frame a new ticket: re-render
-  // the page, which mints one.
-  const frameTheme = frame?.theme;
+  // A new theme needs a new frame, so a new ticket.
   useEffect(() => {
-    if (!frameTheme) return;
-    const check = () => {
-      if (shownTheme() !== frameTheme) router.refresh();
-    };
+    const check = () => setTheme(shownTheme());
+    check();
     const choice = new MutationObserver(check);
     choice.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     const system = window.matchMedia("(prefers-color-scheme: dark)");
@@ -64,7 +52,40 @@ export function StrutFrame({ src, origin, title }: { src: string; origin: string
       choice.disconnect();
       system.removeEventListener("change", check);
     };
-  }, [frameTheme, router]);
+  }, []);
+
+  // Each opening asks for a fresh ticket; hidden until the app is on screen.
+  useEffect(() => {
+    if (!theme) return;
+    let gone = false;
+    setLoaded(false);
+    setPageLoaded(false);
+    setSlow(false);
+    setFailed(false);
+    setSrc(undefined);
+    const slowly = setTimeout(() => setSlow(true), 1000);
+    openApp(app, where.current).then(
+      (opened) => {
+        if (gone) return;
+        if ("error" in opened) return setFailed(true);
+        const url = new URL(opened.src);
+        url.searchParams.set("theme", theme);
+        setSrc(url.toString());
+      },
+      () => !gone && setFailed(true),
+    );
+    return () => {
+      gone = true;
+      clearTimeout(slowly);
+    };
+  }, [app, input, theme]);
+
+  // A strut that never posts `strut:ready` (one older than it) is shown anyway.
+  useEffect(() => {
+    if (!pageLoaded || loaded) return;
+    const fallback = setTimeout(() => setLoaded(true), 3000);
+    return () => clearTimeout(fallback);
+  }, [pageLoaded, loaded]);
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
@@ -72,8 +93,9 @@ export function StrutFrame({ src, origin, title }: { src: string; origin: string
       const data = e.data as { type?: string; params?: Record<string, string> } | null;
       if (data?.type === "strut:ready") setLoaded(true);
       if (data?.type !== "strut:location") return;
-      const url = new URL(window.location.href);
       const input = data.params?.input;
+      where.current = input;
+      const url = new URL(window.location.href);
       if (input) url.searchParams.set("input", input);
       else url.searchParams.delete("input");
       if (url.href !== window.location.href) window.history.replaceState(window.history.state, "", url);
@@ -82,6 +104,7 @@ export function StrutFrame({ src, origin, title }: { src: string; origin: string
     return () => window.removeEventListener("message", onMessage);
   }, [origin]);
 
+  if (failed) return <CannotOpen title={title} />;
   return (
     // `data-bleed`: the layout's <main> drops its padding and width cap around it.
     <div data-bleed className="relative min-h-[420px] flex-1 overflow-hidden">
@@ -92,13 +115,21 @@ export function StrutFrame({ src, origin, title }: { src: string; origin: string
       </p>
       <iframe
         ref={ref}
-        src={frame?.src}
+        src={src}
         title={title}
-        onLoad={() => frame && setPageLoaded(true)}
+        onLoad={() => src && setPageLoaded(true)}
         className={`absolute inset-0 size-full transition-opacity duration-150 ease-out ${loaded ? "opacity-100" : "opacity-0"}`}
         allow="clipboard-write; microphone"
         referrerPolicy="no-referrer"
       />
     </div>
+  );
+}
+
+export function CannotOpen({ title }: { title: string }) {
+  return (
+    <p className="rounded-xl border border-dashed border-dash px-5 py-10 text-center text-[14.5px] text-ink-2">
+      {title} can&rsquo;t open right now.
+    </p>
   );
 }
