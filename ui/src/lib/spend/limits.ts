@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { money } from "@/lib/format";
 import { governanceClient } from "@/lib/mothership/admin-credentials";
+import type { BifrostClient } from "@/lib/mothership/bifrost-client";
 import { DEFAULT_BUDGET_RESET_DURATION, DEFAULT_CUSTOMER_BUDGET_USD } from "@/lib/mothership/constants";
 import { withLock } from "@/lib/mothership/lock";
 import { budgetFor, isReset, resetLabel, type LimitSettings } from "./rules";
@@ -19,6 +20,14 @@ import { budgetFor, isReset, resetLabel, type LimitSettings } from "./rules";
 
 const LOCK = "spend";
 
+/** Thrown by `changePersonLimit` for a person stadeum no longer lists. */
+export class NotAMember extends Error {
+  constructor() {
+    super("That person isn’t a member any more.");
+    this.name = "NotAMember";
+  }
+}
+
 export async function readLimitSettings(): Promise<LimitSettings> {
   const org = await db.org.findUnique({ where: { id: "org" }, select: { spendLimitUsd: true, spendReset: true } });
   const fallback = isReset(DEFAULT_BUDGET_RESET_DURATION) ? DEFAULT_BUDGET_RESET_DURATION : "1d";
@@ -32,16 +41,26 @@ const describeDefault = (s: LimitSettings) =>
   `${money(s.limitUsd, { whole: s.limitUsd >= 100 })} ${resetLabel[s.reset].toLowerCase()}`;
 const describeOwn = (own: number | null) => (own === null ? "everyone’s" : money(own, { whole: own >= 100 }));
 
-/** Every person's budget to the gateway. Call under the lock. */
+/**
+ * Every person's budget to the gateway. Call under the lock. Never throws
+ * for the gateway: a person it could not write counts as failed, and so
+ * does everyone when its credentials cannot be had.
+ */
 async function writeAll(): Promise<{ updated: number; failed: number }> {
-  const [settings, client, people] = await Promise.all([
+  const [settings, people] = await Promise.all([
     readLimitSettings(),
-    governanceClient(),
     db.mothershipUser.findMany({
       where: { customerId: { not: null } },
       select: { customerId: true, user: { select: { spendLimitUsd: true } } },
     }),
   ]);
+  let client: BifrostClient;
+  try {
+    client = await governanceClient();
+  } catch (err) {
+    console.warn(`[spend] gateway credentials not read: ${err instanceof Error ? err.message : String(err)}`);
+    return { updated: 0, failed: people.length };
+  }
   let updated = 0;
   let failed = 0;
   for (const p of people) {
@@ -108,7 +127,7 @@ export function changePersonLimit(by: { email: string }, userId: string, own: nu
       readLimitSettings(),
       db.user.findUnique({ where: { id: userId }, select: { email: true, spendLimitUsd: true } }),
     ]);
-    if (!person) throw new Error("No such person.");
+    if (!person) throw new NotAMember();
     const next = own === settings.limitUsd ? null : own;
     if (next === person.spendLimitUsd) return { unchanged: true };
     await db.$transaction([

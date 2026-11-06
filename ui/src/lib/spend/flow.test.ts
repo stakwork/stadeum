@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { ensureVirtualKey } from "@/lib/mothership/virtual-key";
 import { startFakeStack, type FakeStack } from "@/test/fake-stack";
-import { applyLimits, changeDefaults, changePersonLimit, readLimitSettings, recentChanges } from "./limits";
+import { applyLimits, changeDefaults, changePersonLimit, NotAMember, readLimitSettings, recentChanges } from "./limits";
 import { spendView } from "./report";
 
 let fake: FakeStack;
@@ -194,7 +194,28 @@ describe("limits", () => {
     expect(budgets()["cy-3"]).toEqual({ max_limit: 300, reset_duration: "1M" });
   });
 
+  it("gives a new person their own limit at first sign-in, when it was set before", async () => {
+    const dee = await db.user.create({ data: { email: "dee@acme.test", actor: "dee-4" } });
+    expect(await changePersonLimit(admin, dee.id, 55)).toEqual({ failed: 0 });
+    await ensureVirtualKey(dee);
+    expect(budgets()["dee-4"]).toEqual({ max_limit: 55, reset_duration: "1M" });
+  });
+
+  it("counts everyone as missed when the gateway's credentials cannot be read, then puts it right", async () => {
+    const pass = process.env.BIFROST_ADMIN_PASS;
+    delete process.env.BIFROST_ADMIN_PASS;
+    await db.org.update({ where: { id: "org" }, data: { bifrostAdminUser: null, bifrostAdminPassEnc: null } });
+    fake.state.down.bifrost = true;
+    const people = await db.mothershipUser.count({ where: { customerId: { not: null } } });
+    expect(await changeDefaults(admin, { limitUsd: 90, reset: "1d" })).toEqual({ failed: people });
+    expect(await readLimitSettings()).toEqual({ limitUsd: 90, reset: "1d" });
+    process.env.BIFROST_ADMIN_PASS = pass;
+    fake.state.down.bifrost = false;
+    expect(await applyLimits()).toEqual({ updated: people, failed: 0 });
+    expect(budgets()["ada-1"]).toEqual({ max_limit: 90, reset_duration: "1d" });
+  });
+
   it("refuses a person who is no longer a member", async () => {
-    await expect(changePersonLimit(admin, "gone", 10)).rejects.toThrow();
+    await expect(changePersonLimit(admin, "gone", 10)).rejects.toThrow(NotAMember);
   });
 });

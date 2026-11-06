@@ -53,8 +53,12 @@ export function ensureVirtualKey(user: { id: string; actor: string }): Promise<V
       }
     }
 
-    const grants = await desiredGrants(client);
-    const customer = await ensureCustomer(client, user.actor, budgetFor(null, await readLimitSettings()));
+    const [grants, settings, own] = await Promise.all([
+      desiredGrants(client),
+      readLimitSettings(),
+      db.user.findUnique({ where: { id: user.id }, select: { spendLimitUsd: true } }),
+    ]);
+    const customer = await ensureCustomer(client, user.actor, budgetFor(own?.spendLimitUsd, settings));
     const { virtualKey, created } = await ensureVk(client, user.actor, customer.id, grants);
     const data = {
       customerId: customer.id,

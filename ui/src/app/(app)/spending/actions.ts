@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { requireAdmin } from "@/lib/session";
-import { changeDefaults, changePersonLimit, type Change } from "@/lib/spend/limits";
+import { changeDefaults, changePersonLimit, NotAMember, type Change } from "@/lib/spend/limits";
 import { isReset, parseLimit } from "@/lib/spend/rules";
 
 export type Result = { error?: string; ok?: string };
@@ -44,7 +44,8 @@ export async function setPersonLimit(userId: string, _prev: Result, form: FormDa
     const result = said(await changePersonLimit(admin, userId, own));
     revalidatePath("/spending");
     return result;
-  } catch {
-    return { error: "That person isn’t a member any more." };
+  } catch (err) {
+    if (err instanceof NotAMember) return { error: err.message };
+    throw err;
   }
 }
