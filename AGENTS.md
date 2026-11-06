@@ -123,7 +123,8 @@ order of the work, each step its own PR:
    its sign-in redirect URLs registered with Google and Microsoft, which
    the admin page says.
 7. GitHub sign-in, with each person's GitHub token handed to strut as their
-   own `GITHUB_TOKEN` (low priority).
+   own `GITHUB_TOKEN` (low priority). One Stadeum App, repos picked on its
+   installation: `plans/github-app.md`.
 8. Calls: sphinx-voice beside strut (low priority).
 
 ## Layout
@@ -142,6 +143,7 @@ order of the work, each step its own PR:
 | `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |
 | `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the release's stack files from stadeum-ops's image, `.env`, the DNS check, the stack; or a restore), `init-env.sh` (generates `.env`'s secrets), the gateway end-to-end check, the backup-and-restore proof, the release proof |
 | `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract), `models.md` (who picks a model, where the keys live) |
+| `plans/` | Work not built yet, one file each, with what is decided and what is open: `github-app.md` (roadmap step 7) |
 
 ## Running
 
