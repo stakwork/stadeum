@@ -14,6 +14,17 @@
  *   through silence.
  * The key and the token go to LiveKit and nowhere else. Text streams are
  * read only from the agent and only when they came encrypted.
+ *
+ * livekit-client is pinned to 2.18.7 (package.json) for the central server,
+ * livekit.sphinx.chat, which runs LiveKit 1.8.3. From 2.18.8 the client
+ * waits, after each offer, for an answer that names that offer; 1.8.3's
+ * answers name none, so publishing the microphone times out after 15 s and
+ * the call drops ("negotiation timed out"). 2.18.7 publishes there in a
+ * tenth of a second, encrypted (checked against livekit.sphinx.chat on
+ * 2026-11-06; 2.18.8, 2.18.10 and 2.23.0 time out). 1.8.3 has no `/rtc/v1`
+ * either, so the room joins the classic way (`singlePeerConnection: false`,
+ * two peer connections) instead of asking there first and taking a 404.
+ * Move the pin when the central server is upgraded, after the same check.
  */
 import {
   ConnectionState,
@@ -79,6 +90,7 @@ export async function joinCallRoom(answer: CallAnswer, key: string, assistant: s
   // Written out here so the bundler emits the worker.
   const worker = new Worker(new URL("livekit-client/e2ee-worker", import.meta.url));
   const room = new Room({
+    singlePeerConnection: false,
     encryption: { keyProvider, worker },
     publishDefaults: { dtx: false, red: false },
     audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
