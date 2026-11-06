@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { decryptField, encryptField } from "@/lib/crypto";
 import { grantsFor, type Grant } from "@/lib/models/plan";
 import { readModelSettings } from "@/lib/models/settings";
+import { readLimitSettings } from "@/lib/spend/limits";
+import { budgetFor } from "@/lib/spend/rules";
 import type { BifrostClient, ProviderConfigInput } from "./bifrost-client";
 import { BifrostHttpError } from "./http";
 import { governanceClient } from "./admin-credentials";
@@ -12,7 +14,7 @@ import {
   DEFAULT_PROVIDERS,
 } from "./constants";
 import { withLock } from "./lock";
-import type { BifrostCustomer, BifrostProvider, BifrostProviderConfig, BifrostVirtualKey } from "./types";
+import type { BifrostBudget, BifrostCustomer, BifrostProvider, BifrostProviderConfig, BifrostVirtualKey } from "./types";
 
 /**
  * One Bifrost customer + virtual key per person, both named after the
@@ -52,7 +54,7 @@ export function ensureVirtualKey(user: { id: string; actor: string }): Promise<V
     }
 
     const grants = await desiredGrants(client);
-    const customer = await ensureCustomer(client, user.actor);
+    const customer = await ensureCustomer(client, user.actor, budgetFor(null, await readLimitSettings()));
     const { virtualKey, created } = await ensureVk(client, user.actor, customer.id, grants);
     const data = {
       customerId: customer.id,
@@ -64,13 +66,17 @@ export function ensureVirtualKey(user: { id: string; actor: string }): Promise<V
   });
 }
 
-export async function ensureCustomer(client: BifrostClient, name: string): Promise<BifrostCustomer> {
+export async function ensureCustomer(
+  client: BifrostClient,
+  name: string,
+  budget: BifrostBudget = { max_limit: DEFAULT_CUSTOMER_BUDGET_USD, reset_duration: DEFAULT_BUDGET_RESET_DURATION },
+): Promise<BifrostCustomer> {
   const existing = await findExactCustomer(client, name);
   if (existing) return existing;
   try {
     const created = await client.createCustomer({
       name,
-      budget: { max_limit: DEFAULT_CUSTOMER_BUDGET_USD, reset_duration: DEFAULT_BUDGET_RESET_DURATION },
+      budget,
       rate_limit: DEFAULT_CUSTOMER_RATE_LIMIT,
     });
     return created.customer;

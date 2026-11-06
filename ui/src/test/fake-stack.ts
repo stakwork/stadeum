@@ -384,6 +384,13 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
         return send(res, 200, { customers: page, count: page.length, total_count: customers.length, limit, offset });
       }
 
+      if (path.startsWith("/api/governance/customers/") && m === "PUT") {
+        const customer = state.customers.find((c) => c.id === decodeURIComponent(path.slice("/api/governance/customers/".length)));
+        if (!customer) return send(res, 404, { error: "customer not found" });
+        // bifrost keeps the budget's id, its usage and its last reset.
+        if (body.budget) customer.budget = { ...customer.budget, ...body.budget };
+        return send(res, 200, { message: "updated", customer });
+      }
       if (path === "/api/governance/customers" && m === "POST") {
         if (state.customers.some((c) => c.name === body.name)) return send(res, 400, { error: "duplicate key value" });
         const customer = { id: randomUUID(), name: body.name, created_at: new Date().toISOString(), budget: body.budget, rate_limit: body.rate_limit };

@@ -1,6 +1,7 @@
 import { applyModels } from "@/lib/models/apply";
 import { ensureGatewayLogRetention } from "@/lib/mothership/gateway-settings";
 import { renewAllDelegations } from "@/lib/mothership/renew";
+import { applyLimits } from "@/lib/spend/limits";
 
 /**
  * Background upkeep, a minute after start and every six hours:
@@ -8,7 +9,9 @@ import { renewAllDelegations } from "@/lib/mothership/renew";
  *   (Hive's `strut-delegations` cron);
  * - the gateway's log retention;
  * - the org's models: each virtual key and strut's list and default
- *   (a wiped strut or a new person's key is put right here).
+ *   (a wiped strut or a new person's key is put right here);
+ * - spending limits: every person's budget, so a limit the gateway missed
+ *   on a save is put right.
  * `STADEUM_RENEWAL=0` turns it off.
  */
 const EVERY_MS = 6 * 60 * 60 * 1000;
@@ -21,6 +24,7 @@ if (process.env.STADEUM_RENEWAL !== "0") {
     await renewAllDelegations().catch(warn("delegation renewal"));
     await ensureGatewayLogRetention().catch(warn("gateway log retention"));
     await applyModels().catch(warn("models"));
+    await applyLimits().catch(warn("spending limits"));
   };
   setTimeout(tick, 60_000).unref?.();
   setInterval(tick, EVERY_MS).unref?.();

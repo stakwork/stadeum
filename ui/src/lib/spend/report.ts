@@ -92,6 +92,8 @@ export interface PersonRow {
   near: boolean;
   /** At or over their limit: the gateway refuses their calls until it resets. */
   reached: boolean;
+  /** Their own limit, when an admin set one instead of everyone's. */
+  ownLimit: number | null;
 }
 
 interface Person {
@@ -99,6 +101,7 @@ interface Person {
   name: string | null;
   email: string;
   actor: string;
+  spendLimitUsd?: number | null;
   customerId: string | null;
 }
 
@@ -129,6 +132,7 @@ export function personRows(people: Person[], spend: UserSpendRow[], customers: B
       period: periodOf(budget?.reset_duration),
       near: share >= NEAR && share < 1,
       reached: share >= 1,
+      ownLimit: p.spendLimitUsd ?? null,
     };
   });
   for (const s of byActor.values()) {
@@ -143,6 +147,7 @@ export function personRows(people: Person[], spend: UserSpendRow[], customers: B
       period: "",
       near: false,
       reached: false,
+      ownLimit: null,
     });
   }
   return rows.sort((a, b) => b.spent - a.spent || a.name.localeCompare(b.name));
@@ -203,6 +208,7 @@ export async function spendView(window: SpendWindow, now = Date.now()): Promise<
         name: true,
         email: true,
         actor: true,
+        spendLimitUsd: true,
         mothership: { select: { customerId: true } },
       },
     }),

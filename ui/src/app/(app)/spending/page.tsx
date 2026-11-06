@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { PageHeader } from "@/components/page-header";
-import { compact, money } from "@/lib/format";
+import { PageHeader, SectionLabel } from "@/components/page-header";
+import { absoluteTime, compact, money, relativeTime } from "@/lib/format";
 import { bucketFor, isWindow, NEAR, spendView, WINDOWS, windowLabel, type SpendView } from "@/lib/spend/report";
 import { requireAdmin } from "@/lib/session";
+import { readLimitSettings, recentChanges } from "@/lib/spend/limits";
+import type { LimitSettings } from "@/lib/spend/rules";
 import { SpendChart } from "./chart";
+import { DefaultsForm, PersonLimit } from "./forms";
 
 export const metadata: Metadata = { title: "Spending" };
 export const dynamic = "force-dynamic";
@@ -20,18 +23,23 @@ const href = (window: string, by: By) => `/spending?window=${window}&by=${by}`;
 
 /**
  * What the organisation spends on AI, and where each person stands against
- * their limit, read from the gateway. Read-only: limits are set in the
- * gateway. Periods are rolling: the gateway's reports look back from now.
+ * their limit, read from the gateway, and the limits admins set: written to
+ * every person's gateway budget, each change recorded. Periods are rolling:
+ * the gateway's reports look back from now.
  */
 export default async function SpendingPage({ searchParams }: Props) {
   await requireAdmin();
   const q = await searchParams;
   const window = isWindow(q.window) ? q.window : "30d";
   const by: By = q.by === "model" ? "model" : "person";
-  const view: SpendView | null = await spendView(window).catch((err: unknown) => {
-    console.warn(`[spend] page read failed: ${err instanceof Error ? err.message : String(err)}`);
-    return null;
-  });
+  const [view, settings, changes] = await Promise.all([
+    spendView(window).catch((err: unknown): SpendView | null => {
+      console.warn(`[spend] page read failed: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }),
+    readLimitSettings(),
+    recentChanges(),
+  ]);
 
   return (
     <>
@@ -60,9 +68,37 @@ export default async function SpendingPage({ searchParams }: Props) {
           <section aria-label="Spend over time" className={`${card} p-5 md:p-6`}>
             <SpendChart buckets={view.buckets} hourly={bucketFor(window) === "1h"} />
           </section>
-          <Breakdown view={view} by={by} />
+          <Breakdown view={view} by={by} settings={settings} />
         </>
       )}
+
+      <section aria-labelledby="limits" className="flex flex-col gap-3">
+        <SectionLabel id="limits">Limits</SectionLabel>
+        <DefaultsForm limit={settings.limitUsd} reset={settings.reset} />
+        {changes.length > 0 && (
+          <ol aria-label="Recent changes" className={`${card} divide-y divide-rule-soft`}>
+            {changes.map((c) => (
+              <li
+                key={c.id}
+                className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3 text-[13.5px]"
+              >
+                <span className="min-w-0 text-ink-2">
+                  <span className="text-ink">{c.byEmail}</span> changed{" "}
+                  {c.subject === "everyone" ? "everyone’s limit" : <span className="text-ink">{c.subject}</span>}
+                  {c.subject === "everyone" ? "" : "’s limit"} from {c.before} to {c.after}
+                </span>
+                <time
+                  dateTime={c.createdAt.toISOString()}
+                  title={absoluteTime(c.createdAt)}
+                  className="shrink-0 text-[12.5px] text-ink-3"
+                >
+                  {relativeTime(c.createdAt)}
+                </time>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
     </>
   );
 }
@@ -106,7 +142,7 @@ function Stat({ label, value, sub }: { label: string; value: string; sub: React.
   );
 }
 
-function Breakdown({ view, by }: { view: SpendView; by: By }) {
+function Breakdown({ view, by, settings }: { view: SpendView; by: By; settings: LimitSettings }) {
   const th = "px-4 py-2.5 text-left text-[12px] font-semibold text-ink-3 first:pl-5 last:pr-5";
   const td = "px-4 py-3 align-middle first:pl-5 last:pr-5";
   return (
@@ -141,6 +177,9 @@ function Breakdown({ view, by }: { view: SpendView; by: By }) {
                   <th className={`${th} text-right`}>Spent</th>
                   <th className={`${th} text-right`}>Tokens</th>
                   <th className={th}>Their limit</th>
+                  <th className={th}>
+                    <span className="sr-only">Change</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -148,6 +187,7 @@ function Breakdown({ view, by }: { view: SpendView; by: By }) {
                   <tr key={p.userId || p.name} className="border-b border-rule-soft last:border-b-0">
                     <td className={`${td} max-w-[220px]`}>
                       <span className="block truncate text-ink">{p.name}</span>
+                      {p.ownLimit !== null && <span className="text-[12px] text-ink-3">Own limit</span>}
                     </td>
                     <td className={`${td} text-right tabular-nums`}>{money(p.spent)}</td>
                     <td className={`${td} text-right text-ink-2 tabular-nums`}>{compact(p.tokens)}</td>
@@ -181,6 +221,16 @@ function Breakdown({ view, by }: { view: SpendView; by: By }) {
                             {money(p.limit, { whole: p.limit >= 100 })} {p.period}
                           </span>
                         </span>
+                      )}
+                    </td>
+                    <td className={`${td} w-px whitespace-nowrap`}>
+                      {p.userId && (
+                        <PersonLimit
+                          userId={p.userId}
+                          name={p.name}
+                          ownLimit={p.ownLimit}
+                          defaultLimit={settings.limitUsd}
+                        />
                       )}
                     </td>
                   </tr>
