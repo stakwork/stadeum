@@ -8,6 +8,10 @@ name: publish images
 # follows `stable`, which moves only when someone runs promote-images.yml.
 # An image whose sources did not change is not rebuilt, so it keeps its
 # digest and ops does not restart it.
+#
+# Each platform builds on a runner of its own architecture and pushes by
+# digest; `merge` then tags the two as one image. Under QEMU on one amd64
+# runner, the arm64 half of stadeum-ui's `next build` took ten times as long.
 
 on:
   push:
@@ -30,95 +34,171 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  changes:
     # A manual dispatch from another branch would otherwise overwrite `latest`.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        # context: what the build sees; file: its Dockerfile; paths: what,
-        # changed, makes a new image.
-        image:
-          - { name: stadeum-ui, context: ui, file: ui/Dockerfile, paths: "ui" }
-          - { name: stadeum-ops, context: ".", file: ops/Dockerfile, paths: "ops stack .env.example scripts/init-env.sh" }
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      attestations: write
+    timeout-minutes: 5
+    outputs:
+      images: ${{ steps.what.outputs.images }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Did it change?
+      - name: What changed?
         id: what
         env:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
-          PATHS: ${{ matrix.image.paths }}
         run: |
           set -euo pipefail
-          echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          read -ra paths <<< "$PATHS"
+          every=""
           if [[ "$EVENT" != push || "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
-            echo "build=true" >> "$GITHUB_OUTPUT"
-          elif git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "${paths[@]}" .github/workflows/publish-images.yml; then
-            echo "build=false" >> "$GITHUB_OUTPUT"
-            echo "${paths[*]} did not change: no new image"
-          else
-            echo "build=true" >> "$GITHUB_OUTPUT"
+            every=1
           fi
+          build=()
+          # Each image: its name, what its build sees, its Dockerfile, and
+          # the paths that, changed, make a new one.
+          while read -r name context file paths; do
+            # shellcheck disable=SC2086 # paths is a list
+            if [[ -n "$every" ]] || ! git diff --quiet "$BEFORE" "$GITHUB_SHA" -- $paths .github/workflows/publish-images.yml; then
+              build+=("$(jq -cn --arg name "$name" --arg context "$context" --arg file "$file" '{$name, $context, $file}')")
+            else
+              echo "$paths did not change: no new $name"
+            fi
+          done <<'EOF'
+          stadeum-ui  ui  ui/Dockerfile   ui
+          stadeum-ops .   ops/Dockerfile  ops stack .env.example scripts/init-env.sh
+          EOF
+          images=$(printf '%s\n' "${build[@]}" | jq -cs 'map(select(. != null))')
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "building: $images"
 
-      - if: steps.what.outputs.build == 'true'
-        uses: docker/setup-qemu-action@v3
+  build:
+    needs: changes
+    if: needs.changes.outputs.images != '[]'
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.changes.outputs.images) }}
+        platform:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v4
 
-      - if: steps.what.outputs.build == 'true'
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - if: steps.what.outputs.build == 'true'
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - if: steps.what.outputs.build == 'true'
-        uses: docker/metadata-action@v5
+      - uses: docker/metadata-action@v5
         id: meta
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest
         with:
           images: ghcr.io/stakwork/${{ matrix.image.name }}
 
+      # Pushed by digest only: `merge` tags it once both platforms are in.
       # provenance/sbom off: a plain two-platform index, like strut's images.
-      # The arm64 half builds under QEMU; the gha cache keeps the npm layers.
-      - if: steps.what.outputs.build == 'true'
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         id: build
         with:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.file }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/stakwork/${{ matrix.image.name }}:${{ steps.what.outputs.short }}
-            ghcr.io/stakwork/${{ matrix.image.name }}:latest
+          platforms: linux/${{ matrix.platform.arch }}
+          outputs: type=image,name=ghcr.io/stakwork/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             STADEUM_VERSION=${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.image.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
           provenance: false
           sbom: false
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
 
+      - name: Keep the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: [changes, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.changes.outputs.images) }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.image.name }}-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+        with:
+          images: ghcr.io/stakwork/${{ matrix.image.name }}
+
+      - name: Tag both platforms as one image
+        id: index
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ghcr.io/stakwork/${{ matrix.image.name }}
+          ANNOTATIONS: ${{ steps.meta.outputs.annotations }}
+        run: |
+          set -euo pipefail
+          digests=(*)
+          if [[ ${#digests[@]} -ne 2 ]]; then
+            echo "::error::expected an amd64 and an arm64 digest, got ${digests[*]}"
+            exit 1
+          fi
+          args=()
+          while IFS= read -r a; do
+            if [[ -n "$a" ]]; then args+=(--annotation "$a"); fi
+          done <<< "$ANNOTATIONS"
+          short=${GITHUB_SHA::7}
+          docker buildx imagetools create "${args[@]}" -t "$IMAGE:$short" -t "$IMAGE:latest" \
+            "$IMAGE@sha256:${digests[0]}" "$IMAGE@sha256:${digests[1]}"
+          docker buildx imagetools inspect "$IMAGE:$short"
+          digest=$(docker buildx imagetools inspect "$IMAGE:$short" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
       # gh attestation verify oci://ghcr.io/stakwork/<image>@sha256:<digest> --owner stakwork
-      - if: steps.what.outputs.build == 'true'
-        uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v2
         with:
           subject-name: ghcr.io/stakwork/${{ matrix.image.name }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.index.outputs.digest }}
           push-to-registry: true
