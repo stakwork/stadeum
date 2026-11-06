@@ -33,7 +33,7 @@ export default async function BackupsPage() {
     <>
       <PageHeader
         title="Backups"
-        lede="In the window each night, ops lets strut's runs finish, stops the services whose files would tear for a few minutes, and snapshots every volume and the .env file with restic."
+        lede="In the window each night, ops lets strut's runs finish, stops the services whose files would tear for a few minutes, and snapshots every volume and the .env file with restic. The models strut downloads are left out: a restored box fetches them again."
       >
         {dest.kind && (
           <form action={backUpNow}>

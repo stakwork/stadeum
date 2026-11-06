@@ -397,6 +397,28 @@ export async function putBrand(brand: StrutBrand): Promise<{ brand: StrutBrand; 
   return readBrand(await res.json());
 }
 
+// ── a voice call (strut specs/API.md §15.2) ─────────────────────────────
+
+/**
+ * Strut waits up to 15 s for the voice service, which answers once its
+ * agent is in the room.
+ */
+export const VOICE_CALL_TIMEOUT_MS = 30_000;
+
+/**
+ * `POST /voice/calls { key, voice? }` as `actor`: strut hands the body to
+ * the voice service beside it, which answers with the LiveKit room its
+ * agent joined with the key. Strut's status and JSON come back as they
+ * are, a refusal (400, 402, 503) included: the caller shows it. The body
+ * and the answer hold the call's key and tokens, so nothing of either is
+ * logged or put in an error message.
+ */
+export async function startVoiceCall(actor: string, body: { key: string; voice?: string }): Promise<{ status: number; data: unknown }> {
+  const res = await strutFetch("POST", "/voice/calls", body, VOICE_CALL_TIMEOUT_MS, actor);
+  const data = (await res.json().catch(() => ({}))) as unknown;
+  return { status: res.status, data };
+}
+
 // ── the frame ───────────────────────────────────────────────────────────
 
 /**

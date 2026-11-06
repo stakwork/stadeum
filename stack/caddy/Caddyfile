@@ -6,7 +6,7 @@
 	email "{$ACME_EMAIL}"
 }
 
-# stadeum-ui: sign-in, the person, the members, the admin pages.
+# stadeum-ui: sign-in, the person, calls, the members, the admin pages.
 {$SCHEME}://{$HOST} {
 	# ops's routes (settings with the backup credentials, its status) are
 	# for the box's network only: never through here.

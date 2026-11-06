@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { CallRailCard, useCall } from "./call";
 import { Dot, type Tone } from "./state";
 import { ThemeSegments } from "./theme-switch";
 import { LogoMark } from "./logo-mark";
@@ -19,13 +20,16 @@ export interface RailProps {
 }
 
 /**
- * The left rail: wordmark, the home (the assistant), Apps, Organisation,
- * and the person with their run state. On phones it folds behind a menu
- * button and, when opened, sits above the page in the flow: it pushes
- * content down, never covers it.
+ * The left rail: wordmark, the home (the assistant), Calls, Apps,
+ * Organisation, and the person with their run state. A call that is on
+ * shows above the person (on phones, in the top bar), so it is in reach
+ * from every page. On phones the rail folds behind a menu button and, when
+ * opened, sits above the page in the flow: it pushes content down, never
+ * covers it.
  */
 export function Rail({ orgName, home, apps, admin, person }: RailProps) {
   const path = usePathname();
+  const call = useCall();
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
 
@@ -37,6 +41,11 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
     <>
       <div className="flex items-center justify-between border-b border-rule px-4 py-3 md:hidden">
         <Wordmark orgName={orgName} small />
+        {call.active && !is("/calls") && (
+          <span className="mr-2 ml-auto">
+            <CallRailCard compact />
+          </span>
+        )}
         <button
           type="button"
           aria-label={open ? "Close menu" : "Open menu"}
@@ -60,9 +69,14 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
           <Wordmark orgName={orgName} />
         </div>
 
-        <Item href="/" active={is("/")} strong>
-          {home}
-        </Item>
+        <div className="flex flex-col gap-0.5">
+          <Item href="/" active={is("/")} strong>
+            {home}
+          </Item>
+          <Item href="/calls" active={is("/calls")}>
+            Calls
+          </Item>
+        </div>
 
         {apps.length > 0 && (
           <Section label="Apps">
@@ -101,6 +115,11 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
         )}
 
         <div className="mt-auto flex flex-col gap-2 border-t border-rule pt-2">
+          {call.active && !is("/calls") && (
+            <div className="hidden pt-1 md:block">
+              <CallRailCard />
+            </div>
+          )}
           <Link
             href="/me"
             aria-current={is("/me") ? "page" : undefined}

@@ -27,7 +27,7 @@ export type CheckName = (typeof CHECKS)[number]["name"];
 /**
  * The containers (stack/stadeum.yml), each with the check that stands for
  * its health. stadeum-ui has no Docker socket, so a service it never talks
- * to (caddy, redis, strut-browser) has no check here; ops talks to it.
+ * to (caddy, redis, strut-browser, voice) has no check here; ops talks to it.
  */
 export const SERVICES: Array<{ service: string; label: string; check?: CheckName | "self" }> = [
   { service: "stadeum-ui", label: "Web app", check: "self" },
@@ -37,6 +37,7 @@ export const SERVICES: Array<{ service: string; label: string; check?: CheckName
   { service: "bifrost", label: "Model gateway", check: "bifrost" },
   { service: "strut", label: "Workflow engine", check: "strut" },
   { service: "strut-browser", label: "Browser" },
+  { service: "voice", label: "Calls" },
   { service: "bootstrap", label: "Organisation key", check: "trust" },
   { service: "ops", label: "Upkeep", check: "ops" },
 ];
