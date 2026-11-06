@@ -19,7 +19,7 @@ but maple (`ui/src/lib/status.ts`, `SERVICES`).
 | `maple` | `ghcr.io/mapleprivacylabs/maple-proxy:0.4.5` | Maple's inference proxy: encrypts each request to Maple's enclave. The gateway's `maple` provider | None (stadeum-ui never calls it) |
 | `strut-browser` | `ghcr.io/stakwork/strut-browser:stable` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
 | `strut` | `ghcr.io/stakwork/strut:stable` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
-| `voice` | `sphinxlightning/sphinx-voice:0.41` | A person's voice call with the assistant (sphinx-voice's 1:1 mode): the LiveKit room and the agent in it | None (stadeum-ui never calls it) |
+| `voice` | `sphinxlightning/sphinx-voice:0.42` | A person's voice call with the assistant (sphinx-voice's 1:1 mode): the LiveKit room and the agent in it | None (stadeum-ui never calls it) |
 | `bootstrap` | `node:22.20.0-alpine` | One shot: org signing key + trust registration | Org key registered with bifrost, same key as stadeum-ui's |
 | `stadeum-ui` | `ghcr.io/stakwork/stadeum-ui:stable` (built from `ui/`) | Sign-in, the person, Calls, Members, Status, Updates, Backups | Running (it serves the page) |
 | `ops` | `ghcr.io/stakwork/stadeum-ops:stable` (built from `ops/`, carrying `stack/`) | stadeum's releases, strut's updates, backups; the Docker socket | Reported in the last 3 minutes |
@@ -211,8 +211,9 @@ checked".
   (`STRUT_ENV_SCRUB`), so a step cannot read the deployment key.
 
 ### voice
-- `sphinxlightning/sphinx-voice:${VOICE_TAG:-0.41}` (Docker Hub, its release
-  tags; amd64 only, so an arm64 box runs it emulated), run as
+- `sphinxlightning/sphinx-voice:${VOICE_TAG:-0.42}` (Docker Hub, its release
+  tags; amd64 + arm64 from 0.42: an amd64-only image crash-loops on an arm64
+  box without emulation, and `up --wait` fails with it), run as
   `node dist/one-to-one.js`: sphinx-voice's 1:1 mode, not the image's
   default meeting mode. Port 8080 on the network only (`LISTEN_HOST=0.0.0.0`):
   no published port, no route in Caddy. No state, so no volume and no backup
@@ -542,9 +543,8 @@ crash-looped, and its lab would not boot without a provider key.
 ## Still open
 
 - **Calls.** One LiveKit key per box, minted as the box is provisioned, once
-  the LiveKit server has a way to add keys without a restart. sphinx-voice
-  published for arm64, and its voice turns on strut's default model when
-  `VOICE_MODEL` is unset. The call's on-screen deliverables
+  the LiveKit server has a way to add keys without a restart. sphinx-voice's
+  voice turns on strut's default model when `VOICE_MODEL` is unset. The call's on-screen deliverables
   (`artifacts: true`, sphinx-voice's `sphinx.artifacts` text stream).
 
 - The node `created_by` property: `graph/create-node` passes `ctx.actor`, but

@@ -276,9 +276,9 @@ services:
     # strut as the person (the orchestrator, and speech on strut's
     # /audio/transcribe and /audio/speak). LiveKit is reached outbound
     # only: no port, no route in the Caddyfile. No state.
-    # PINNED (Docker Hub, its release tags; published for amd64 only): it
+    # PINNED (Docker Hub, its release tags; amd64 + arm64 from 0.42): it
     # moves with a stadeum release that changes this pin.
-    image: sphinxlightning/sphinx-voice:${VOICE_TAG:-0.41}
+    image: sphinxlightning/sphinx-voice:${VOICE_TAG:-0.42}
     depends_on:
       strut: { condition: service_healthy }
     # tini as PID 1, so a stop reaches node (or the sleep below) at once.
