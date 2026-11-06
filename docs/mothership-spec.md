@@ -55,7 +55,7 @@ How a signed-in person gets to run LLM steps on Strut. Extracted from Hive
 
 ## Embedding the Strut UI
 
-- Stadeum: per page load, `POST {strut}/auth/ticket {actor}` (Bearer shared token) → `{ticket, expiresAt}`, a sign-in ticket good once for 60 s; iframe `{STRUT_PUBLIC_URL}/?ticket=<ticket>&embed_origin=<stadeum origin>[&wf=&run=]` (`ui/src/lib/strut/client.ts`). Strut's UI trades it at `POST /auth/session {ticket}` for its own `SameSite=Lax` session cookie as that actor and takes it off the URL (strut `specs/API.md` §13.1).
+- Stadeum: per page load, `POST {strut}/auth/ticket {actor, role}` (Bearer shared token; `role` the person's stadeum role, `admin` | `member`) → `{ticket, expiresAt}`, a sign-in ticket good once for 60 s; iframe `{STRUT_PUBLIC_URL}/?ticket=<ticket>&embed_origin=<stadeum origin>[&wf=&run=]` (`ui/src/lib/strut/client.ts`). Strut's UI trades it at `POST /auth/session {ticket}` for its own `SameSite=Lax` session cookie as that actor, with that role, and takes it off the URL (strut `specs/API.md` §13.1).
 - The cookie reaches the frame only when strut and stadeum-ui are the same site: `strut.$HOST` under `$HOST` (`stack/caddy/Caddyfile`).
 - `?embed_origin=` makes strut's UI post `{type:"strut:location", params:{wf,run,v,chat,elicit}}` to the parent (`web/src/embed.ts`).
 - Hive instead mints mcp's `POST {mcp}/mint-token` JWT and frames `{mcp}/lab/?key=<jwt>` (Hive `src/services/strut-embed.ts:45-136`).

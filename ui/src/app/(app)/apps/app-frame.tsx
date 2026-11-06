@@ -15,7 +15,7 @@ export async function AppFrame({ app, input }: { app: Pick<App, "name" | "title"
   const user = await requireUser();
   // Renews past half-life, as Hive does on every embed. Never throws.
   await ensureDelegation(user);
-  const src = await embedUrl(user.actor, app.name, input).catch((err: unknown) => {
+  const src = await embedUrl(user.actor, user.role, app.name, input).catch((err: unknown) => {
     console.warn(`[apps] no frame for ${app.name}: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   });
