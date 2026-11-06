@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Files } from "./files.js";
 import { applyRelease, planRelease } from "./release.js";
-import { BOOTSTRAP, CADDYFILE, deps, FakeStack, FakeStrut, loop, releaseFiles, settings, standardServices, type FakeService } from "./test/fakes.js";
+import { BOOTSTRAP, CADDYFILE, deps, FakeStack, FakeStrut, loop, ref, releaseFiles, settings, standardServices, type FakeService } from "./test/fakes.js";
 
 const ROUTE = `${CADDYFILE}{$SCHEME}://{$HOST}/release {\n\trespond "2"\n}\n`;
 
@@ -218,13 +218,37 @@ describe("the loop and a release", () => {
     stadeum.current = settings({ requests: [{ id: "c1", kind: "check", at: "2026-11-05T11:59:00Z" }] });
     await ops.tick();
     expect(stadeum.statuses.at(-1)!.release).toEqual({
-      running: { id: "sha256:ops-1", revision: "ops-1" },
-      available: { id: "sha256:ops-2", revision: "ops-2" },
+      running: ref("sha256:ops-1"),
+      available: ref("sha256:ops-2"),
       files: ["caddy/Caddyfile", "stadeum.yml"],
     });
     expect(stack.tags.get("ghcr.io/stakwork/stadeum-ops:stable")).toBe("sha256:ops-1");
     expect(stack.tags.get("ghcr.io/stakwork/stadeum-ui:stable")).toBe("sha256:stadeum-ui-1");
     expect(stack.calls.some((c) => c.startsWith("spawn"))).toBe(false);
+  });
+
+  it("between windows, a release the registry names is pulled once, alone, to say what it changes", async () => {
+    const { ops, stack, stadeum, at } = loop();
+    await ops.tick();
+    stack.release("sha256:ops-2", neo4jRelease(), "sha256:ui-2");
+    stack.publish("strut", "sha256:strut-2");
+    at("2026-11-05T12:10:00Z");
+    await ops.tick();
+    const read = ["pull stadeum-ui ops", "tag sha256:stadeum-ui-1 ghcr.io/stakwork/stadeum-ui:stable", "tag sha256:ops-1 ghcr.io/stakwork/stadeum-ops:stable"];
+    expect(stack.calls).toEqual(read);
+    const last = stadeum.statuses.at(-1)!;
+    expect(last.release?.available).toEqual(ref("sha256:ops-2"));
+    expect(last.release?.held).toEqual([{ service: "neo4j", from: "neo4j:5.26.32", to: "neo4j:5.26.40" }]);
+    expect(last.services.find((s) => s.service === "ops")?.latest).toMatchObject({ digest: "sha256:ops-2", current: false });
+    // What runs keeps its tags; strut waits for the window.
+    expect(stack.tags.get("ghcr.io/stakwork/stadeum-ops:stable")).toBe("sha256:ops-1");
+    expect(stack.tags.get("ghcr.io/stakwork/strut:stable")).toBe("sha256:strut-1");
+
+    // Read once: the next look pulls nothing.
+    at("2026-11-05T12:20:00Z");
+    await ops.tick();
+    expect(stack.calls).toEqual(read);
+    expect(stadeum.statuses.at(-1)!.release?.held).toHaveLength(1);
   });
 
   it("holds a release that changes Neo4j: no files, no images, said once", async () => {

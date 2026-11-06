@@ -266,7 +266,7 @@ encrypted under `STADEUM_ENCRYPTION_KEY`, as the org key is.
 | Method | Path | |
 | --- | --- | --- |
 | GET | `/api/ops/settings` | The window, the wait, updates on or off, the destination (decrypted), the admin's open requests (check, update, back up now, and `confirm` with the image references an admin agreed to), the window last run, and the images that failed their health check |
-| PUT | `/api/ops/status` | What ops is doing, every service's running image and what its channel has, the release that runs and what the channel's would change (files, pins, what holds it), the newest snapshots, and the requests it answered |
+| PUT | `/api/ops/status` | What ops is doing, every service's running image (with the digests it was pulled as) and, for one on a channel, what its registry said the tag names (`latest`: when, the digest, whether it runs, a newer one's commit and build time, or why the check failed), the release that runs and what the channel's would change (files, pins, what holds it), the newest snapshots, and the requests it answered |
 | POST | `/api/ops/history` | What it did: an update (with each image's from and to), a rollback, a backup (its snapshot), a restore |
 
 Caddy answers `/api/ops/*` with 404: the routes are for the box's network
@@ -278,6 +278,30 @@ then the updates, held back if tonight's backup failed: strut's group, then
 stadeum's release. stadeum-ui keeps the window last run, so a restarted ops
 does not run it twice. While a release is being applied (the one-off below
 runs), the loop keeps still.
+
+**What the channels name** (`ops/src/registry.ts`, `lookUp` in
+`ops/src/update.ts`): every 10 minutes, on Check now, and after an update,
+ops asks each channel's registry what its tag names, pulling nothing. It
+follows the registry's own token challenge anonymously, and `HEAD`s
+`/v2/<repository>/manifests/<tag>` accepting a multi-arch index, which
+answers with the index's digest: the one `docker pull` records in the
+image's RepoDigests (and, on Docker's containerd store, its ID). An image is
+current when what runs was pulled as that digest. A newer one's commit and
+build time come from its manifest for this box's platform, two small GETs,
+once per image. Only the four images on a channel are asked about (strut,
+strut-browser, stadeum-ui, stadeum-ops, all on ghcr.io): about 1,150 small
+requests a day. The pinned images (Neo4j, Caddy, Redis, the gateway) move
+with a release and the page claims nothing of them; a `HEAD` would not count
+against Docker Hub's anonymous pull limit anyway (a manifest `GET` does).
+When stadeum-ops's tag names another release, ops pulls that release's two
+small images once (about 260 MB) to say what it would change, a held Neo4j
+among it; strut's images move only in the window or on Update now.
+
+The Updates page says an image is current only from that answer, and when
+it was given (`ui/src/lib/ops/channel.ts`): "Current · checked 4 minutes
+ago"; "c15177a is out, built 2 hours ago"; "Not checked yet"; "Current when
+checked 3 hours ago" once the answer is more than 30 minutes old; or "Could
+not check" with why, and what the last answer was.
 
 **An update** of a group that follows a channel (strut's):
 
@@ -299,7 +323,8 @@ runs), the loop keeps still.
 the stack files ops's image carries (`ops/src/release.ts`). The files pin
 every other image, so a release moves Caddy, Redis and the gateway too.
 
-1. The check pulls stadeum-ui and ops. If either moved, ops reads the new
+1. When the registry names another stadeum-ops (above), or an update
+   runs, ops pulls stadeum-ui and ops. If either moved, ops reads the new
    release's files out of the new ops image (`docker create` + `docker
    cp`), stages them, and has compose read them with the box's `.env` and
    `local.yml`, which proves they parse. It reports what they change: the

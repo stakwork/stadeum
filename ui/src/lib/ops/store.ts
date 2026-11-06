@@ -66,7 +66,8 @@ export async function settingsForOps(): Promise<OpsSettings> {
     backups,
     requests: requests.map((r) => ({ id: r.id, kind: r.kind as RequestKind, at: r.createdAt.toISOString(), ...(r.target ? { target: r.target } : {}) })),
     lastCycle: status?.lastCycle ?? null,
-    failedImages: [...new Set(failed.flatMap((e) => changesOf(e.changes).map((c) => c.to.id)))],
+    // By ID and by registry digest: the page compares the registry's answer with them.
+    failedImages: [...new Set(failed.flatMap((e) => changesOf(e.changes).flatMap((c) => [c.to.id, ...(c.to.digests ?? [])])))],
   };
 }
 
@@ -179,7 +180,21 @@ export async function openRequests(): Promise<RequestKind[]> {
 
 // ── what ops says ───────────────────────────────────────────────────────
 
-const imageRef = z.object({ id: z.string().max(200), revision: z.string().max(100).optional(), created: z.string().max(60).optional() });
+const imageRef = z.object({
+  id: z.string().max(200),
+  revision: z.string().max(100).optional(),
+  created: z.string().max(60).optional(),
+  digests: z.array(z.string().max(100)).max(20).optional(),
+});
+const latest = z.object({
+  checkedAt: z.string().max(60).optional(),
+  digest: z.string().max(100).optional(),
+  current: z.boolean().optional(),
+  revision: z.string().max(100).optional(),
+  created: z.string().max(60).optional(),
+  problem: z.string().max(2000).optional(),
+  triedAt: z.string().max(60).optional(),
+});
 const ref = z.string().max(300);
 const snapshot = z.object({ id: z.string().max(100), time: z.string().max(60), added: z.number().optional() });
 
@@ -197,6 +212,7 @@ export const statusSchema = z.object({
         release: z.boolean().optional(),
         running: imageRef.optional(),
         available: imageRef.optional(),
+        latest: latest.optional(),
       }),
     )
     .max(50),

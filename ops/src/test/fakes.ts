@@ -9,6 +9,7 @@ import type { Deps } from "../deps.js";
 import type { ResticApi } from "../restic.js";
 import type { StadeumApi } from "../stadeum.js";
 import type { DrainView, StrutApi, StrutHealth } from "../strut.js";
+import type { ImageInfo, RegistryApi } from "../registry.js";
 import { writeFiles, type Files } from "../files.js";
 import { Ops } from "../ops.js";
 
@@ -176,8 +177,9 @@ export class FakeStack implements Stack {
     if (ref.startsWith("sha256:")) return this.present.has(ref) ? ref : undefined;
     return this.tags.get(ref);
   }
+  /** As Docker's containerd image store has it: an image's ID is the digest it was pulled as. */
   async describe(id: string): Promise<ImageRef> {
-    return { id, revision: id.replace(/^sha256:/, "") };
+    return { id, revision: id.replace(/^sha256:/, ""), digests: [id] };
   }
   async pull(services: string[]) {
     this.calls.push(`pull ${services.join(" ")}`);
@@ -270,8 +272,30 @@ export class FakeStack implements Stack {
   }
 }
 
+/** An image as the fake stack describes it. */
+export const ref = (id: string): ImageRef => ({ id, revision: id.replace(/^sha256:/, ""), digests: [id] });
+
 export function svc(name: string, image: string, opts: Partial<ServiceDef> = {}): ServiceDef {
   return { name, image, built: false, stopForBackup: false, oneShot: false, confirm: false, binds: [], ...opts };
+}
+
+/** The registries: what the stack's `registry` map says each reference names. */
+export class FakeRegistry implements RegistryApi {
+  calls: string[] = [];
+  /** Why every request fails, when it does. */
+  failing: string | null = null;
+  constructor(private readonly stack: FakeStack) {}
+  async digest(ref: string): Promise<string> {
+    this.calls.push(`head ${ref}`);
+    if (this.failing) throw new Error(this.failing);
+    const id = this.stack.registry.get(ref);
+    if (!id) throw new Error(`ghcr.io has no ${ref}`);
+    return id;
+  }
+  async info(ref: string, digest: string): Promise<ImageInfo> {
+    this.calls.push(`info ${ref} ${digest}`);
+    return { revision: digest.replace(/^sha256:/, ""), created: "2026-11-05T09:00:00Z" };
+  }
 }
 
 /** strut's drain: idle after `busyPolls` reads of it. */
@@ -405,12 +429,14 @@ export function loop(now = "2026-11-05T12:00:00Z") {
   const strut = new FakeStrut();
   const stadeum = new FakeStadeum();
   const restic = new FakeRestic();
+  const registry = new FakeRegistry(stack);
   let t = new Date(now).getTime();
   const log: string[] = [];
   const ops = new Ops({
     stack,
     strut,
     stadeum,
+    registry,
     restic: () => restic,
     log: (m) => log.push(m),
     now: () => new Date(t),
@@ -421,6 +447,6 @@ export function loop(now = "2026-11-05T12:00:00Z") {
     host: "stadeum",
     paths: { volumes: "/volumes", envDir: join(mkdtempSync(join(tmpdir(), "ops-loop-")), "env") },
   });
-  return { ops, stack, strut, stadeum, restic, log, at: (iso: string) => (t = new Date(iso).getTime()) };
+  return { ops, stack, strut, stadeum, restic, registry, log, at: (iso: string) => (t = new Date(iso).getTime()) };
 }
 

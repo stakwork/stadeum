@@ -1,6 +1,7 @@
 import type { ServiceDef, Stack } from "./compose.js";
-import type { ImageRef, OpsEvent } from "./contract.js";
+import type { ImageRef, Latest, OpsEvent } from "./contract.js";
 import { drainStrut, errorText, liftDrain, took, type Deps } from "./deps.js";
+import { parseReference, type RegistryApi } from "./registry.js";
 
 /**
  * Updates. A service with a `stadeum.ops.update: <group>` label follows
@@ -10,6 +11,8 @@ import { drainStrut, errorText, liftDrain, took, type Deps } from "./deps.js";
  * image carries, and moves as one (release.ts). Every other service moves
  * when a release changes its pin.
  *
+ *   0. Between updates, ask the registry what each tag names (lookUp):
+ *      what the Updates page says, with nothing pulled.
  *   1. Pull the group, and compare the image ID each reference now names
  *      with the one its container runs.
  *   2. If any differ, drain strut (a group with strut in it) and wait.
@@ -51,6 +54,32 @@ export function updateGroups(defs: ServiceDef[], self: string): Group[] {
 const rank = (g: Group) => (g.services.some((s) => s.name === STRUT) ? 0 : 1);
 
 export const isNewer = (c: Check) => !!c.available && c.available !== c.running;
+
+/**
+ * Ask the registry what the service's tag names now, and compare it with
+ * what runs (registry.ts). Nothing is pulled. A try that fails keeps what
+ * the last answer said, with why this one told nothing.
+ */
+export async function lookUp(registry: RegistryApi, service: ServiceDef, running: ImageRef | undefined, prev: Latest | undefined, now: string): Promise<Latest> {
+  const where = parseReference(service.image).registry;
+  const kept: Latest = { ...prev };
+  delete kept.problem;
+  delete kept.triedAt;
+  let digest: string;
+  try {
+    digest = await registry.digest(service.image);
+  } catch (err) {
+    return { ...kept, problem: errorText(err), triedAt: now };
+  }
+  if (running && !running.digests?.length) {
+    return { checkedAt: now, digest, problem: `the image that runs has no digest from ${where}: it was built or loaded on this box`, triedAt: now };
+  }
+  if (running?.digests?.includes(digest)) return { checkedAt: now, digest, current: true };
+  const known = prev?.digest === digest && (prev.revision || prev.created) ? { revision: prev.revision, created: prev.created } : await registry.info(service.image, digest).catch(() => ({}));
+  return { checkedAt: now, digest, current: false, ...defined(known) };
+}
+
+const defined = <T extends object>(o: T): Partial<T> => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
 
 /** Pull and compare. Nothing that runs is touched. */
 export async function checkGroup(stack: Stack, services: ServiceDef[]): Promise<Check[]> {
