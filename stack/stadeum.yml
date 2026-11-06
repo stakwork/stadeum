@@ -276,9 +276,14 @@ services:
     # strut as the person (the orchestrator, and speech on strut's
     # /audio/transcribe and /audio/speak). LiveKit is reached outbound
     # only: no port, no route in the Caddyfile. No state.
-    # PINNED (Docker Hub, its release tags; amd64 + arm64 from 0.42): it
-    # moves with a stadeum release that changes this pin.
-    image: sphinxlightning/sphinx-voice:${VOICE_TAG:-0.43}
+    # The `stable` channel sphinx-voice's promote workflow moves to one of
+    # its releases (Docker Hub; `scripts/promote.sh voice`). It speaks
+    # strut's turn and call contracts, so ops moves it in strut's group: one
+    # drain, one health check, one rollback. A release's tag (`0.43`) pins
+    # one; ops then has nothing to move until it changes.
+    image: sphinxlightning/sphinx-voice:${VOICE_TAG:-stable}
+    labels:
+      stadeum.ops.update: strut
     depends_on:
       strut: { condition: service_healthy }
     # tini as PID 1, so a stop reaches node (or the sleep below) at once.

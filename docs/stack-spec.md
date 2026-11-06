@@ -19,7 +19,7 @@ but maple (`ui/src/lib/status.ts`, `SERVICES`).
 | `maple` | `ghcr.io/mapleprivacylabs/maple-proxy:0.4.5` | Maple's inference proxy: encrypts each request to Maple's enclave. The gateway's `maple` provider | None (stadeum-ui never calls it) |
 | `strut-browser` | `ghcr.io/stakwork/strut-browser:stable` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
 | `strut` | `ghcr.io/stakwork/strut:stable` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
-| `voice` | `sphinxlightning/sphinx-voice:0.43` | A person's voice call with the assistant (sphinx-voice's 1:1 mode): the LiveKit room and the agent in it | None (stadeum-ui never calls it) |
+| `voice` | `sphinxlightning/sphinx-voice:stable` | A person's voice call with the assistant (sphinx-voice's 1:1 mode): the LiveKit room and the agent in it | None (stadeum-ui never calls it) |
 | `bootstrap` | `node:22.20.0-alpine` | One shot: org signing key + trust registration | Org key registered with bifrost, same key as stadeum-ui's |
 | `stadeum-ui` | `ghcr.io/stakwork/stadeum-ui:stable` (built from `ui/`) | Sign-in, the person, Calls, Members, Status, Updates, Backups | Running (it serves the page) |
 | `ops` | `ghcr.io/stakwork/stadeum-ops:stable` (built from `ops/`, carrying `stack/`) | stadeum's releases, strut's updates, backups; the Docker socket | Reported in the last 3 minutes |
@@ -48,7 +48,8 @@ checked".
   them. `promote-images.yml` moves `stable` for both to a commit's images,
   as strut's `promote-image.yml` does for strut's: that is a release.
   `scripts/promote.sh strut|stadeum` runs either on main's newest images
-  and waits for it.
+  and waits for it; `scripts/promote.sh voice` moves sphinx-voice's `stable`
+  to its newest release (below, "voice").
   `stack/dev.yml` builds them from the checkout instead (`stadeum-ui:dev`,
   `stadeum-ops:dev`), and ops never pulls a service that has a build.
 - A box's own changes go in `stack/local.yml`: a compose override beside
@@ -211,13 +212,21 @@ checked".
   (`STRUT_ENV_SCRUB`), so a step cannot read the deployment key.
 
 ### voice
-- `sphinxlightning/sphinx-voice:${VOICE_TAG:-0.43}` (Docker Hub, its release
-  tags; amd64 + arm64 from 0.42: an amd64-only image crash-loops on an arm64
-  box without emulation, and `up --wait` fails with it), run as
+- `sphinxlightning/sphinx-voice:${VOICE_TAG:-stable}` (Docker Hub), run as
   `node dist/one-to-one.js`: sphinx-voice's 1:1 mode, not the image's
   default meeting mode. Port 8080 on the network only (`LISTEN_HOST=0.0.0.0`):
   no published port, no route in Caddy. No state, so no volume and no backup
-  label; pinned, so a release that changes the pin moves it.
+  label.
+- **Its channel.** sphinx-voice publishes an image per GitHub Release
+  (`:<version>` and `:latest`, amd64 + arm64 from 0.42: an amd64-only image
+  crash-loops on an arm64 box without emulation, and `up --wait` fails with
+  it). Its `promote-image.yml` copies a release's image to `:stable` by
+  digest, and refuses one without both platforms; `scripts/promote.sh voice
+  [version]` runs it for the newest release, or the one named, and checks
+  the tag moved. The service speaks strut's turn and call contracts, so ops
+  moves it in strut's group (`stadeum.ops.update: strut`): one drain, one
+  health check, one rollback for the three. A release's tag in `VOICE_TAG`
+  (`0.43`) pins a box's.
 - **A call** (strut `plans/private-voice.md` §4.1). The person's browser
   makes a fresh 32-byte key and sends it, as base64, to stadeum-ui's
   `POST /api/calls`, which hands it to strut's `POST /voice/calls` as the
@@ -353,7 +362,7 @@ checked".
   leaves a volume the snapshot lacks as it is), and the box's `backups/` at
   `/backups` (a local destination).
 - **Three labels** in `stack/stadeum.yml` say what ops does to a service:
-  `stadeum.ops.update: <group>` (strut + strut-browser in `strut`;
+  `stadeum.ops.update: <group>` (strut, strut-browser and voice in `strut`;
   stadeum-ui + ops in `stadeum`, ops's own group: the release),
   `stadeum.ops.backup: stop` (neo4j, redis, bifrost, strut, stadeum-ui) and
   `stadeum.ops.upgrade: confirm` (neo4j). A service with `restart: "no"`
