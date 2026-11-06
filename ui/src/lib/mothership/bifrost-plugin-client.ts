@@ -1,5 +1,18 @@
 import { BifrostHttpError, jsonClient } from "./http";
-import type { AgentCatalogManifest, GatewayPriceRow, TrustOrgRow, TrustOrgUpsert, TrustStatusResponse } from "./types";
+import type {
+  AgentCatalogManifest,
+  CostPoint,
+  GatewayPriceRow,
+  HistogramResponse,
+  ModelSpendRow,
+  SpendResponse,
+  SpendWindow,
+  TokenPoint,
+  TrustOrgRow,
+  TrustOrgUpsert,
+  TrustStatusResponse,
+  UserSpendRow,
+} from "./types";
 
 /**
  * Client for the gateway plugin's `/_plugin/*` routes (Bearer provisioning
@@ -76,5 +89,25 @@ export class BifrostPluginClient {
    */
   putPricing(table: Record<string, GatewayPriceRow>) {
     return this.request<unknown>("PUT", "/_plugin/pricing", table);
+  }
+
+  /** Spend per person (by the macaroon's `user_id`, the actor) over a rolling window. */
+  spendByUser(window: SpendWindow) {
+    return this.request<SpendResponse<UserSpendRow>>("GET", `/_plugin/spend/by-user?window=${window}`);
+  }
+
+  /** Spend per (provider, model) over a rolling window. */
+  spendByModel(window: SpendWindow) {
+    return this.request<SpendResponse<ModelSpendRow>>("GET", `/_plugin/spend/by-model?window=${window}`);
+  }
+
+  /** Cost per bucket, epoch-aligned (`1d` = UTC days). */
+  costHistogram(window: SpendWindow, bucket: "1h" | "1d") {
+    return this.request<HistogramResponse<CostPoint>>("GET", `/_plugin/histogram/cost?window=${window}&bucket=${bucket}`);
+  }
+
+  /** Tokens per bucket, split into prompt and completion. */
+  tokenHistogram(window: SpendWindow, bucket: "1h" | "1d") {
+    return this.request<HistogramResponse<TokenPoint>>("GET", `/_plugin/histogram/tokens?window=${window}&bucket=${bucket}`);
   }
 }

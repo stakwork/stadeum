@@ -23,6 +23,7 @@ const SETTINGS = {
   organisation: [
     { href: "/members", label: "Members" },
     { href: "/models", label: "Models" },
+    { href: "/spending", label: "Spending" },
     { href: "/apps", label: "Apps" },
     { href: "/branding", label: "Branding" },
   ],

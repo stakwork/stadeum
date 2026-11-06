@@ -22,7 +22,9 @@ export interface BifrostRateLimit {
 export interface BifrostCustomer {
   id: string;
   name: string;
+  /** What a POST takes. Reads return `budgets` instead (docs/mothership-spec.md). */
   budget?: BifrostBudget;
+  budgets?: BifrostBudget[];
   rate_limit?: BifrostRateLimit | null;
   created_at: string;
   updated_at?: string;
@@ -177,4 +179,49 @@ export interface TrustOrgRow extends TrustOrgUpsert {
 export interface AgentCatalogManifest {
   source: string;
   agents: Array<{ name: string; display_name?: string; description?: string; default_model?: string }>;
+}
+
+/** The plugin's report windows: a rolling look-back from now (`/_plugin/spend/*`, `/_plugin/histogram/*`). */
+export type SpendWindow = "24h" | "7d" | "30d" | "90d";
+
+/** One row of `/_plugin/spend/by-user`: `user_id` is the person's actor. */
+export interface UserSpendRow {
+  user_id: string;
+  user_name: string;
+  total_cost: number;
+  total_tokens: number;
+  request_count: number;
+}
+
+/** One row of `/_plugin/spend/by-model`. */
+export interface ModelSpendRow {
+  model: string;
+  provider: string;
+  total_cost: number;
+  total_tokens: number;
+  request_count: number;
+}
+
+export interface SpendResponse<Row> {
+  window: string;
+  results: Row[];
+}
+
+/** `/_plugin/histogram/cost` and `/_plugin/histogram/tokens`: one series per dimension value, buckets keyed `ts`. */
+export interface HistogramResponse<Point> {
+  bucket_size_seconds: number;
+  dimension: string;
+  series: Array<{ dimension_value: string; points: Point[] }>;
+}
+
+export interface CostPoint {
+  ts: string;
+  cost: number;
+}
+
+export interface TokenPoint {
+  ts: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
 }
