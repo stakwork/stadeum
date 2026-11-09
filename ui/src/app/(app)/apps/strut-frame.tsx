@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { preconnect } from "react-dom";
 
 import { shownTheme } from "@/lib/theme";
 import { openApp } from "./open";
@@ -21,13 +22,20 @@ import { openApp } from "./open";
  * posts `{type: "strut:ready"}` once the app's page has started (strut
  * `specs/API.md` §14.3). The frame's own load is only strut's page, whose
  * background and "Loading the app…" would flash first. A strut that never
- * says so is shown a few seconds after its page loads; a slow one gets a
- * quiet "Opening…" after a second.
+ * says so is shown a few seconds after its page loads.
+ *
+ * An open is the ticket, strut's page and sign-in, the app's files and the
+ * app's own start: a second or two, with nothing where the app will be. A
+ * notice timed inside that wait blinked: it came, and the app covered it.
+ * "Opening…" starts to show only when the wait has grown long, and comes in
+ * slowly (`.opening`, globals.css), so an app that arrives meanwhile covers
+ * a faint word at most. The connection to strut is opened as the frame
+ * mounts, while the ticket is minted.
  */
 export function StrutFrame({ app, input, origin, title }: { app: string; input?: string; origin: string; title: string }) {
+  preconnect(origin);
   const ref = useRef<HTMLIFrameElement>(null);
   const [loaded, setLoaded] = useState(false);
-  const [slow, setSlow] = useState(false);
   const [pageLoaded, setPageLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [src, setSrc] = useState<string | undefined>(undefined);
@@ -60,10 +68,8 @@ export function StrutFrame({ app, input, origin, title }: { app: string; input?:
     let gone = false;
     setLoaded(false);
     setPageLoaded(false);
-    setSlow(false);
     setFailed(false);
     setSrc(undefined);
-    const slowly = setTimeout(() => setSlow(true), 1000);
     openApp(app, where.current).then(
       (opened) => {
         if (gone) return;
@@ -76,7 +82,6 @@ export function StrutFrame({ app, input, origin, title }: { app: string; input?:
     );
     return () => {
       gone = true;
-      clearTimeout(slowly);
     };
   }, [app, input, theme]);
 
@@ -108,11 +113,7 @@ export function StrutFrame({ app, input, origin, title }: { app: string; input?:
   return (
     // `data-bleed`: the layout's <main> drops its padding and width cap around it.
     <div data-bleed className="relative min-h-[420px] flex-1 overflow-hidden">
-      <p
-        className={`absolute inset-0 grid place-items-center text-[14.5px] text-ink-3 transition-opacity duration-300 ${slow && !loaded ? "opacity-100" : "opacity-0"}`}
-      >
-        Opening {title}…
-      </p>
+      {!loaded && <p className="opening absolute inset-0 grid place-items-center text-[14.5px] text-ink-3">Opening {title}…</p>}
       <iframe
         ref={ref}
         src={src}

@@ -6,7 +6,8 @@
  *               client config (bifrost transports/v2.2.2 handlers)
  *   /strut    — strut: /health, /apps (the list, each app's versions,
  *               usage, what is live and the pin), /brand, /auth/ticket and
- *               the app page a ticket opens, /llm/delegations, /llm/models,
+ *               the app page a ticket opens (it posts `strut:ready` to its
+ *               host, as strut's does), /llm/delegations, /llm/models,
  *               /secrets/:name, /actors/:actor/secrets, /voice/calls (strut
  *               specs/API.md): a call's answer carries a real LiveKit token
  *               for `livekit` (default `livekit-server --dev`), but no agent
@@ -225,6 +226,8 @@ export interface FakeState {
   requests: string[];
   /** Flip to simulate an outage of one service. */
   down: { bifrost: boolean; strut: boolean; neo4j: boolean };
+  /** How long after it loads the framed app page posts `strut:ready` (ms), as strut's does once the app has started: a slow app, to a host. */
+  readyAfter: number;
   /**
    * `POST /voice/calls`: the LiveKit server its tokens are for (null: strut
    * has no voice service, a 503), a refusal to give instead (a 402 with
@@ -271,6 +274,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     drain: null,
     requests: [],
     down: { bifrost: false, strut: false, neo4j: false },
+    readyAfter: 0,
     voice: { livekit: opts.livekit ?? DEV_LIVEKIT, refuse: null, forward: null, calls: [] },
   };
 
@@ -519,9 +523,9 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     // The UI is served without the key; a ticket signs the page in, once.
     if (path === "/" && m === "GET") {
       const t = state.tickets.get(url.searchParams.get("ticket") ?? "");
-      if (!t || t.used || t.exp <= Date.now()) return html(res, embedPage(undefined, url.searchParams), 401);
+      if (!t || t.used || t.exp <= Date.now()) return html(res, embedPage(undefined, url.searchParams, [], state.readyAfter), 401);
       t.used = true;
-      return html(res, embedPage(t, url.searchParams, state.apps));
+      return html(res, embedPage(t, url.searchParams, state.apps, state.readyAfter));
     }
     if (!keyed) return send(res, 401, { error: "unauthorized" });
     if (path === "/auth/ticket" && m === "POST") {
@@ -788,8 +792,9 @@ function html(res: ServerResponse, body: string, status = 200) {
   res.end(body);
 }
 
-/** Strut's UI showing one app alone (`?app=<name>&solo=1`), as the frame opens it. */
-function embedPage(who: { actor: string; role: string } | undefined, q: URLSearchParams, apps: FakeApp[] = []): string {
+/** Strut's UI showing one app alone (`?app=<name>&solo=1`), as the frame opens it. It tells
+ *  the host that asked (`embed_origin`) when it is on screen, as strut's does (API.md §14.3). */
+function embedPage(who: { actor: string; role: string } | undefined, q: URLSearchParams, apps: FakeApp[] = [], readyAfter = 0): string {
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
   const name = (q.get("app") ?? "").replace(/@v\d+$/, "");
   const app = apps.find((a) => a.name === name);
@@ -809,5 +814,6 @@ function embedPage(who: { actor: string; role: string } | undefined, q: URLSearc
 <p>This page stands in for strut's app host. It was opened with a one-use sign-in ticket, not the shared token.</p>`;
   return `<!doctype html><meta charset="utf-8"><title>Strut (fake)</title>
 <style>body{font:15px system-ui;margin:0;padding:32px;color:#333;background:#fafafa}code{background:#eee;padding:2px 6px;border-radius:4px}</style>
-${body}`;
+${body}
+<script>(function(){var o=new URLSearchParams(location.search).get("embed_origin");if(o&&parent!==window)setTimeout(function(){parent.postMessage({type:"strut:ready"},o)},${readyAfter})})()</script>`;
 }

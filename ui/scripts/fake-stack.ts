@@ -9,12 +9,14 @@
  * joins the room. FAKE_VOICE=402 or 503 makes every call refused that way;
  * FAKE_VOICE=off answers as a strut with no voice service. With
  * STRUT_VOICE_URL (and STRUT_VOICE_TOKEN), calls go to that voice service
- * instead, as strut hands them on.
+ * instead, as strut hands them on. FAKE_READY_AFTER=<ms> holds the framed
+ * app page's `strut:ready` that long, as a slow app would: how the frame's
+ * "Opening…" is seen.
  */
 import { DEV_LIVEKIT, startFakeStack } from "../src/test/fake-stack";
 
 const port = Number(process.env.FAKE_STACK_PORT ?? 4555);
-const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, FAKE_VOICE, STRUT_VOICE_URL, STRUT_VOICE_TOKEN } = process.env;
+const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, FAKE_VOICE, FAKE_READY_AFTER, STRUT_VOICE_URL, STRUT_VOICE_TOKEN } = process.env;
 const livekit = LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET ? { url: LIVEKIT_URL, apiKey: LIVEKIT_API_KEY, apiSecret: LIVEKIT_API_SECRET } : DEV_LIVEKIT;
 // The five providers the real gateway has, each with its empty env key slot.
 const fake = await startFakeStack(
@@ -24,6 +26,7 @@ const fake = await startFakeStack(
 if (FAKE_VOICE === "off") fake.state.voice.livekit = null;
 if (FAKE_VOICE === "402") fake.state.voice.refuse = { status: 402, body: { error: "your balance is below the minimum", balance: 120, minimum: 500 } };
 if (FAKE_VOICE === "503") fake.state.voice.refuse = { status: 503, body: { error: "the voice service is not answering" } };
+if (FAKE_READY_AFTER) fake.state.readyAfter = Number(FAKE_READY_AFTER);
 if (STRUT_VOICE_URL) fake.state.voice.forward = { url: STRUT_VOICE_URL.replace(/\/+$/, ""), token: STRUT_VOICE_TOKEN ?? "" };
 console.log(`fake stack on ${fake.base}  (bifrost ${fake.bifrostUrl}, strut ${fake.strutUrl}, neo4j ${fake.neo4jUrl})`);
 console.log(`calls: ${STRUT_VOICE_URL ? `handed to ${STRUT_VOICE_URL}` : `tokens for ${livekit.url}`}${FAKE_VOICE ? `, FAKE_VOICE=${FAKE_VOICE}` : ""}`);
