@@ -26,6 +26,7 @@ const SETTINGS = {
     { href: "/models", label: "Models" },
     { href: "/spending", label: "Spending" },
     { href: "/apps", label: "Apps" },
+    { href: "/packages", label: "Packages" },
     { href: "/branding", label: "Branding" },
   ],
   server: [

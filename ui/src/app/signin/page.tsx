@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { signIn, signInOptions } from "@/auth";
 import { env } from "@/lib/env";
+import { safeNext, signInHref } from "@/lib/next-path";
 import { currentUser } from "@/lib/session";
 import { ThemeButton } from "@/components/theme-switch";
 import { ArtCarousel } from "./art/carousel";
@@ -17,28 +18,32 @@ const errors: Record<string, string> = {
   Configuration: "Sign-in isn't configured correctly.",
 };
 
+/** Where a sign-in lands: the page that sent the person here (each form's `next`), else home. */
+const landing = (form: FormData) => safeNext(form.get("next")) ?? "/";
+
 /** An unconfigured provider does nothing; the page just reloads. */
-async function microsoft() {
+async function microsoft(form: FormData) {
   "use server";
-  if (!signInOptions().microsoft) redirect("/signin");
-  await signIn("microsoft-entra-id", { redirectTo: "/" });
+  if (!signInOptions().microsoft) redirect(signInHref(form.get("next")));
+  await signIn("microsoft-entra-id", { redirectTo: landing(form) });
 }
 
-async function google() {
+async function google(form: FormData) {
   "use server";
-  if (!signInOptions().google) redirect("/signin");
-  await signIn("google", { redirectTo: "/" });
+  if (!signInOptions().google) redirect(signInHref(form.get("next")));
+  await signIn("google", { redirectTo: landing(form) });
 }
 
 async function dev(form: FormData) {
   "use server";
-  if (!signInOptions().dev) redirect("/signin");
-  await signIn("dev", { email: String(form.get("email") ?? ""), redirectTo: "/" });
+  if (!signInOptions().dev) redirect(signInHref(form.get("next")));
+  await signIn("dev", { email: String(form.get("email") ?? ""), redirectTo: landing(form) });
 }
 
-export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
-  if (await currentUser()) redirect("/");
-  const { error } = await searchParams;
+export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string; next?: string }> }) {
+  const { error, next: asked } = await searchParams;
+  const next = safeNext(asked) ?? undefined;
+  if (await currentUser()) redirect(next ?? "/");
 
   return (
     <div className="signin-page flex min-h-dvh flex-col bg-paper text-ink md:flex-row">
@@ -54,7 +59,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
               {errors[error] ?? "Sign-in didn't complete."}
             </p>
           )}
-          <SignInChoices microsoft={microsoft} google={google} dev={dev} devAvailable={signInOptions().dev} />
+          <SignInChoices microsoft={microsoft} google={google} dev={dev} devAvailable={signInOptions().dev} next={next} />
         </div>
       </section>
     </div>

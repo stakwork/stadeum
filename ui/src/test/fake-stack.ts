@@ -8,7 +8,9 @@
  *               usage, what is live and the pin), /brand, /auth/ticket and
  *               the app page a ticket opens (it posts `strut:ready` to its
  *               host, as strut's does), /llm/delegations, /llm/models,
- *               /secrets/:name, /actors/:actor/secrets, /voice/calls (strut
+ *               /secrets[/:name], /actors/:actor/secrets, /packages (what is
+ *               installed, search, install, uninstall, the indexes followed,
+ *               over the indexes in `state.indexes`), /voice/calls (strut
  *               specs/API.md): a call's answer carries a real LiveKit token
  *               for `livekit` (default `livekit-server --dev`), but no agent
  *               joins the room, unless the call is forwarded to a voice
@@ -26,6 +28,7 @@ import { decodeMacaroon, verify } from "gatekey";
 import { brandStyles } from "@/lib/brand";
 import type { StrutBrand } from "@/lib/strut/client";
 import { brandProblem, normalizeBrand } from "./strut-brand";
+import { fakeIndexes, indexSubscriptionProblem, matches, type FakeIndex, type FakeRelease } from "./strut-packages";
 import { checkDelegationShape } from "./strut-shape";
 
 export interface FakeStackOptions {
@@ -219,6 +222,14 @@ export interface FakeState {
   refuseRelease: string | null;
   /** `GET /brand`'s record, as strut keeps it (normalized). */
   brand: StrutBrand;
+  /** The indexes strut can reach, by key: where each card is served and what it lists. Following one by another key or address reads no card. */
+  indexes: Map<string, FakeIndex>;
+  /** `GET /packages/indexes`: the indexes strut follows, in order. Starts empty, as strut's default does. */
+  followed: Array<{ id: string; key: string; urls: string[]; label?: string }>;
+  /** `GET /packages`: what is installed, with the release it came from. */
+  installed: Array<{ release: FakeRelease; door: "install" | "distro"; actor?: string; modified: string[] }>;
+  /** Set to refuse the next package install or uninstall with this status and `error`. */
+  refusePackage: { status: number; error: string } | null;
   /** Sign-in tickets strut minted: who each signs in, as what, until when, whether spent. */
   tickets: Map<string, { actor: string; role: "admin" | "member"; exp: number; used: boolean }>;
   /** Set to make strut's /health report a drain. */
@@ -270,6 +281,10 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     appRecords: new Map(SEEDED_APPS.map((a) => [a.name, seededRecord()])),
     refuseRelease: null,
     brand: {},
+    indexes: fakeIndexes(),
+    followed: [],
+    installed: [],
+    refusePackage: null,
     tickets: new Map(),
     drain: null,
     requests: [],
@@ -582,6 +597,10 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       }
     }
     if (path === "/llm/models" && m === "GET") return send(res, 200, FAKE_MODEL_CATALOG);
+    if (path === "/secrets" && m === "GET") {
+      return send(res, 200, { secrets: [...state.deploymentSecrets.keys()].sort().map((name) => ({ name, createdAt: "2026-11-05T12:00:00.000Z", updatedAt: "2026-11-05T12:00:00.000Z" })) });
+    }
+    if (path === "/packages" || path.startsWith("/packages/")) return packagesRoute(req, res, path, url, body);
     const setting = path.match(/^\/secrets\/([A-Za-z_][A-Za-z0-9_]*)$/);
     if (setting && m === "PUT") {
       if (typeof body?.value !== "string" || !body.value) return send(res, 400, { error: "value (non-empty string) is required" });
@@ -643,6 +662,150 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       encrypted: key !== undefined,
       voice: voice ?? "af_heart",
     });
+  }
+
+  /**
+   * Strut's packages (§16) over `state.indexes`: what is installed, search,
+   * the indexes followed, install by name through them (the first whose
+   * card lists the publisher, or the one `index` names) and uninstall, with
+   * strut's refusals. An install publishes the package's apps, so the rail
+   * lists them, and reports the secrets the store has no value for.
+   */
+  function packagesRoute(req: IncomingMessage, res: ServerResponse, path: string, url: URL, body: any) {
+    const m = req.method;
+    const actor = typeof req.headers["x-strut-actor"] === "string" ? req.headers["x-strut-actor"] : undefined;
+    const cardOf = (sub: { key: string; urls: string[] }) => {
+      const ix = state.indexes.get(sub.key);
+      return ix && sub.urls.some((u) => ix.urls.includes(u)) ? ix : undefined;
+    };
+    const info = (sub: (typeof state.followed)[number]) => {
+      const ix = cardOf(sub);
+      return ix
+        ? { ...sub, read: { seq: 1, digest: `sha256:${"c".repeat(64)}`, at: new Date().toISOString(), url: sub.urls[0], publishers: new Set(ix.releases.map((r) => r.publisher)).size } }
+        : { ...sub, error: `package_index_unreachable: no card for ${sub.key.slice(0, 8)}… at ${sub.urls.join(", ")}` };
+    };
+    const listed = (rec: (typeof state.installed)[number]) => {
+      const full = (i: FakeRelease["items"][number]) => (i.kind === "concept" ? i.name : `${rec.release.package}/${i.name}`);
+      return {
+        package: rec.release.package,
+        version: rec.release.version,
+        digest: rec.release.digest,
+        source: { ref: `pk:${rec.release.key}/${rec.release.package}`, url: rec.release.urls[0] },
+        secrets: rec.release.requires?.secrets ?? rec.release.detail?.secrets ?? [],
+        door: rec.door,
+        items: rec.release.items.map((i) => ({
+          kind: i.kind,
+          name: full(i),
+          ...(i.helper ? { helper: true } : {}),
+          ...(i.kind === "concept" ? {} : { installed: "v1", active: rec.modified.includes(full(i)) ? "v2" : "v1" }),
+          modified: rec.modified.includes(full(i)),
+        })),
+      };
+    };
+    /** The refusal set for the next write, once: true when it was sent. */
+    const refused = () => {
+      const r = state.refusePackage;
+      state.refusePackage = null;
+      if (r) send(res, r.status, { error: r.error });
+      return !!r;
+    };
+
+    if (path === "/packages" && m === "GET") return send(res, 200, { packages: state.installed.map(listed) });
+    if (path === "/packages/indexes" && m === "GET") return send(res, 200, { indexes: state.followed.map(info) });
+    const ix = path.match(/^\/packages\/indexes\/([^/]+)$/);
+    if (ix && m === "PUT") {
+      const sub = { ...(body ?? {}), id: decodeURIComponent(ix[1]!) };
+      const problem = indexSubscriptionProblem(sub);
+      if (problem) return send(res, 400, { error: `package_index_invalid: ${problem}` });
+      const clean = { id: sub.id, key: sub.key, urls: [...sub.urls], ...(sub.label !== undefined ? { label: sub.label } : {}) };
+      const at = state.followed.findIndex((s) => s.id === clean.id);
+      if (at >= 0) state.followed[at] = clean;
+      else state.followed.push(clean);
+      return send(res, 200, info(clean));
+    }
+    if (ix && m === "DELETE") {
+      const id = decodeURIComponent(ix[1]!);
+      const at = state.followed.findIndex((s) => s.id === id);
+      if (at < 0) return send(res, 404, { error: `this strut server follows no index "${id}"` });
+      state.followed.splice(at, 1);
+      return send(res, 200, { ok: true, id });
+    }
+    if (path === "/packages/search" && m === "GET") {
+      const q = url.searchParams.get("q") ?? "";
+      const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 500);
+      const packages: unknown[] = [];
+      const errors: Array<{ index: string; error: string }> = [];
+      for (const sub of state.followed) {
+        const card = cardOf(sub);
+        if (!card) errors.push({ index: sub.id, error: "package_index_unreachable: its card could not be read" });
+        else for (const r of card.releases.filter((r) => matches(r, q))) packages.push({ ...r, items: undefined, index: sub.id });
+      }
+      return send(res, 200, { packages: packages.slice(0, limit), peers: [], errors });
+    }
+    if (path === "/packages/install" && m === "POST") {
+      const ref = body?.ref;
+      if (typeof ref !== "string" || !ref) return send(res, 400, { error: "ref is required" });
+      if (body.digest !== undefined && !/^sha256:[0-9a-f]{64}$/.test(body.digest)) return send(res, 400, { error: "digest is sha256:<64 hex>" });
+      if (!/^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/.test(ref)) return send(res, 400, { error: `package_source_unsupported: the fake installs names only, not ${ref}` });
+      // As strut's resolveName: the index named first, then none followed at all.
+      const subs = body.index ? state.followed.filter((s) => s.id === body.index) : state.followed;
+      if (body.index && !subs.length) return send(res, 404, { error: `package_index_unknown: this strut server follows no index "${body.index}"` });
+      if (!subs.length) {
+        return send(res, 400, { error: `package_source_invalid: ${ref} is a name, and this strut server follows no index to look it up in — install by pk:<key>/${ref} with url, or follow one (PUT /packages/indexes/:id)` });
+      }
+      const [publisher] = ref.split("/");
+      const card = subs.map(cardOf).find((c) => c?.releases.some((r) => r.publisher === publisher));
+      if (!card) return send(res, 404, { error: `package_not_listed: no index this strut server follows lists the publisher ${publisher}` });
+      const release = card.releases.find((r) => r.package === ref);
+      if (!release) return send(res, 404, { error: `package_not_found: ${publisher}'s public catalog has no package ${ref}` });
+      if (body.digest && body.digest !== release.digest) return send(res, 404, { error: `package_not_published: ${ref} has no release ${body.digest}` });
+      const here = state.installed.find((p) => p.release.package === ref);
+      if (here?.door === "distro") return send(res, 409, { error: `package_distro_owned: ${ref} was installed by the distro: only it updates or removes it` });
+      if (refused()) return;
+      if (here && here.release.digest !== release.digest) {
+        return send(res, 409, { error: `package_update_not_built: ${ref} is installed here at ${here.release.digest}; updating it to ${release.digest} asks first, which is not built yet` });
+      }
+      if (!here) {
+        state.installed.push({ release: structuredClone(release), door: "install", ...(actor ? { actor } : {}), modified: [] });
+        for (const app of release.detail?.apps ?? []) publish(`${ref}/${app.name}`, app.title);
+      }
+      const secrets = release.requires?.secrets ?? release.detail?.secrets ?? [];
+      return send(res, 201, {
+        package: ref,
+        digest: release.digest,
+        packages: [
+          {
+            package: ref,
+            version: release.version,
+            digest: release.digest,
+            source: { ref: `pk:${release.key}/${ref}`, url: release.urls[0] },
+            status: here ? "present" : "installed",
+            items: release.items.map((i) => ({ kind: i.kind, name: i.kind === "concept" ? i.name : `${ref}/${i.name}`, status: here ? "present" : "installed" })),
+          },
+        ],
+        missing: { secrets: secrets.filter((s) => !state.deploymentSecrets.has(s)).sort(), binaries: [], runtimes: [] },
+        warnings: [],
+      });
+    }
+    const one = path.match(/^\/packages\/([^/]+)\/([^/]+)$/);
+    if (one && m === "DELETE") {
+      const pkg = `${decodeURIComponent(one[1]!)}/${decodeURIComponent(one[2]!)}`;
+      const at = state.installed.findIndex((p) => p.release.package === pkg);
+      if (at < 0) return send(res, 404, { error: `package_not_installed: ${pkg} is not installed here` });
+      const rec = state.installed[at]!;
+      if (rec.door === "distro") return send(res, 409, { error: `package_distro_owned: ${pkg} was installed by the distro: only it updates or removes it` });
+      if (refused()) return;
+      const items = listed(rec).items;
+      const kept = items.filter((i) => i.modified).map((i) => ({ kind: i.kind, name: i.name, reason: i.kind === "concept" ? "edited here" : "a fork: its active version was made here" }));
+      const removed = items.filter((i) => !i.modified).map((i) => ({ kind: i.kind, name: i.name }));
+      state.installed.splice(at, 1);
+      for (const app of removed.filter((i) => i.kind === "app")) {
+        state.apps = state.apps.filter((a) => a.name !== app.name);
+        state.appRecords.delete(app.name);
+      }
+      return send(res, 200, { ok: true, package: pkg, removed, kept });
+    }
+    send(res, 404, { error: "not found" });
   }
 
   /** One app's versions, usage, what is live and the pin (strut §14.5, §14.6). */

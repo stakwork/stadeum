@@ -12,8 +12,13 @@
  * instead, as strut hands them on. FAKE_READY_AFTER=<ms> holds the framed
  * app page's `strut:ready` that long, as a slow app would: how the frame's
  * "Opening…" is seen.
+ *
+ * Strut follows no package index at first; the fake knows one, Stakwork's
+ * (a made-up key), listing openlaw/legal-desk: the store's Install link it
+ * prints opens the Packages page on following it.
  */
 import { DEV_LIVEKIT, startFakeStack } from "../src/test/fake-stack";
+import { STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL } from "../src/test/strut-packages";
 
 const port = Number(process.env.FAKE_STACK_PORT ?? 4555);
 const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, FAKE_VOICE, FAKE_READY_AFTER, STRUT_VOICE_URL, STRUT_VOICE_TOKEN } = process.env;
@@ -29,4 +34,7 @@ if (FAKE_VOICE === "503") fake.state.voice.refuse = { status: 503, body: { error
 if (FAKE_READY_AFTER) fake.state.readyAfter = Number(FAKE_READY_AFTER);
 if (STRUT_VOICE_URL) fake.state.voice.forward = { url: STRUT_VOICE_URL.replace(/\/+$/, ""), token: STRUT_VOICE_TOKEN ?? "" };
 console.log(`fake stack on ${fake.base}  (bifrost ${fake.bifrostUrl}, strut ${fake.strutUrl}, neo4j ${fake.neo4jUrl})`);
+console.log(
+  `the store's Install link: /packages?install=openlaw/legal-desk&index=${STAKWORK_INDEX_KEY}&index_url=${encodeURIComponent(STAKWORK_INDEX_URL)}`,
+);
 console.log(`calls: ${STRUT_VOICE_URL ? `handed to ${STRUT_VOICE_URL}` : `tokens for ${livekit.url}`}${FAKE_VOICE ? `, FAKE_VOICE=${FAKE_VOICE}` : ""}`);
