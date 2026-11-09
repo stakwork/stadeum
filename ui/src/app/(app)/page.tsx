@@ -4,25 +4,22 @@ import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { listApps } from "@/lib/apps";
 import { requireUser } from "@/lib/session";
-import { AppFrame } from "./apps/app-frame";
 
 export const dynamic = "force-dynamic";
-
-type Props = { searchParams: Promise<{ input?: string }> };
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await listApps())?.find((a) => a.assistant)?.title ?? "Home" };
 }
 
 /**
- * The home is the assistant, Jamie, when strut lists it. Without it, the
- * home lists strut's apps, which the rail lists too.
+ * The home is the assistant, Jamie, when strut lists it: its frame is the
+ * layout's (`HomeFrame`), shown here alone, so this page draws nothing.
+ * Without it, the home lists strut's apps, which the rail lists too.
  */
-export default async function Home({ searchParams }: Props) {
+export default async function Home() {
   await requireUser();
   const apps = await listApps();
-  const assistant = apps?.find((a) => a.assistant);
-  if (assistant) return <AppFrame app={assistant} input={(await searchParams).input} />;
+  if (apps?.some((a) => a.assistant)) return null;
 
   return (
     <>

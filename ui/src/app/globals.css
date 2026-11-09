@@ -212,6 +212,17 @@ body {
   }
 }
 
+/* A framed app slow to open: "Opening…" shows late and comes in slowly,
+   so an app that arrives meanwhile covers a faint word, not a blink. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.opening {
+  animation: fade-in 1s ease-in 2s both;
+}
+
 /* Sign-in in dark mode: one deep-navy surface with the Converge panel,
    ivory text. Scoped by overriding the tokens the page already uses. */
 :root[data-theme="dark"] .signin-page {

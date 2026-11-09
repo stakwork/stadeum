@@ -166,6 +166,7 @@ order of the work, each step its own PR:
 | `ui/` | stadeum-ui: Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db`) |
 | `ui/src/lib/mothership/` | Each person's virtual key and delegation, minted, pushed to strut, renewed |
 | `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the brand, the frame's sign-in ticket, a call's room |
+| `ui/src/app/(app)/apps/` | A strut app framed for the person (`strut-frame.tsx`) and its one-use ticket (`open.ts`); the assistant's frame is the `(app)` layout's (`home-frame.tsx`), kept open across stadeum's pages |
 | `ui/src/components/call.tsx`, `ui/src/lib/call*.ts` | A call: held by the `(app)` layout, its key and its checks, its LiveKit room (loaded only on a call), its transcript and artifacts; `ui/src/app/api/calls/` hands it to strut, `ui/src/app/(app)/calls/` draws it |
 | `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
 | `ui/src/lib/models/` | The Models page's work: each provider's key in the gateway, the org's model list and default, carried to every person's virtual key and to strut |
