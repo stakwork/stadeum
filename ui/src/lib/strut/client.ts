@@ -200,15 +200,287 @@ export async function getModelCatalog(): Promise<StrutModelCatalog> {
 }
 
 /**
- * `PUT /secrets/:name { value }`: one of strut's deployment settings, such
- * as `STRUT_DEFAULT_MODEL`, which strut reads from its secret store before
- * its env. Throws on failure; never logs the value.
+ * `PUT /secrets/:name { value }`: one of strut's deployment secrets. Either
+ * a setting, such as `STRUT_DEFAULT_MODEL`, which strut reads from its
+ * secret store before its env, or a key a package's steps read (the
+ * Packages page). Throws on failure; never logs the value.
  */
 export async function putDeploymentSetting(name: string, value: string): Promise<void> {
   if (!SECRET_NAME_RE.test(name)) throw new Error(`invalid setting name ${name}`);
   const path = `/secrets/${name}`;
   const res = await strutFetch("PUT", path, { value });
   if (!res.ok) await fail("PUT", path, res);
+}
+
+/**
+ * `GET /secrets`: the names in strut's deployment secret store, never a
+ * value. A name strut's own environment sets is not among them.
+ */
+export async function listDeploymentSecretNames(): Promise<string[]> {
+  const res = await strutFetch("GET", "/secrets");
+  if (!res.ok) await fail("GET", "/secrets", res);
+  const { secrets } = (await res.json()) as { secrets?: unknown };
+  if (!Array.isArray(secrets)) throw new Error("GET /secrets returned no secrets list");
+  return secrets.map((s) => (s && typeof s === "object" ? (s as { name?: unknown }).name : undefined)).filter((n): n is string => typeof n === "string");
+}
+
+// ── packages (strut specs/API.md §16) ───────────────────────────────────
+
+/**
+ * An install builds each app against strut's kit before it writes
+ * anything, and an uninstall waits on strut's one-write-at-a-time queue:
+ * minutes, not seconds.
+ */
+export const PACKAGE_WRITE_TIMEOUT_MS = 300_000;
+/** Strut gives each index 15 s to answer a search or a card read. */
+const PACKAGE_READ_TIMEOUT_MS = 30_000;
+
+/** What running a package (or one of its apps) reaches: model calls, a step that writes to the world, code of its own. */
+export interface PackageCan {
+  spends: boolean;
+  acts: boolean;
+  code: boolean;
+}
+
+/** One item of an installed package, by its full name. `modified`: edited here since the install. */
+export interface InstalledPackageItem {
+  kind: "workflow" | "step" | "app" | "concept";
+  name: string;
+  helper?: boolean;
+  installed?: string;
+  active?: string;
+  modified?: boolean;
+}
+
+/** One entry of `GET /packages` (strut `src/packages/installed.ts`). */
+export interface InstalledPackage {
+  package: string;
+  version?: string;
+  digest?: string;
+  source?: { ref: string; url?: string };
+  /** The secret names its steps read: the only ones they may. */
+  secrets: string[];
+  /** `distro`: the box's distro wrote it, and only the distro updates or removes it. */
+  door?: "install" | "distro";
+  items: InstalledPackageItem[];
+}
+
+/** One hit of `GET /packages/search`: a package's newest release on an index this strut follows. */
+export interface PackageHit {
+  package: string;
+  publisher: string;
+  version: string;
+  digest: string;
+  /** The followed index it came from: its id. */
+  index: string;
+  description?: string;
+  license?: string;
+  /** What the index read off the release's archive; absent until it has. */
+  detail?: {
+    apps: Array<{ name: string; title: string; description?: string }>;
+    workflows: number;
+    steps: number;
+    concepts: number;
+    secrets: string[];
+    can: PackageCan;
+  };
+  /** The catalog's `requires.secrets`, for a hit with no `detail` yet. */
+  secrets: string[];
+}
+
+/** An index this strut follows (`GET /packages/indexes`), and its last read. */
+export interface PackageIndex {
+  id: string;
+  key: string;
+  urls: string[];
+  label?: string;
+  read?: { at: string; publishers: number };
+  error?: string;
+}
+
+export interface InstallResult {
+  package: string;
+  /** Each package written, requirements first: its version, and `installed`, `present` or `updated`. */
+  packages: Array<{ package: string; version?: string; status: string; items: number }>;
+  /** Secrets the box cannot resolve yet: reported, never refused. */
+  missingSecrets: string[];
+  warnings: string[];
+}
+
+export interface UninstallResult {
+  removed: Array<{ kind: string; name: string }>;
+  /** Kept as the people here left them: a fork, an edited page. */
+  kept: Array<{ kind: string; name: string; reason: string }>;
+}
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : []);
+const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
+const readCan = (v: unknown): PackageCan => {
+  const c = (v ?? {}) as Record<string, unknown>;
+  return { spends: c.spends === true, acts: c.acts === true, code: c.code === true };
+};
+const ITEM_KINDS = ["workflow", "step", "app", "concept"] as const;
+const packagePath = (pkg: string) => `/packages/${pkg.split("/").map(encodeURIComponent).join("/")}`;
+
+/** `GET /packages`: what is installed, a fold over strut's workspace. */
+export async function listPackages(): Promise<InstalledPackage[]> {
+  const res = await strutFetch("GET", "/packages");
+  if (!res.ok) await fail("GET", "/packages", res);
+  const { packages } = (await res.json()) as { packages?: unknown };
+  if (!Array.isArray(packages)) throw new Error("GET /packages returned no packages list");
+  return packages
+    .filter((p): p is Record<string, unknown> => !!p && typeof p === "object" && typeof (p as { package?: unknown }).package === "string")
+    .map((p) => {
+      const source = p.source as { ref?: unknown; url?: unknown } | undefined;
+      return {
+        package: p.package as string,
+        ...(str(p.version) ? { version: p.version as string } : {}),
+        ...(str(p.digest) ? { digest: p.digest as string } : {}),
+        ...(source && typeof source.ref === "string" ? { source: { ref: source.ref, ...(str(source.url) ? { url: source.url as string } : {}) } } : {}),
+        secrets: strings(p.secrets),
+        ...(p.door === "install" || p.door === "distro" ? { door: p.door } : {}),
+        items: (Array.isArray(p.items) ? p.items : [])
+          .filter((i): i is Record<string, unknown> => !!i && typeof i === "object" && (ITEM_KINDS as readonly unknown[]).includes((i as { kind?: unknown }).kind) && typeof (i as { name?: unknown }).name === "string")
+          .map((i) => ({
+            kind: i.kind as InstalledPackageItem["kind"],
+            name: i.name as string,
+            ...(i.helper === true ? { helper: true } : {}),
+            ...(str(i.installed) ? { installed: i.installed as string } : {}),
+            ...(str(i.active) ? { active: i.active as string } : {}),
+            ...(typeof i.modified === "boolean" ? { modified: i.modified } : {}),
+          })),
+      };
+    });
+}
+
+/**
+ * `GET /packages/search?q=&peers=0`: the indexes strut follows, each hit
+ * with what it brings. Peers' installs are left out: a hit is installed by
+ * its name, through an index, and a peer's is not one. `errors`: an index
+ * that could not be read, and why.
+ */
+export async function searchPackages(q: string, limit = 50): Promise<{ hits: PackageHit[]; errors: Array<{ index: string; error: string }> }> {
+  const path = `/packages/search?${new URLSearchParams({ q, limit: String(limit), peers: "0" })}`;
+  const res = await strutFetch("GET", path, undefined, PACKAGE_READ_TIMEOUT_MS);
+  if (!res.ok) await fail("GET", "/packages/search", res);
+  const data = (await res.json()) as { packages?: unknown; errors?: unknown };
+  const hits = (Array.isArray(data.packages) ? data.packages : [])
+    .filter((h): h is Record<string, unknown> => !!h && typeof h === "object" && typeof (h as { package?: unknown }).package === "string")
+    .map((h): PackageHit => {
+      const d = h.detail as Record<string, unknown> | undefined;
+      const requires = h.requires as { secrets?: unknown } | undefined;
+      return {
+        package: h.package as string,
+        publisher: str(h.publisher) ?? (h.package as string).split("/")[0]!,
+        version: str(h.version) ?? "",
+        digest: str(h.digest) ?? "",
+        index: str(h.index) ?? "",
+        ...(str(h.description) ? { description: h.description as string } : {}),
+        ...(str(h.license) ? { license: h.license as string } : {}),
+        ...(d && typeof d === "object"
+          ? {
+              detail: {
+                apps: (Array.isArray(d.apps) ? d.apps : [])
+                  .filter((a): a is Record<string, unknown> => !!a && typeof a === "object" && typeof (a as { name?: unknown }).name === "string")
+                  .map((a) => ({ name: a.name as string, title: str(a.title) ?? (a.name as string), ...(str(a.description) ? { description: a.description as string } : {}) })),
+                workflows: typeof d.workflows === "number" ? d.workflows : 0,
+                steps: typeof d.steps === "number" ? d.steps : 0,
+                concepts: typeof d.concepts === "number" ? d.concepts : 0,
+                secrets: strings(d.secrets),
+                can: readCan(d.can),
+              },
+            }
+          : {}),
+        secrets: strings(requires?.secrets),
+      };
+    });
+  const errors = (Array.isArray(data.errors) ? data.errors : [])
+    .filter((e): e is { index: string; error: unknown } => !!e && typeof e === "object" && typeof (e as { index?: unknown }).index === "string")
+    .map((e) => ({ index: e.index, error: String(e.error ?? "") }));
+  return { hits, errors };
+}
+
+const readIndex = (i: Record<string, unknown>): PackageIndex => {
+  const read = i.read as { at?: unknown; publishers?: unknown } | undefined;
+  return {
+    id: String(i.id),
+    key: String(i.key ?? ""),
+    urls: strings(i.urls),
+    ...(str(i.label) ? { label: i.label as string } : {}),
+    ...(read && typeof read === "object" ? { read: { at: String(read.at ?? ""), publishers: typeof read.publishers === "number" ? read.publishers : 0 } } : {}),
+    ...(str(i.error) ? { error: i.error as string } : {}),
+  };
+};
+
+/** `GET /packages/indexes`: the indexes strut follows, in order: a name resolves through the first whose card lists its publisher. */
+export async function listPackageIndexes(): Promise<PackageIndex[]> {
+  const res = await strutFetch("GET", "/packages/indexes");
+  if (!res.ok) await fail("GET", "/packages/indexes", res);
+  const { indexes } = (await res.json()) as { indexes?: unknown };
+  if (!Array.isArray(indexes)) throw new Error("GET /packages/indexes returned no indexes list");
+  return indexes.filter((i): i is Record<string, unknown> => !!i && typeof i === "object" && typeof (i as { id?: unknown }).id === "string").map(readIndex);
+}
+
+/**
+ * `PUT /packages/indexes/:id { key, urls, label? }`: follow an index, by its
+ * key, replacing the record of that id. Strut reads its card at once: a
+ * wrong key or address is the answer's `error`, not a refusal.
+ */
+export async function followPackageIndex(id: string, body: { key: string; urls: string[]; label?: string }): Promise<PackageIndex> {
+  const path = `/packages/indexes/${encodeURIComponent(id)}`;
+  const res = await strutFetch("PUT", path, body, PACKAGE_READ_TIMEOUT_MS);
+  if (!res.ok) await fail("PUT", path, res);
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  return readIndex({ id, ...body, ...data });
+}
+
+/** `DELETE /packages/indexes/:id`. `false` when strut followed no such index. */
+export async function unfollowPackageIndex(id: string): Promise<boolean> {
+  const path = `/packages/indexes/${encodeURIComponent(id)}`;
+  const res = await strutFetch("DELETE", path);
+  if (res.status === 404) return false;
+  if (!res.ok) await fail("DELETE", path, res);
+  return true;
+}
+
+/**
+ * `POST /packages/install { ref, index?, digest? }` as `actor`: a bare
+ * `publisher/name` resolves through the followed indexes (the one `index`
+ * names), and is checked against the publisher's own signed catalog. A
+ * refusal throws a StrutHttpError whose `detail` starts with strut's code
+ * (`package_conflict: …`).
+ */
+export async function installPackage(ref: string, opts: { index?: string; digest?: string }, actor: string): Promise<InstallResult> {
+  const body = { ref, ...(opts.index ? { index: opts.index } : {}), ...(opts.digest ? { digest: opts.digest } : {}) };
+  const res = await strutFetch("POST", "/packages/install", body, PACKAGE_WRITE_TIMEOUT_MS, actor);
+  if (!res.ok) await fail("POST", "/packages/install", res);
+  const d = (await res.json()) as { package?: unknown; packages?: unknown; missing?: { secrets?: unknown }; warnings?: unknown };
+  return {
+    package: str(d.package) ?? ref,
+    packages: (Array.isArray(d.packages) ? d.packages : [])
+      .filter((p): p is Record<string, unknown> => !!p && typeof p === "object" && typeof (p as { package?: unknown }).package === "string")
+      .map((p) => ({
+        package: p.package as string,
+        ...(str(p.version) ? { version: p.version as string } : {}),
+        status: str(p.status) ?? "installed",
+        items: Array.isArray(p.items) ? p.items.length : 0,
+      })),
+    missingSecrets: strings(d.missing?.secrets),
+    warnings: strings(d.warnings),
+  };
+}
+
+/** `DELETE /packages/:publisher/:name` as `actor`: what went, and what stayed. */
+export async function uninstallPackage(pkg: string, actor: string): Promise<UninstallResult> {
+  const path = packagePath(pkg);
+  const res = await strutFetch("DELETE", path, undefined, PACKAGE_WRITE_TIMEOUT_MS, actor);
+  if (!res.ok) await fail("DELETE", path, res);
+  const d = (await res.json()) as { removed?: unknown; kept?: unknown };
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === "object") : []);
+  return {
+    removed: list(d.removed).map((r) => ({ kind: String(r.kind ?? ""), name: String(r.name ?? "") })),
+    kept: list(d.kept).map((r) => ({ kind: String(r.kind ?? ""), name: String(r.name ?? ""), reason: String(r.reason ?? "") })),
+  };
 }
 
 // ── apps (strut specs/API.md §14) ───────────────────────────────────────

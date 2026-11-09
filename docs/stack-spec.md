@@ -21,7 +21,7 @@ but maple (`ui/src/lib/status.ts`, `SERVICES`).
 | `strut` | `ghcr.io/stakwork/strut:stable` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
 | `voice` | `sphinxlightning/sphinx-voice:stable` | A person's voice call with the assistant (sphinx-voice's 1:1 mode): the LiveKit room and the agent in it | None (stadeum-ui never calls it) |
 | `bootstrap` | `node:22.20.0-alpine` | One shot: org signing key + trust registration | Org key registered with bifrost, same key as stadeum-ui's |
-| `stadeum-ui` | `ghcr.io/stakwork/stadeum-ui:stable` (built from `ui/`) | Sign-in, the person, Calls, Members, Status, Updates, Backups | Running (it serves the page) |
+| `stadeum-ui` | `ghcr.io/stakwork/stadeum-ui:stable` (built from `ui/`) | Sign-in, the person, Calls, Members, Packages, Status, Updates, Backups | Running (it serves the page) |
 | `ops` | `ghcr.io/stakwork/stadeum-ops:stable` (built from `ops/`, carrying `stack/`) | stadeum's releases, strut's updates, backups; the Docker socket | Reported in the last 3 minutes |
 
 stadeum-ui has no Docker socket, so it cannot see container state; each
@@ -212,7 +212,8 @@ checked".
   already installed is left alone, so the list never updates anything. A
   failed install is logged and tried again at the next boot; it never holds
   the box. Stadeum passes the value through and knows nothing of what is
-  in it.
+  in it. After boot, an admin installs and uninstalls on the Packages page
+  (stadeum-ui, below).
 - Healthcheck: `GET /health`, which answers `{ ok }` without the key.
   `start_period` 180 s: the first boot seeds the schema and ontology and
   fetches the embedding model before it listens.
@@ -294,7 +295,17 @@ checked".
   `GET/PUT/DELETE /llm/delegations[/:actor]` (each person's delegation),
   `PUT /actors/:actor/secrets/:NAME`, `POST /auth/ticket` (the frame, and
   a call's artifact), `POST /voice/calls` with the person as
-  `x-strut-actor` (a call).
+  `x-strut-actor` (a call), and for the Packages page `GET /packages`,
+  `GET /packages/search`, `GET/PUT/DELETE /packages/indexes[/:id]`,
+  `POST /packages/install` and `DELETE /packages/:publisher/:name` with
+  the admin as `x-strut-actor`, `GET /secrets` (names) and
+  `PUT /secrets/:name`.
+- **Sign-in comes back.** A signed-out visitor is sent to
+  `/signin?next=<the page, query and all>` and lands there after signing
+  in. The middleware (`ui/src/middleware.ts`) hands each page its own
+  address in `x-stadeum-path`, set by it whatever the request carried;
+  `next` is kept only as a path on this site, never sign-in or the API
+  (`ui/src/lib/next-path.ts`).
 - **The frame.** Per page load the server mints a sign-in ticket for the
   person (`POST /auth/ticket { actor, role }` → `{ ticket, expiresAt }`, good
   once for 60 s; `role` is the person's stadeum role, `admin` or `member`:
@@ -303,6 +314,38 @@ checked".
   `{STRUT_PUBLIC_URL}/?ticket=<ticket>&embed_origin=<stadeum origin>[&wf=&run=]`.
   strut's UI trades the ticket for its own session cookie as that person and
   takes it off the URL (strut `specs/API.md` §13.1).
+- **Packages** (admins; `ui/src/app/(app)/packages/`, strut `specs/API.md`
+  §16). Installed: each package, its version, apps, workflows, steps and
+  Concepts (an item edited here is marked), and the secrets its steps read
+  that strut's store has no value for (`GET /secrets` names against the
+  package's `secrets`), each with a write-only field that `PUT`s it to
+  strut's deployment store. Only a name an installed package declares is
+  set there, never `STRUT_DEFAULT_MODEL` or `STRUT_MODELS`. Uninstall asks
+  first and says what strut kept. Find: `GET /packages/search` over the
+  indexes strut follows (peers' installs are left out: a hit is installed
+  by its name through an index), each hit with what the index read off the
+  release: what it brings, whether it spends model calls, acts on the
+  world or runs code, and its secrets. Install asks first with the same
+  facts, then `POST /packages/install { ref: <name>, index, digest }`: the
+  release reviewed, through the index that listed it, as the admin.
+  Strut's refusals are said plainly, strut's own words after
+  (`package_update_not_built`: uninstall first; `package_busy`,
+  `package_conflict`, `package_distro_owned`, `catalog_*`). Indexes: the
+  ones strut follows, a form to follow one by its key and card address
+  (filed under its host, as strut's own UI does), and Remove.
+- **The store's Install link.** The store (`https://index.stakwork.ai/?store=1`)
+  opens `<the address a visitor saved>/?install=<publisher/name>&index=<z-base-32 key>&index_url=<its card>`,
+  keeping the saved path: an admin who saves `https://<HOST>/packages`
+  lands on this page (Next drops the trailing slash and keeps the query;
+  signed out, they come back to it after sign-in). The page reads it as
+  strut's shell does (`parseInstallLink`: a package name; the index only
+  with a 52-character z-base-32 key and an http(s) address). When strut
+  follows no index with that key, the page shows the key and offers
+  Follow this index (`PUT /packages/indexes/<its host> { key, urls:
+  [index_url], label }`); then, or at once when it does, it opens the
+  package's confirmation. Nothing installs on load: Install is always the
+  admin's click. A link never replaces another key filed under the same
+  host: the admin removes that index first.
 - **Calls.** The one live thing stadeum draws: a strut app's frame cannot
   carry media. The `(app)` layout holds the call (`ui/src/components/call.tsx`),
   so it goes on while the person moves between pages, the framed apps among

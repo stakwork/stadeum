@@ -27,12 +27,16 @@ export function SignInChoices({
   google,
   dev,
   devAvailable,
+  next,
 }: {
-  microsoft: () => Promise<void>;
-  google: () => Promise<void>;
+  microsoft: (form: FormData) => Promise<void>;
+  google: (form: FormData) => Promise<void>;
   dev: (form: FormData) => Promise<void>;
   devAvailable: boolean;
+  /** The page to come back to after sign-in. */
+  next?: string;
 }) {
+  const back = next ? <input type="hidden" name="next" value={next} /> : null;
   const [devOn, setDevOn] = useState(false);
   // Only a toggle animates; restoring the saved state on load just shows it.
   const [animate, setAnimate] = useState(false);
@@ -85,12 +89,14 @@ export function SignInChoices({
       <div className="grid">
         <div className={`${pane} ${showDev ? hidden : shown}`} inert={showDev} aria-hidden={showDev}>
           <form action={microsoft}>
+            {back}
             <button type="submit" data-ink-button className={`${buttonClass.ink} h-12 w-full gap-3`}>
               <MicrosoftMark />
               Continue with Microsoft
             </button>
           </form>
           <form action={google}>
+            {back}
             <button type="submit" className={`${buttonClass.secondary} h-12 w-full`}>
               Continue with Google
             </button>
@@ -99,6 +105,7 @@ export function SignInChoices({
 
         {devAvailable && (
           <form action={dev} className={`${pane} ${showDev ? shown : hidden}`} inert={!showDev} aria-hidden={!showDev}>
+            {back}
             <label htmlFor="dev-email" className="sr-only">
               Email
             </label>
