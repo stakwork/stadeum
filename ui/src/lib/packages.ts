@@ -116,7 +116,15 @@ export function canWords(can: PackageCan): string[] {
 export const hitSecrets = (hit: PackageHit) => (hit.detail ? hit.detail.secrets : hit.secrets);
 
 /** An installed package's items a person recognises: helpers left out, by kind. */
-export function itemsByKind(pkg: InstalledPackage): Array<{ kind: string; label: string; items: InstalledPackage["items"] }> {
+/**
+ * How many of a kind the Installed list names; past that it says how many.
+ * Concepts are a package's knowledge, often hundreds of pages: their number
+ * says more than their names. Apps, workflows and steps are used by name.
+ */
+const NAMED_UP_TO: Record<string, number> = { concept: 5 };
+const NAMED_DEFAULT = 12;
+
+export function itemsByKind(pkg: InstalledPackage): Array<{ kind: string; label: string; items: InstalledPackage["items"]; named: boolean }> {
   const kinds = [
     ["app", "Apps"],
     ["workflow", "Workflows"],
@@ -124,7 +132,10 @@ export function itemsByKind(pkg: InstalledPackage): Array<{ kind: string; label:
     ["concept", "Concepts"],
   ] as const;
   return kinds
-    .map(([kind, label]) => ({ kind, label, items: pkg.items.filter((i) => i.kind === kind && !i.helper) }))
+    .map(([kind, label]) => {
+      const items = pkg.items.filter((i) => i.kind === kind && !i.helper);
+      return { kind, label, items, named: items.length <= (NAMED_UP_TO[kind] ?? NAMED_DEFAULT) };
+    })
     .filter((g) => g.items.length > 0);
 }
 

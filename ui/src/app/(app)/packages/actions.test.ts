@@ -68,7 +68,7 @@ describe("the store's link", () => {
     if ("error" in found) throw new Error(found.error);
     const hit = found.hits.find((h) => h.package === link.pkg && h.index === "index-stakwork-ai")!;
     expect(hit).toMatchObject({ version: "1.0.0", digest: LEGAL_DESK.digest, publisher: "openlaw", license: "Apache-2.0" });
-    expect(hit.detail).toMatchObject({ apps: [{ name: "desk", title: "Legal desk" }], workflows: 4, steps: 3, concepts: 2, can: { spends: true, acts: true, code: true } });
+    expect(hit.detail).toMatchObject({ apps: [{ name: "desk", title: "Legal desk" }], workflows: 4, steps: 3, concepts: 12, can: { spends: true, acts: true, code: true } });
     expect(hit.detail?.secrets).toEqual(["COURTLISTENER_API_KEY", "GOOGLE_SERVICE_ACCOUNT_JSON", "SERPA_API_KEY"]);
     expect(fake.state.installed).toEqual([]);
     expect(packageCalls()).not.toContain("POST /strut/packages/install");
