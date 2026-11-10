@@ -128,6 +128,19 @@ body {
   background: color-mix(in oklab, var(--accent) 22%, transparent);
 }
 
+/*
+ * One rule for what a person can press: the hand on every enabled button,
+ * select, checkbox, radio, file or color input, summary, and a label that
+ * toggles one, as on a link; the arrow on a disabled one. Tailwind 4 leaves
+ * buttons on the arrow. In the base layer, so a utility (cursor-grab) wins.
+ */
+@layer base {
+  :is(button, [role="button"], select, summary, input:is([type="checkbox"], [type="radio"], [type="file"], [type="color"], [type="submit"], [type="button"], [type="reset"])):not(:disabled, [aria-disabled="true"]),
+  label:has(input:is([type="checkbox"], [type="radio"]):not(:disabled)) {
+    cursor: pointer;
+  }
+}
+
 /* Elements marked data-own-ring draw their own (see the sign-in Dev switch). */
 :focus-visible:not([data-own-ring]) {
   outline: 2px solid var(--accent);

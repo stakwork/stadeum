@@ -115,7 +115,7 @@ function Stage({ call, risen }: { call: Call; risen: boolean }) {
   return (
     <div className={`flex flex-col items-center px-5 text-center transition-[padding] duration-700 ease-out-soft ${risen ? "pt-6 pb-3 md:pt-8" : "py-4"}`}>
       {idle && !risen ? (
-        <button type="button" onClick={call.talk} aria-label={`Talk to ${call.assistant}`} className={`${orb} group cursor-pointer transition-transform hover:scale-[1.03] active:scale-[0.98]`}>
+        <button type="button" onClick={call.talk} aria-label={`Talk to ${call.assistant}`} className={`${orb} group transition-transform hover:scale-[1.03] active:scale-[0.98]`}>
           <Waveform mode={waveMode(call)} levels={call.levels} height={64} />
         </button>
       ) : (

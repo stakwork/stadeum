@@ -341,7 +341,7 @@ function ColorPicker({
             aria-label={`${label}: any color`}
             value={value ?? "#4f46e5"}
             onChange={(e) => onChange(parseHex(e.target.value) ?? undefined)}
-            className="peer absolute inset-0 z-10 size-full cursor-pointer rounded-full opacity-0"
+            className="peer absolute inset-0 z-10 size-full rounded-full opacity-0"
           />
           <span aria-hidden className="absolute inset-0 rounded-full peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-accent" style={{ background: RAINBOW }} />
           {custom && (
