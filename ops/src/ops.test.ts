@@ -91,8 +91,11 @@ describe("the loop", () => {
     at("2026-11-05T12:01:00Z");
     stadeum.current = settings({ requests: [{ id: "r1", kind: "check", at: "2026-11-05T12:00:30Z" }] });
     await ops.tick();
+    // A person waits on it: ops says it is checking, then idle with the answer.
+    expect(stadeum.statuses.at(-2)).toMatchObject({ phase: "checking", detail: "Asking the registries what the channels name" });
     const last = stadeum.statuses.at(-1)!;
-    expect(last.done).toEqual(["r1"]);
+    expect(last).toMatchObject({ phase: "idle", done: ["r1"] });
+    expect(last.detail).toBeUndefined();
     expect(last.checkedAt).toBe("2026-11-05T12:01:00.000Z");
     expect(last.services.find((s) => s.service === "strut")?.latest).toMatchObject({ digest: "sha256:strut-2", current: false, revision: "strut-2" });
     // strut's 3.7 GB stays on the registry until the window, or Update now.
@@ -117,8 +120,23 @@ describe("the loop", () => {
     // The one-off applies it: here nothing of the release moved but the tags it starts on.
     expect(stack.containers.get("stadeum-ui")).toBe("sha256:stadeum-ui-1");
     expect(stack.tags.get("ghcr.io/stakwork/stadeum-ui:stable")).toBe("sha256:ui-2");
-    // The status saying it is done went out before the hand-over.
-    expect(stadeum.statuses.at(-1)!.done).toEqual(["r2"]);
+    // The status saying it is done went out before the hand-over, and says the release is going in, not idle.
+    const last = stadeum.statuses.at(-1)!;
+    expect(last.done).toEqual(["r2"]);
+    expect(last).toMatchObject({ phase: "updating", detail: "Handing release ops-1 → ops-2 to the ops it brings" });
+  });
+
+  it("says when the ops a release brings did not start, and is idle again", async () => {
+    const { ops, stadeum, stack } = setup();
+    stack.release("sha256:ops-2", stack.releases.get("sha256:ops-1")!, "sha256:ui-2");
+    stack.spawnSelf = async () => {
+      throw new Error("no such image");
+    };
+    stadeum.current = settings({ requests: [{ id: "r6", kind: "update", at: "2026-11-05T11:59:00Z" }] });
+    await ops.tick();
+    expect(stadeum.events.at(-1)).toMatchObject({ kind: "update", outcome: "failed", detail: expect.stringContaining("did not start (no such image)") });
+    expect(stadeum.statuses.at(-1)!.phase).toBe("idle");
+    expect(stack.tags.get("ghcr.io/stakwork/stadeum-ui:stable")).toBe("sha256:stadeum-ui-1");
   });
 
   it("keeps still while a release is being applied", async () => {

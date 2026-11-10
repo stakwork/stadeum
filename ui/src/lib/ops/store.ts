@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { OpsEvent, OpsSettings, OpsStatus, RequestKind } from "./contract";
 import { build, isKind, restoreKit, validate, type Kind, type Values } from "./destination";
+import { ASKED, updatesNow, type Asked, type AskedRow, type UpdatesNow } from "./progress";
 
 /**
  * The box's upkeep as stadeum-ui keeps it: the settings ops reads, the
@@ -176,6 +177,28 @@ export async function request(kind: RequestKind, target?: string): Promise<void>
 
 export async function openRequests(): Promise<RequestKind[]> {
   return (await db.opsRequest.findMany({ where: { doneAt: null } })).map((r) => r.kind as RequestKind);
+}
+
+/** The Updates page's live part: what ops says now, and the latest Check now and Update now with what came of each (progress.ts). */
+export async function liveUpdates(now = new Date()): Promise<UpdatesNow> {
+  const [report, open, rows, lastDone] = await Promise.all([
+    readStatus(),
+    openRequests(),
+    Promise.all(ASKED.map((kind) => db.opsRequest.findFirst({ where: { kind }, orderBy: { createdAt: "desc" } }))),
+    // Done in the same answer, an update answers the check asked with it: "update" sorts after "check".
+    db.opsRequest.findFirst({ where: { kind: { in: [...ASKED] }, doneAt: { not: null } }, orderBy: [{ doneAt: "desc" }, { kind: "desc" }], select: { id: true } }),
+  ]);
+  const latest: AskedRow[] = rows.flatMap((r) => (r ? [{ id: r.id, kind: r.kind as Asked, createdAt: r.createdAt, doneAt: r.doneAt }] : []));
+  const since = latest.reduce<Date | null>((min, r) => (!min || r.createdAt < min ? r.createdAt : min), null);
+  const events = since
+    ? (await db.opsEvent.findMany({ where: { createdAt: { gte: since } }, orderBy: { createdAt: "asc" }, take: 50 })).map((e) => ({
+        kind: e.kind as OpsEvent["kind"],
+        outcome: e.outcome as OpsEvent["outcome"],
+        detail: e.detail,
+        createdAt: e.createdAt,
+      }))
+    : [];
+  return updatesNow({ now, report, open, latest, lastDone: lastDone?.id ?? null, events });
 }
 
 // ── what ops says ───────────────────────────────────────────────────────

@@ -3,16 +3,18 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { buttonClass } from "@/components/button";
-import { History, OpsNow, shortImage, tagOf } from "@/components/ops";
+import { Submit } from "@/components/form";
+import { History, shortImage, tagOf } from "@/components/ops";
 import { PageHeader, SectionLabel } from "@/components/page-header";
 import { Dot } from "@/components/state";
 import { absoluteTime, relativeTime } from "@/lib/format";
 import { channelLine } from "@/lib/ops/channel";
 import type { ReleaseStatus, ServiceImage } from "@/lib/ops/contract";
-import { history, openRequests, readStatus, settingsForOps, settingsRow } from "@/lib/ops/store";
+import { history, liveUpdates, readStatus, settingsForOps, settingsRow } from "@/lib/ops/store";
 import { requireAdmin } from "@/lib/session";
-import { checkNow, confirmRelease, updateNow } from "./actions";
+import { confirmRelease } from "./actions";
 import { ScheduleForm } from "./forms";
+import { AskButtons, LiveUpdates, NowPanel } from "./live";
 
 export const metadata: Metadata = { title: "Updates" };
 export const dynamic = "force-dynamic";
@@ -32,10 +34,10 @@ const upgrade = (held: NonNullable<ReleaseStatus["held"]>) =>
 
 export default async function UpdatesPage() {
   await requireAdmin();
-  const [row, report, asked, entries, forOps] = await Promise.all([
+  const [row, report, live, entries, forOps] = await Promise.all([
     settingsRow(),
     readStatus(),
-    openRequests(),
+    liveUpdates(),
     history(["update"]),
     settingsForOps(),
   ]);
@@ -46,25 +48,12 @@ export default async function UpdatesPage() {
   const checkedAt = report?.status.checkedAt;
   const release = report?.status.release;
   const held = release?.held ?? [];
-  const confirming = asked.includes("confirm");
+  const confirming = live.asked.includes("confirm");
 
   return (
-    <>
-      <PageHeader
-        title="Updates"
-      >
-        <div className="flex flex-wrap gap-3">
-          <form action={checkNow}>
-            <button type="submit" className={buttonClass.secondary}>
-              Check now
-            </button>
-          </form>
-          <form action={updateNow}>
-            <button type="submit" className={buttonClass.primary}>
-              Update now
-            </button>
-          </form>
-        </div>
+    <LiveUpdates initial={live}>
+      <PageHeader title="Updates">
+        <AskButtons />
       </PageHeader>
 
       {held.length > 0 && (
@@ -82,9 +71,9 @@ export default async function UpdatesPage() {
           ) : forOps.backups ? (
             <form action={confirmRelease}>
               <input type="hidden" name="target" value={held.map((h) => h.to).join(",")} />
-              <button type="submit" className={buttonClass.primary}>
+              <Submit className={buttonClass.primary} pendingLabel="Confirming…">
                 Upgrade {held.length === 1 ? named(held[0]!.service) : "them"}
-              </button>
+              </Submit>
             </form>
           ) : (
             <p className="text-[14px] text-ink-2">
@@ -101,7 +90,7 @@ export default async function UpdatesPage() {
       <section aria-labelledby="now" className="flex flex-col gap-3">
         <SectionLabel id="now">Now</SectionLabel>
         <div className="flex flex-col gap-4 rounded-[14px] border border-rule bg-surface p-5 md:p-6">
-          <OpsNow report={report} asked={asked} />
+          <NowPanel />
           <p className="text-[13px] text-ink-3">
             {row.updatesEnabled ? (
               <>
@@ -186,7 +175,7 @@ export default async function UpdatesPage() {
         <SectionLabel id="history">History</SectionLabel>
         <History entries={entries} empty="Nothing has been updated yet." />
       </section>
-    </>
+    </LiveUpdates>
   );
 }
 

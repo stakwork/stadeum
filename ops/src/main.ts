@@ -148,16 +148,18 @@ async function main(argv: string[]): Promise<number> {
         return { kind: "update" as const, outcome: "failed" as const, startedAt: at, endedAt: at, detail: `Applying the release failed: ${errorText(err)}` };
       });
       await ops.refresh();
-      await ops.report({ phase: "idle" });
-      if (!event) return 0;
-      log(`${event.kind} ${event.outcome}: ${event.detail}`);
-      // stadeum-ui may just have been recreated: give it a while to take the history.
-      await ops.record(event);
-      for (let i = 0; i < 24 && ops.unsent; i++) {
-        await sleep(5_000);
-        await ops.flush();
+      if (event) {
+        log(`${event.kind} ${event.outcome}: ${event.detail}`);
+        // stadeum-ui may just have been recreated: give it a while to take the history.
+        await ops.record(event);
+        for (let i = 0; i < 24 && ops.unsent; i++) {
+          await sleep(5_000);
+          await ops.flush();
+        }
       }
-      return event.outcome === "ok" ? 0 : 1;
+      // Idle only once the history has it: the Updates page reads the outcome when ops goes idle.
+      await ops.report({ phase: "idle" });
+      return !event || event.outcome === "ok" ? 0 : 1;
     }
     default:
       console.error(`unknown command ${cmd}: run, check, update, backup, snapshots, restore [snapshot]`);

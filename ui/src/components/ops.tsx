@@ -1,22 +1,10 @@
 import { Dot, type Tone } from "@/components/state";
 import { absoluteTime, relativeTime } from "@/lib/format";
-import type { ImageRef, OpsEvent, OpsStatus, Phase, RequestKind } from "@/lib/ops/contract";
+import type { ImageRef, OpsEvent, OpsStatus, RequestKind } from "@/lib/ops/contract";
+import { PHASE, SILENT_MS } from "@/lib/ops/progress";
 import type { HistoryEntry } from "@/lib/ops/store";
 
 /** The Updates and Backups pages' shared parts: what ops is doing, and what it did. */
-
-/** ops reports every half minute when idle; longer than this and it is not answering. */
-const STALE_MS = 3 * 60_000;
-
-const PHASE: Record<Phase, string> = {
-  idle: "Idle",
-  checking: "Checking the channels",
-  draining: "Waiting for strut to finish its runs",
-  "backing-up": "Backing up",
-  updating: "Updating",
-  "rolling-back": "Putting the previous images and stack files back",
-  restoring: "Restoring",
-};
 
 const ASKED: Record<RequestKind, string> = { check: "a check", update: "an update", backup: "a backup", confirm: "the held release, after a backup" };
 
@@ -25,7 +13,7 @@ export function OpsNow({
   asked,
   now = new Date(),
 }: {
-  report: { status: OpsStatus; reportedAt: Date } | null;
+  report: { status: Pick<OpsStatus, "phase" | "detail">; reportedAt: Date | string } | null;
   asked: RequestKind[];
   now?: Date;
 }) {
@@ -40,12 +28,16 @@ export function OpsNow({
         Is its container running? <code className="font-mono text-[12.5px]">docker compose … logs ops</code>
       </>
     );
-  } else if (report.status.phase === "idle" && now.getTime() - report.reportedAt.getTime() > STALE_MS) {
+  } else if (report.status.phase === "idle" && now.getTime() - new Date(report.reportedAt).getTime() > SILENT_MS) {
     tone = "attention";
     label = "ops is not answering";
     note = (
       <>
-        Last heard from <time title={absoluteTime(report.reportedAt)}>{relativeTime(report.reportedAt, now)}</time>.
+        Last heard from{" "}
+        <time title={absoluteTime(report.reportedAt)} suppressHydrationWarning>
+          {relativeTime(report.reportedAt, now)}
+        </time>
+        .
       </>
     );
   } else {
