@@ -73,7 +73,7 @@ export const LEGAL_DESK: FakeRelease = {
     apps: [{ name: "desk", title: "Legal desk", description: "Matters, research and filings.", can: { spends: true, acts: true, code: true } }],
     workflows: 4,
     steps: 3,
-    concepts: 2,
+    concepts: 12,
     secrets: ["COURTLISTENER_API_KEY", "GOOGLE_SERVICE_ACCOUNT_JSON", "SERPA_API_KEY"],
     can: { spends: true, acts: true, code: true },
     readme: true,
@@ -88,8 +88,7 @@ export const LEGAL_DESK: FakeRelease = {
     { kind: "step", name: "serpa-search" },
     { kind: "step", name: "drive-upload" },
     { kind: "step", name: "_http", helper: true },
-    { kind: "concept", name: "Legal" },
-    { kind: "concept", name: "Matter" },
+    ...["Legal", "Matter", "Party", "Contract", "Clause", "Filing", "Court", "Judge", "Statute", "Precedent", "Deadline", "Exhibit"].map((name) => ({ kind: "concept" as const, name })),
   ],
 };
 

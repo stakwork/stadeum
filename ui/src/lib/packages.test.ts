@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL } from "@/test/strut-packages";
-import { bringsWords, canWords, explainRefusal, indexIdOf, linkIndexState, parseInstallLink, secretsNeeded, settableSecret } from "./packages";
+import { bringsWords, canWords, explainRefusal, indexIdOf, itemsByKind, linkIndexState, parseInstallLink, secretsNeeded, settableSecret } from "./packages";
 import type { InstalledPackage } from "./strut/client";
 
 const KEY = STAKWORK_INDEX_KEY;
@@ -53,6 +53,25 @@ describe("what a package brings and can do", () => {
     expect(bringsWords({ apps: [{ name: "desk", title: "Desk" }], workflows: 4, steps: 1, concepts: 0, secrets: [], can })).toEqual(["1 app", "4 workflows", "1 step"]);
     expect(canWords(can)).toEqual(["Spends model calls", "Runs code"]);
     expect(canWords({ spends: false, acts: false, code: false })).toEqual(["Only reads"]);
+  });
+});
+
+describe("what an installed package holds", () => {
+  const pkg = (items: InstalledPackage["items"]): InstalledPackage => ({ package: "openlaw/legal-desk", secrets: [], items });
+  const many = (kind: "workflow" | "concept", n: number) => Array.from({ length: n }, (_, i) => ({ kind, name: `${kind}-${i}` }));
+
+  it("names a few Concepts, and counts more: they can be hundreds", () => {
+    expect(itemsByKind(pkg(many("concept", 5))).map((g) => [g.label, g.items.length, g.named])).toEqual([["Concepts", 5, true]]);
+    expect(itemsByKind(pkg(many("concept", 752))).map((g) => [g.label, g.items.length, g.named])).toEqual([["Concepts", 752, false]]);
+  });
+
+  it("names the apps, workflows and steps people use, unless there are very many; leaves the helpers out", () => {
+    const groups = itemsByKind(pkg([{ kind: "app", name: "openlaw/legal-desk/desk" }, ...many("workflow", 12), { kind: "step", name: "_http", helper: true }]));
+    expect(groups.map((g) => [g.label, g.items.length, g.named])).toEqual([
+      ["Apps", 1, true],
+      ["Workflows", 12, true],
+    ]);
+    expect(itemsByKind(pkg(many("workflow", 13)))[0]?.named).toBe(false);
   });
 });
 

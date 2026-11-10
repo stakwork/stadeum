@@ -301,16 +301,35 @@ function Items({ pkg }: { pkg: InstalledPackage }) {
         <div key={g.kind} className="contents">
           <dt className="text-ink-3">{g.label}</dt>
           <dd className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-ink-2">
-            {g.items.map((i) => (
-              <span key={i.name} className="font-mono text-[13px]" title={i.name}>
-                {shortName(pkg.package, i.name)}
-                {i.modified && <span className="ml-1 font-sans text-[12px] text-warn">edited here</span>}
-              </span>
-            ))}
+            {g.named ? (
+              g.items.map((i) => (
+                <span key={i.name} className="font-mono text-[13px]" title={i.name}>
+                  {shortName(pkg.package, i.name)}
+                  {i.modified && <span className="ml-1 font-sans text-[12px] text-warn">edited here</span>}
+                </span>
+              ))
+            ) : (
+              <Counted items={g.items} pkg={pkg.package} />
+            )}
           </dd>
         </div>
       ))}
     </dl>
+  );
+}
+
+/** Too many to name: how many, and which were edited here (an uninstall keeps those). */
+function Counted({ items, pkg }: { items: InstalledPackage["items"]; pkg: string }) {
+  const edited = items.filter((i) => i.modified);
+  return (
+    <span>
+      <span className="tabular">{items.length.toLocaleString("en-US")}</span>
+      {edited.length > 0 && (
+        <span className="ml-2 text-[12px] text-warn" title={edited.map((i) => shortName(pkg, i.name)).join(", ")}>
+          {edited.length} edited here
+        </span>
+      )}
+    </span>
   );
 }
 
