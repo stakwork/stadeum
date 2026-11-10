@@ -298,8 +298,8 @@ checked".
   `x-strut-actor` (a call), and for the Packages page `GET /packages`,
   `GET /packages/search`, `GET/PUT/DELETE /packages/indexes[/:id]`,
   `POST /packages/install` and `DELETE /packages/:publisher/:name` with
-  the admin as `x-strut-actor`, `GET /secrets` (names) and
-  `PUT /secrets/:name`.
+  the admin as `x-strut-actor`, `GET /packages/installs[/:id]`,
+  `GET /secrets` (names) and `PUT /secrets/:name`.
 - **Sign-in comes back.** A signed-out visitor is sent to
   `/signin?next=<the page, query and all>` and lands there after signing
   in. The middleware (`ui/src/middleware.ts`) hands each page its own
@@ -326,8 +326,16 @@ checked".
   by its name through an index), each hit with what the index read off the
   release: what it brings, whether it spends model calls, acts on the
   world or runs code, and its secrets. Install asks first with the same
-  facts, then `POST /packages/install { ref: <name>, index, digest }`: the
-  release reviewed, through the index that listed it, as the admin.
+  facts, then `POST /packages/install { ref: <name>, index, digest, wait:
+  false }`: the release reviewed, through the index that listed it, as
+  the admin. Strut answers at once with the install's record (stakwork/
+  strut#588; an older strut answers when it is done), and the dialog
+  reads `GET /packages/installs/:id` every 600 ms, not while the tab is
+  hidden, showing the phase and how far ("Concepts 312 / 752", a bar)
+  until it ends. Closing the dialog leaves the install going, shown under
+  Installing; so is any install strut was running when the page loaded
+  (`GET /packages/installs`: another admin's, a proposal someone
+  accepted, the boot list, the distro), until dismissed.
   Strut's refusals are said plainly, strut's own words after
   (`package_update_not_built`: uninstall first; `package_busy`,
   `package_conflict`, `package_distro_owned`, `catalog_*`). Indexes: the

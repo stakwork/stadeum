@@ -1,4 +1,4 @@
-import type { InstalledPackage, PackageCan, PackageHit, PackageIndex } from "@/lib/strut/client";
+import type { InstalledPackage, PackageCan, PackageHit, PackageIndex, PackageInstall } from "@/lib/strut/client";
 
 /**
  * The Packages page's reading of strut's packages (strut `specs/API.md`
@@ -191,4 +191,89 @@ export function explainRefusal(detail: string | undefined, status: number): stri
   const lead = LEADS[code] ?? (code.startsWith("catalog_") ? "The publisher’s catalog didn’t pass its checks, so nothing was installed." : undefined);
   if (!lead) return detail;
   return words ? `${lead} Strut says: ${words}` : lead;
+}
+
+// ── an install as it goes ────────────────────────────────────────────────
+
+/** An install's id as strut mints it (`inst_<16 hex>`). */
+export const INSTALL_ID_RE = /^inst_[0-9a-f]{8,64}$/;
+
+/** What an install wrote, as the page says it: what `POST /packages/install` answers once done. */
+export interface InstallDone {
+  package: string;
+  version?: string;
+  /** Every package of the set was here at that release already. */
+  already: boolean;
+  missingSecrets: string[];
+  warnings: string[];
+}
+
+/** An install as the page follows it: going, done, or refused. */
+export type InstallWatch = { id: string; ref: string; door: "install" | "distro" } & (
+  | { status: "queued" | "running"; phase: string; package?: string; done?: number; total?: number; result?: never; error?: never }
+  | { status: "done"; result: InstallDone; error?: never }
+  | { status: "failed"; error: string; result?: never }
+);
+
+/** Strut's install record, as the page shows it: a refusal in plain words, a result as the 201 gave it. */
+export function installWatch(s: PackageInstall): InstallWatch {
+  const base = { id: s.id, ref: s.ref, door: s.door };
+  if (s.status === "failed") return { ...base, status: "failed", error: explainRefusal(s.error, 500) };
+  if (s.status === "done" && s.result) {
+    const r = s.result;
+    const mine = r.packages.find((p) => p.package === r.package);
+    return {
+      ...base,
+      status: "done",
+      result: {
+        package: r.package,
+        ...(mine?.version ? { version: mine.version } : {}),
+        already: r.packages.every((p) => p.status === "present"),
+        missingSecrets: r.missingSecrets,
+        warnings: r.warnings,
+      },
+    };
+  }
+  return {
+    ...base,
+    status: s.status === "queued" ? "queued" : "running",
+    phase: s.phase,
+    ...(s.package ? { package: s.package } : {}),
+    ...(s.done !== undefined ? { done: s.done } : {}),
+    ...(s.total !== undefined ? { total: s.total } : {}),
+  };
+}
+
+/**
+ * Each phase in words, strut's own (`installProgressText`, strut
+ * `web/src/package-release.ts`). `queued` says less than strut's "Waiting
+ * for another install to finish": every install is queued when strut
+ * first answers, behind nothing, for a moment.
+ */
+const PHASES: Record<string, string> = {
+  queued: "Waiting to start",
+  resolving: "Fetching the package",
+  checking: "Checking it against this box",
+  types: "Graph types",
+  steps: "Steps",
+  workflows: "Workflows",
+  apps: "Building the apps",
+  concepts: "Concepts",
+  "concept-tree": "Concept tree",
+  retiring: "Removing what the release dropped",
+  claims: "Recording the claims",
+};
+
+/**
+ * What an install is doing, in a line — "Concepts 312 / 752" — and how
+ * far, 0..1, when the phase counts. A phase strut adds later shows by its
+ * name.
+ */
+export function installProgressText(w: InstallWatch): { text: string; fraction?: number } {
+  if (w.status === "done") return { text: "Installed", fraction: 1 };
+  if (w.status === "failed") return { text: "Failed" };
+  const label = PHASES[w.phase] ?? w.phase;
+  const of = w.package && w.package !== w.ref ? ` · ${w.package}` : "";
+  if (w.total !== undefined && w.total > 0 && w.done !== undefined) return { text: `${label} ${w.done} / ${w.total}${of}`, fraction: Math.min(1, w.done / w.total) };
+  return { text: `${w.phase === "types" && w.total ? `${label} (${w.total})` : label}${of}` };
 }

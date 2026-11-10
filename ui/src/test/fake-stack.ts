@@ -9,7 +9,9 @@
  *               the app page a ticket opens (it posts `strut:ready` to its
  *               host, as strut's does), /llm/delegations, /llm/models,
  *               /secrets[/:name], /actors/:actor/secrets, /packages (what is
- *               installed, search, install, uninstall, the indexes followed,
+ *               installed, search, install — with `wait: false` a record
+ *               that walks strut's phases over `state.installMs`, read at
+ *               /packages/installs[/:id] — uninstall, the indexes followed,
  *               over the indexes in `state.indexes`), /voice/calls (strut
  *               specs/API.md): a call's answer carries a real LiveKit token
  *               for `livekit` (default `livekit-server --dev`), but no agent
@@ -230,6 +232,12 @@ export interface FakeState {
   installed: Array<{ release: FakeRelease; door: "install" | "distro"; actor?: string; modified: string[] }>;
   /** Set to refuse the next package install or uninstall with this status and `error`. */
   refusePackage: { status: number; error: string } | null;
+  /** How long a package install takes, in ms: its record walks strut's phases over that time. 0: ended at the first read. */
+  installMs: number;
+  /** Every install asked for, oldest first: `GET /packages/installs[/:id]` reads them as they stand now. */
+  installs: FakeInstall[];
+  /** Set to answer an install as a strut from before `wait` (stakwork/strut#588): 201 once done, whatever `wait` says. */
+  installWaits: boolean;
   /** Sign-in tickets strut minted: who each signs in, as what, until when, whether spent. */
   tickets: Map<string, { actor: string; role: "admin" | "member"; exp: number; used: boolean }>;
   /** Set to make strut's /health report a drain. */
@@ -252,6 +260,31 @@ export interface FakeState {
     forward: { url: string; token: string } | null;
     calls: Array<{ actor: string; room: string }>;
   };
+}
+
+/** One phase of a fake install, as strut reports it. */
+interface FakeStep {
+  phase: string;
+  package?: string;
+  total?: number;
+}
+
+/** What a fake install will do: the 201's body, or the refusal; its phases; its writes. */
+type FakePlan = ({ status: 201; result: unknown; error?: never } | { status: number; error: string; result?: never }) & {
+  steps: FakeStep[];
+  commit?: () => void;
+};
+
+/** A fake install's record: when it started and how long it takes. */
+export interface FakeInstall {
+  id: string;
+  ref: string;
+  actor?: string;
+  startedAt: number;
+  ms: number;
+  steps: FakeStep[];
+  plan: FakePlan;
+  ended: boolean;
 }
 
 export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
@@ -285,6 +318,9 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     followed: [],
     installed: [],
     refusePackage: null,
+    installMs: 0,
+    installs: [],
+    installWaits: false,
     tickets: new Map(),
     drain: null,
     requests: [],
@@ -664,6 +700,129 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     });
   }
 
+  /** A followed index's card, when strut can read it: the key and an address must both be the index's. */
+  function cardOf(sub: { key: string; urls: string[] }) {
+    const ix = state.indexes.get(sub.key);
+    return ix && sub.urls.some((u) => ix.urls.includes(u)) ? ix : undefined;
+  }
+
+  /**
+   * What an install by name will do, decided now as strut's resolveName and
+   * install would: the refusal (as a failed record, under `wait: false`) or
+   * the result, with the writes to make once it is done.
+   */
+  function planInstall(ref: string, body: any, actor: string | undefined): FakePlan {
+    const no = (status: number, error: string): FakePlan => ({ status, error, steps: [] });
+    if (!/^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/.test(ref)) return no(400, `package_source_unsupported: the fake installs names only, not ${ref}`);
+    // As strut's resolveName: the index named first, then none followed at all.
+    const subs = body.index ? state.followed.filter((s) => s.id === body.index) : state.followed;
+    if (body.index && !subs.length) return no(404, `package_index_unknown: this strut server follows no index "${body.index}"`);
+    if (!subs.length) {
+      return no(400, `package_source_invalid: ${ref} is a name, and this strut server follows no index to look it up in — install by pk:<key>/${ref} with url, or follow one (PUT /packages/indexes/:id)`);
+    }
+    const [publisher] = ref.split("/");
+    const card = subs.map(cardOf).find((c) => c?.releases.some((r) => r.publisher === publisher));
+    if (!card) return no(404, `package_not_listed: no index this strut server follows lists the publisher ${publisher}`);
+    const release = card.releases.find((r) => r.package === ref);
+    if (!release) return no(404, `package_not_found: ${publisher}'s public catalog has no package ${ref}`);
+    if (body.digest && body.digest !== release.digest) return no(404, `package_not_published: ${ref} has no release ${body.digest}`);
+    const here = state.installed.find((p) => p.release.package === ref);
+    if (here?.door === "distro") return no(409, `package_distro_owned: ${ref} was installed by the distro: only it updates or removes it`);
+    const r = state.refusePackage;
+    state.refusePackage = null;
+    if (r) return no(r.status, r.error);
+    if (here && here.release.digest !== release.digest) {
+      return no(409, `package_update_not_built: ${ref} is installed here at ${here.release.digest}; updating it to ${release.digest} asks first, which is not built yet`);
+    }
+    const secrets = release.requires?.secrets ?? release.detail?.secrets ?? [];
+    const kinds = (k: string) => release.items.filter((i) => i.kind === k && !i.helper).length;
+    const concepts = Math.max(kinds("concept"), release.detail?.concepts ?? 0);
+    return {
+      status: 201,
+      result: {
+        package: ref,
+        digest: release.digest,
+        packages: [
+          {
+            package: ref,
+            version: release.version,
+            digest: release.digest,
+            source: { ref: `pk:${release.key}/${ref}`, url: release.urls[0] },
+            status: here ? "present" : "installed",
+            items: release.items.map((i) => ({ kind: i.kind, name: i.kind === "concept" ? i.name : `${ref}/${i.name}`, status: here ? "present" : "installed" })),
+          },
+        ],
+        missing: { secrets: secrets.filter((s) => !state.deploymentSecrets.has(s)).sort(), binaries: [], runtimes: [] },
+        warnings: [],
+      },
+      // Strut's phases, each with the counts it reports.
+      steps: [
+        { phase: "checking" },
+        ...(kinds("step") ? [{ phase: "steps", package: ref, total: kinds("step") }] : []),
+        ...(kinds("workflow") ? [{ phase: "workflows", package: ref, total: kinds("workflow") }] : []),
+        ...(kinds("app") ? [{ phase: "apps", package: ref, total: kinds("app") }] : []),
+        ...(concepts ? [{ phase: "concepts", package: ref, total: concepts }] : []),
+        ...(concepts > 1 ? [{ phase: "concept-tree", package: ref, total: concepts - 1 }] : []),
+        { phase: "claims", package: ref },
+      ],
+      commit: here
+        ? undefined
+        : () => {
+            state.installed.push({ release: structuredClone(release), door: "install", ...(actor ? { actor } : {}), modified: [] });
+            for (const app of release.detail?.apps ?? []) publish(`${ref}/${app.name}`, app.title);
+          },
+    };
+  }
+
+  /** Strut's install record over a plan: queued, fetching, the plan's phases, then done or failed, `ms` long. */
+  function startInstall(ref: string, actor: string | undefined, plan: FakePlan, ms: number): FakeInstall {
+    const rec: FakeInstall = {
+      id: `inst_${randomBytes(8).toString("hex")}`,
+      ref,
+      ...(actor ? { actor } : {}),
+      startedAt: Date.now(),
+      ms,
+      steps: [{ phase: "queued" }, { phase: "resolving" }, ...plan.steps],
+      plan,
+      ended: false,
+    };
+    state.installs.push(rec);
+    if (ms === 0) endInstall(rec);
+    else setTimeout(() => endInstall(rec), ms).unref();
+    return rec;
+  }
+
+  /** The install's writes, once, when it ends. */
+  function endInstall(rec: FakeInstall) {
+    if (rec.ended) return;
+    rec.ended = true;
+    rec.plan.commit?.();
+  }
+
+  /** The record as `GET /packages/installs/:id` answers it at `now`. */
+  function installView(rec: FakeInstall, now: number) {
+    const base = { id: rec.id, ref: rec.ref, door: "install", ...(rec.actor ? { actor: rec.actor } : {}), startedAt: rec.startedAt };
+    const elapsed = now - rec.startedAt;
+    if (elapsed >= rec.ms) {
+      endInstall(rec);
+      const finishedAt = rec.startedAt + rec.ms;
+      const last = rec.steps.at(-1)!;
+      return rec.plan.status === 201
+        ? { ...base, status: "done", phase: last.phase, updatedAt: finishedAt, finishedAt, result: rec.plan.result }
+        : { ...base, status: "failed", phase: last.phase, updatedAt: finishedAt, finishedAt, error: rec.plan.error };
+    }
+    const at = (elapsed / rec.ms) * rec.steps.length;
+    const step = rec.steps[Math.floor(at)]!;
+    return {
+      ...base,
+      status: step.phase === "queued" ? "queued" : "running",
+      phase: step.phase,
+      ...(step.package ? { package: step.package } : {}),
+      ...(step.total ? { done: Math.floor((at % 1) * step.total), total: step.total } : {}),
+      updatedAt: now,
+    };
+  }
+
   /**
    * Strut's packages (§16) over `state.indexes`: what is installed, search,
    * the indexes followed, install by name through them (the first whose
@@ -674,10 +833,6 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
   function packagesRoute(req: IncomingMessage, res: ServerResponse, path: string, url: URL, body: any) {
     const m = req.method;
     const actor = typeof req.headers["x-strut-actor"] === "string" ? req.headers["x-strut-actor"] : undefined;
-    const cardOf = (sub: { key: string; urls: string[] }) => {
-      const ix = state.indexes.get(sub.key);
-      return ix && sub.urls.some((u) => ix.urls.includes(u)) ? ix : undefined;
-    };
     const info = (sub: (typeof state.followed)[number]) => {
       const ix = cardOf(sub);
       return ix
@@ -744,48 +899,26 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     }
     if (path === "/packages/install" && m === "POST") {
       const ref = body?.ref;
+      // What strut refuses before anything starts: a body that is not one.
       if (typeof ref !== "string" || !ref) return send(res, 400, { error: "ref is required" });
       if (body.digest !== undefined && !/^sha256:[0-9a-f]{64}$/.test(body.digest)) return send(res, 400, { error: "digest is sha256:<64 hex>" });
-      if (!/^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/.test(ref)) return send(res, 400, { error: `package_source_unsupported: the fake installs names only, not ${ref}` });
-      // As strut's resolveName: the index named first, then none followed at all.
-      const subs = body.index ? state.followed.filter((s) => s.id === body.index) : state.followed;
-      if (body.index && !subs.length) return send(res, 404, { error: `package_index_unknown: this strut server follows no index "${body.index}"` });
-      if (!subs.length) {
-        return send(res, 400, { error: `package_source_invalid: ${ref} is a name, and this strut server follows no index to look it up in — install by pk:<key>/${ref} with url, or follow one (PUT /packages/indexes/:id)` });
-      }
-      const [publisher] = ref.split("/");
-      const card = subs.map(cardOf).find((c) => c?.releases.some((r) => r.publisher === publisher));
-      if (!card) return send(res, 404, { error: `package_not_listed: no index this strut server follows lists the publisher ${publisher}` });
-      const release = card.releases.find((r) => r.package === ref);
-      if (!release) return send(res, 404, { error: `package_not_found: ${publisher}'s public catalog has no package ${ref}` });
-      if (body.digest && body.digest !== release.digest) return send(res, 404, { error: `package_not_published: ${ref} has no release ${body.digest}` });
-      const here = state.installed.find((p) => p.release.package === ref);
-      if (here?.door === "distro") return send(res, 409, { error: `package_distro_owned: ${ref} was installed by the distro: only it updates or removes it` });
-      if (refused()) return;
-      if (here && here.release.digest !== release.digest) {
-        return send(res, 409, { error: `package_update_not_built: ${ref} is installed here at ${here.release.digest}; updating it to ${release.digest} asks first, which is not built yet` });
-      }
-      if (!here) {
-        state.installed.push({ release: structuredClone(release), door: "install", ...(actor ? { actor } : {}), modified: [] });
-        for (const app of release.detail?.apps ?? []) publish(`${ref}/${app.name}`, app.title);
-      }
-      const secrets = release.requires?.secrets ?? release.detail?.secrets ?? [];
-      return send(res, 201, {
-        package: ref,
-        digest: release.digest,
-        packages: [
-          {
-            package: ref,
-            version: release.version,
-            digest: release.digest,
-            source: { ref: `pk:${release.key}/${ref}`, url: release.urls[0] },
-            status: here ? "present" : "installed",
-            items: release.items.map((i) => ({ kind: i.kind, name: i.kind === "concept" ? i.name : `${ref}/${i.name}`, status: here ? "present" : "installed" })),
-          },
-        ],
-        missing: { secrets: secrets.filter((s) => !state.deploymentSecrets.has(s)).sort(), binaries: [], runtimes: [] },
-        warnings: [],
-      });
+      if (body.wait !== undefined && typeof body.wait !== "boolean") return send(res, 400, { error: "wait is a boolean" });
+      const plan = planInstall(ref, body, actor);
+      const behind = body.wait === false && !state.installWaits;
+      const rec = startInstall(ref, actor, plan, behind ? state.installMs : 0);
+      // `wait: false`: the record at once, the install going on behind it; as strut, always still queued.
+      if (behind) return send(res, 202, { install: { ...installView(rec, rec.startedAt), status: "queued", phase: "queued" } });
+      return plan.status === 201 ? send(res, 201, plan.result) : send(res, plan.status, { error: plan.error });
+    }
+    if (path === "/packages/installs" && m === "GET") {
+      const now = Date.now();
+      return send(res, 200, { installs: state.installs.map((r) => installView(r, now)).reverse() });
+    }
+    const inst = path.match(/^\/packages\/installs\/([^/]+)$/);
+    if (inst && m === "GET") {
+      const rec = state.installs.find((r) => r.id === decodeURIComponent(inst[1]!));
+      if (!rec) return send(res, 404, { error: `no install ${decodeURIComponent(inst[1]!)} here: an install's record is kept for an hour after it ends, and a restart forgets it` });
+      return send(res, 200, installView(rec, Date.now()));
     }
     const one = path.match(/^\/packages\/([^/]+)\/([^/]+)$/);
     if (one && m === "DELETE") {

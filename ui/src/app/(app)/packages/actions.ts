@@ -2,15 +2,28 @@
 
 import { revalidatePath } from "next/cache";
 
-import { DIGEST_RE, explainRefusal, hostOf, INDEX_ID_RE, indexIdOf, PACKAGE_NAME_RE, settableSecret, Z32_KEY_RE } from "@/lib/packages";
+import {
+  DIGEST_RE,
+  explainRefusal,
+  hostOf,
+  INDEX_ID_RE,
+  indexIdOf,
+  INSTALL_ID_RE,
+  installWatch,
+  PACKAGE_NAME_RE,
+  settableSecret,
+  Z32_KEY_RE,
+  type InstallWatch,
+} from "@/lib/packages";
 import { requireAdmin } from "@/lib/session";
 import {
   followPackageIndex,
-  installPackage,
+  getPackageInstall,
   listPackageIndexes,
   listPackages,
   putDeploymentSetting,
   searchPackages,
+  startPackageInstall,
   StrutHttpError,
   uninstallPackage,
   unfollowPackageIndex,
@@ -49,15 +62,15 @@ export async function findPackages(q: string): Promise<FindResult> {
   }
 }
 
-export type InstallOutcome =
-  | { package: string; version?: string; already: boolean; missingSecrets: string[]; warnings: string[]; error?: never }
-  | (Failed & { package?: never });
+export type InstallOutcome = InstallWatch | (Failed & { status?: never });
 
 /**
- * `POST /packages/install { ref, index, digest }` as this admin: the
- * package by its name, through the index the hit came from, at the release
- * the admin reviewed. Strut checks it against the publisher's signed
- * catalog and builds its apps before it writes anything.
+ * `POST /packages/install { ref, index, digest, wait: false }` as this
+ * admin: the package by its name, through the index the hit came from, at
+ * the release the admin reviewed. Strut answers at once with the install's
+ * record and goes on behind it: the page follows it with `installProgress`.
+ * Strut checks it against the publisher's signed catalog and builds its
+ * apps before it writes anything.
  */
 export async function install(pkg: string, index: string, digest?: string): Promise<InstallOutcome> {
   const me = await requireAdmin();
@@ -65,18 +78,36 @@ export async function install(pkg: string, index: string, digest?: string): Prom
   if (typeof index !== "string" || !INDEX_ID_RE.test(index)) return { error: "That isn’t an index this box follows." };
   if (digest !== undefined && (typeof digest !== "string" || !DIGEST_RE.test(digest))) return { error: "That isn’t a release." };
   try {
-    const r = await installPackage(pkg, { index, ...(digest ? { digest } : {}) }, me.actor);
-    const mine = r.packages.find((p) => p.package === pkg);
-    changed();
-    return {
-      package: r.package,
-      ...(mine?.version ? { version: mine.version } : {}),
-      already: r.packages.every((p) => p.status === "present"),
-      missingSecrets: r.missingSecrets,
-      warnings: r.warnings,
-    };
+    const watch = installWatch(await startPackageInstall(pkg, { index, ...(digest ? { digest } : {}) }, me.actor));
+    if (watch.status === "done") changed();
+    return watch;
   } catch (err) {
     return { error: refusal(err) };
+  }
+}
+
+/** Following an install: its record, or why there is none now. `retry`: strut didn't answer this time. */
+export type ProgressOutcome = InstallWatch | (Failed & { retry: boolean; status?: never });
+
+/**
+ * `GET /packages/installs/:id`: how far an install is, whichever door
+ * started it. Once it is done every page reads the box again, since a
+ * package's apps join everyone's list.
+ */
+export async function installProgress(id: string): Promise<ProgressOutcome> {
+  await requireAdmin();
+  if (typeof id !== "string" || !INSTALL_ID_RE.test(id)) return { error: "That isn’t an install.", retry: false };
+  try {
+    const install = await getPackageInstall(id);
+    if (!install) {
+      return { error: "Strut no longer knows this install: it restarted, or the install ended over an hour ago. The Installed list shows what landed.", retry: false };
+    }
+    const watch = installWatch(install);
+    if (watch.status === "done") changed();
+    return watch;
+  } catch (err) {
+    console.warn(`[packages] install ${id}: ${err instanceof Error ? err.message : String(err)}`);
+    return { error: "Strut isn’t answering just now. Still trying.", retry: true };
   }
 }
 

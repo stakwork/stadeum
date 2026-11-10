@@ -1,8 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import { STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL } from "@/test/strut-packages";
-import { bringsWords, canWords, explainRefusal, indexIdOf, itemsByKind, linkIndexState, parseInstallLink, secretsNeeded, settableSecret } from "./packages";
-import type { InstalledPackage } from "./strut/client";
+import {
+  bringsWords,
+  canWords,
+  explainRefusal,
+  indexIdOf,
+  installProgressText,
+  installWatch,
+  itemsByKind,
+  linkIndexState,
+  parseInstallLink,
+  secretsNeeded,
+  settableSecret,
+  type InstallWatch,
+} from "./packages";
+import type { InstalledPackage, PackageInstall } from "./strut/client";
 
 const KEY = STAKWORK_INDEX_KEY;
 
@@ -105,5 +118,71 @@ describe("explainRefusal", () => {
   it("passes anything else through, and says when strut gave no words", () => {
     expect(explainRefusal("ref is required", 400)).toBe("ref is required");
     expect(explainRefusal(undefined, 500)).toBe("Strut answered 500. Nothing changed.");
+  });
+});
+
+describe("an install as it goes", () => {
+  const going = (phase: string, more: { status?: "queued" | "running"; package?: string; done?: number; total?: number } = {}): InstallWatch => ({
+    id: "inst_0123456789abcdef",
+    ref: "openlaw/legal-desk",
+    door: "install",
+    status: "running",
+    phase,
+    ...more,
+  });
+
+  it("says what it is doing in strut's words, with how far when the phase counts", () => {
+    expect(installProgressText(going("concepts", { done: 312, total: 752 }))).toEqual({ text: "Concepts 312 / 752", fraction: 312 / 752 });
+    expect(installProgressText(going("apps", { done: 0, total: 2 }))).toEqual({ text: "Building the apps 0 / 2", fraction: 0 });
+    expect(installProgressText(going("resolving"))).toEqual({ text: "Fetching the package" });
+    expect(installProgressText(going("types", { total: 3 }))).toEqual({ text: "Graph types (3)" });
+    expect(installProgressText(going("queued", { status: "queued" }))).toEqual({ text: "Waiting to start" });
+    // A required package's phase names it.
+    expect(installProgressText(going("steps", { package: "acme/base", done: 1, total: 4 })).text).toBe("Steps 1 / 4 · acme/base");
+  });
+
+  it("shows a phase it doesn't know by its name, and never runs past full", () => {
+    expect(installProgressText(going("reindexing"))).toEqual({ text: "reindexing" });
+    expect(installProgressText(going("concepts", { done: 9, total: 4 })).fraction).toBe(1);
+    expect(installProgressText(going("concepts", { done: 0, total: 0 }))).toEqual({ text: "Concepts" });
+  });
+
+  it("reads strut's record: a result as the 201 gave it, a refusal in plain words", () => {
+    const base: PackageInstall = { id: "inst_0123456789abcdef", ref: "openlaw/legal-desk", door: "install", status: "done", phase: "claims", startedAt: 1, finishedAt: 2 };
+    const result = {
+      package: "openlaw/legal-desk",
+      packages: [
+        { package: "acme/base", version: "2.0.0", status: "present", items: 3 },
+        { package: "openlaw/legal-desk", version: "1.0.0", status: "installed", items: 20 },
+      ],
+      missingSecrets: ["SERPA_API_KEY"],
+      warnings: ["a warning"],
+    };
+    expect(installWatch({ ...base, result })).toEqual({
+      id: base.id,
+      ref: base.ref,
+      door: "install",
+      status: "done",
+      result: { package: "openlaw/legal-desk", version: "1.0.0", already: false, missingSecrets: ["SERPA_API_KEY"], warnings: ["a warning"] },
+    });
+    const present = { ...result, packages: result.packages.map((p) => ({ ...p, status: "present" })) };
+    expect(installWatch({ ...base, result: present })).toMatchObject({ result: { already: true } });
+    expect(installWatch({ ...base, status: "failed", error: "package_not_listed: no index lists acme" })).toEqual({
+      id: base.id,
+      ref: base.ref,
+      door: "install",
+      status: "failed",
+      error: "No index this box follows lists that publisher. Strut says: no index lists acme",
+    });
+    expect(installWatch({ ...base, status: "running", phase: "concepts", done: 3, total: 9, package: "openlaw/legal-desk" })).toEqual({
+      id: base.id,
+      ref: base.ref,
+      door: "install",
+      status: "running",
+      phase: "concepts",
+      package: "openlaw/legal-desk",
+      done: 3,
+      total: 9,
+    });
   });
 });
