@@ -15,7 +15,9 @@
  *
  * Strut follows no package index at first; the fake knows one, Stakwork's
  * (a made-up key), listing openlaw/legal-desk: the store's Install link it
- * prints opens the Packages page on following it.
+ * prints opens the Packages page on following it. A package install takes
+ * FAKE_INSTALL_MS (default 8000) and walks strut's phases meanwhile, so the
+ * page's progress can be seen.
  */
 import { DEV_LIVEKIT, startFakeStack } from "../src/test/fake-stack";
 import { STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL } from "../src/test/strut-packages";
@@ -32,6 +34,7 @@ if (FAKE_VOICE === "off") fake.state.voice.livekit = null;
 if (FAKE_VOICE === "402") fake.state.voice.refuse = { status: 402, body: { error: "your balance is below the minimum", balance: 120, minimum: 500 } };
 if (FAKE_VOICE === "503") fake.state.voice.refuse = { status: 503, body: { error: "the voice service is not answering" } };
 if (FAKE_READY_AFTER) fake.state.readyAfter = Number(FAKE_READY_AFTER);
+fake.state.installMs = Number(process.env.FAKE_INSTALL_MS ?? 8000);
 if (STRUT_VOICE_URL) fake.state.voice.forward = { url: STRUT_VOICE_URL.replace(/\/+$/, ""), token: STRUT_VOICE_TOKEN ?? "" };
 console.log(`fake stack on ${fake.base}  (bifrost ${fake.bifrostUrl}, strut ${fake.strutUrl}, neo4j ${fake.neo4jUrl})`);
 console.log(

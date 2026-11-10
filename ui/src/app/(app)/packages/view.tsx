@@ -17,9 +17,11 @@ import {
   shortKey,
   shortName,
   type InstallLink,
+  type InstallWatch,
 } from "@/lib/packages";
 import type { InstalledPackage, PackageHit, PackageIndex, UninstallResult } from "@/lib/strut/client";
-import { findPackages, followIndex, install, setSecret, uninstall, unfollowIndex, type InstallOutcome } from "./actions";
+import { findPackages, followIndex, install, setSecret, uninstall, unfollowIndex } from "./actions";
+import { InstallBar, Installing, useInstallWatch } from "./install-progress";
 
 type Installed = InstalledPackage & { needs: string[] };
 type Found = { hits: PackageHit[]; errors: Array<{ index: string; error: string }> };
@@ -30,11 +32,19 @@ const small =
 const empty = "rounded-xl border border-dashed border-dash px-5 py-6 text-[14px] text-ink-2";
 
 /**
- * The page: the store's link when it brought the admin here, what is
- * installed, a search over the indexes, and the indexes. Install and
- * Uninstall each ask first; the link only ever opens the question.
+ * The page: the store's link when it brought the admin here, the installs
+ * going on, what is installed, a search over the indexes, and the indexes.
+ * Install and Uninstall each ask first; the link only ever opens the
+ * question.
  */
-export function PackagesView(props: { link: InstallLink | null; installed: Installed[]; secretsKnown: boolean; indexes: PackageIndex[]; initial: Found | null }) {
+export function PackagesView(props: {
+  link: InstallLink | null;
+  installing: InstallWatch[];
+  installed: Installed[];
+  secretsKnown: boolean;
+  indexes: PackageIndex[];
+  initial: Found | null;
+}) {
   const { link, installed, indexes } = props;
   const byName = useMemo(() => new Map(installed.map((p) => [p.package, p])), [installed]);
   const indexLabel = (id: string) => indexes.find((i) => i.id === id)?.label ?? id;
@@ -46,6 +56,17 @@ export function PackagesView(props: { link: InstallLink | null; installed: Insta
   const opensAtOnce = !!link && (!link.index || linkState?.state === "followed") && !byName.has(link.pkg);
   const [reviewing, setReviewing] = useState<PackageHit | null>(() => (opensAtOnce ? (linkHit(props.initial) ?? null) : null));
   const [found, setFound] = useState<Found | null>(props.initial);
+
+  // The installs this page follows: those strut was running when the page
+  // was read (again after each install ends), and one whose dialog was
+  // closed before it ended. Each stays until dismissed.
+  const [following, setFollowing] = useState<InstallWatch[]>(props.installing);
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
+  const [inDialog, setInDialog] = useState<string | null>(null);
+  useEffect(() => {
+    setFollowing((now) => [...now, ...props.installing.filter((w) => !now.some((f) => f.id === w.id))]);
+  }, [props.installing]);
+  const follow = (w: InstallWatch) => setFollowing((now) => [...now.filter((f) => f.id !== w.id), w]);
 
   return (
     <>
@@ -70,6 +91,11 @@ export function PackagesView(props: { link: InstallLink | null; installed: Insta
         />
       )}
 
+      <Installing
+        installs={following.filter((w) => w.id !== inDialog && !dismissed.has(w.id))}
+        onDismiss={(id) => setDismissed((now) => new Set(now).add(id))}
+      />
+
       <InstalledList installed={installed} secretsKnown={props.secretsKnown} />
 
       <Find
@@ -90,7 +116,12 @@ export function PackagesView(props: { link: InstallLink | null; installed: Insta
           hit={reviewing}
           indexLabel={indexLabel(reviewing.index)}
           installed={byName.get(reviewing.package)}
-          onClose={() => setReviewing(null)}
+          onStarted={setInDialog}
+          onClose={(going) => {
+            if (going) follow(going);
+            setInDialog(null);
+            setReviewing(null);
+          }}
         />
       )}
     </>
@@ -550,18 +581,39 @@ function Modal({ label, onClose, children }: { label: string; onClose: () => voi
 
 /**
  * Install, asked first: what it brings, what it can do, the keys it reads,
- * where it comes from. Once installed, the keys it still needs can be set
- * here. A refusal shows in plain words and changes nothing.
+ * where it comes from. Then how far it is, phase by phase, read from strut
+ * as it goes; closing the dialog leaves the install going, shown under
+ * Installing. Once installed, the keys it still needs can be set here. A
+ * refusal shows in plain words and changes nothing.
  */
-function InstallDialog({ hit, indexLabel, installed, onClose }: { hit: PackageHit; indexLabel: string; installed: Installed | undefined; onClose: () => void }) {
-  const [result, setResult] = useState<InstallOutcome | null>(null);
-  const [pending, start] = useTransition();
+function InstallDialog(props: {
+  hit: PackageHit;
+  indexLabel: string;
+  installed: Installed | undefined;
+  onStarted: (id: string) => void;
+  /** With the install when it is still going. */
+  onClose: (going?: InstallWatch) => void;
+}) {
+  const { hit, indexLabel, installed } = props;
+  const [refused, setRefused] = useState<string>();
+  const [starting, start] = useTransition();
+  const { watch, follow, note } = useInstallWatch(null);
   const other = installed && installed.digest !== hit.digest ? installed : undefined;
-  const run = () => start(async () => setResult(await install(hit.package, hit.index, hit.digest || undefined)));
-  const done = result && result.error === undefined ? result : null;
+  const going = !!watch && (watch.status === "queued" || watch.status === "running") && !note?.final;
+  const run = () =>
+    start(async () => {
+      setRefused(undefined);
+      const r = await install(hit.package, hit.index, hit.digest || undefined);
+      if (r.status === undefined) return setRefused(r.error);
+      if (r.id) props.onStarted(r.id);
+      follow(r);
+    });
+  const close = () => props.onClose(going ? watch! : undefined);
+  const done = watch?.status === "done" ? watch.result : null;
+  const error = refused ?? (watch?.status === "failed" ? watch.error : note?.final ? note.text : undefined);
 
   return (
-    <Modal label={`Install ${hit.package}`} onClose={pending ? () => {} : onClose}>
+    <Modal label={`Install ${hit.package}`} onClose={starting ? () => {} : close}>
       {done ? (
         <>
           <h2 className="text-[19px] font-medium">{done.already ? `${done.package} was already installed` : `Installed ${done.package}`}</h2>
@@ -584,7 +636,7 @@ function InstallDialog({ hit, indexLabel, installed, onClose }: { hit: PackageHi
             </ul>
           )}
           <div className="flex justify-end">
-            <button type="button" onClick={onClose} className={`${buttonClass.primary} h-9 px-4 text-[14px]`}>
+            <button type="button" onClick={close} className={`${buttonClass.primary} h-9 px-4 text-[14px]`}>
               Done
             </button>
           </div>
@@ -611,18 +663,23 @@ function InstallDialog({ hit, indexLabel, installed, onClose }: { hit: PackageHi
               Version {other.version ?? "another"} is installed here. Uninstall it first to install this one.
             </p>
           )}
-          {pending && <p className="text-[13.5px] text-ink-3">Installing. Strut builds its apps first, which can take a minute.</p>}
-          {result?.error && (
-            <p role="alert" className="text-[13.5px] text-warn">
-              {result.error}
+          {going && (
+            <div className="flex flex-col gap-2 rounded-[12px] bg-raised/60 px-4 py-3.5">
+              <InstallBar watch={watch!} label={`Installing ${hit.package}`} />
+              <p className="text-[13px] text-ink-3">{note ? note.text : "You can close this: the install goes on, and the page shows how far it is."}</p>
+            </div>
+          )}
+          {error && (
+            <p role="alert" className="text-[13.5px] break-words text-warn">
+              {error}
             </p>
           )}
           <div className="flex flex-wrap justify-end gap-1.5">
-            <button type="button" disabled={pending} onClick={onClose} className={buttonClass.quiet}>
-              Cancel
+            <button type="button" disabled={starting} onClick={close} className={buttonClass.quiet}>
+              {going ? "Close" : "Cancel"}
             </button>
-            <button type="button" disabled={pending || !!other} onClick={run} className={`${buttonClass.primary} h-9 px-4 text-[14px]`}>
-              {pending ? "Installing…" : "Install"}
+            <button type="button" disabled={starting || going || !!other} onClick={run} className={`${buttonClass.primary} h-9 px-4 text-[14px]`}>
+              {starting || going ? "Installing…" : error ? "Try again" : "Install"}
             </button>
           </div>
         </>

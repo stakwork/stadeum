@@ -227,9 +227,9 @@ export async function listDeploymentSecretNames(): Promise<string[]> {
 // ── packages (strut specs/API.md §16) ───────────────────────────────────
 
 /**
- * An install builds each app against strut's kit before it writes
- * anything, and an uninstall waits on strut's one-write-at-a-time queue:
- * minutes, not seconds.
+ * An uninstall waits on strut's one-write-at-a-time queue: minutes, not
+ * seconds. An install answers at once (`wait: false`) unless strut is older
+ * than that, and then only when it is done, after building each app.
  */
 export const PACKAGE_WRITE_TIMEOUT_MS = 300_000;
 /** Strut gives each index 15 s to answer a search or a card read. */
@@ -444,17 +444,46 @@ export async function unfollowPackageIndex(id: string): Promise<boolean> {
 }
 
 /**
- * `POST /packages/install { ref, index?, digest? }` as `actor`: a bare
- * `publisher/name` resolves through the followed indexes (the one `index`
- * names), and is checked against the publisher's own signed catalog. A
- * refusal throws a StrutHttpError whose `detail` starts with strut's code
- * (`package_conflict: …`).
+ * An install as it goes (strut `src/packages/progress.ts`, `specs/API.md`
+ * §16 "An install as it goes"), whichever door started it: this page, a
+ * proposal an admin accepted, the boot list, a subscription. Strut keeps
+ * the record in memory until an hour after the install ends.
  */
-export async function installPackage(ref: string, opts: { index?: string; digest?: string }, actor: string): Promise<InstallResult> {
-  const body = { ref, ...(opts.index ? { index: opts.index } : {}), ...(opts.digest ? { digest: opts.digest } : {}) };
-  const res = await strutFetch("POST", "/packages/install", body, PACKAGE_WRITE_TIMEOUT_MS, actor);
-  if (!res.ok) await fail("POST", "/packages/install", res);
-  const d = (await res.json()) as { package?: unknown; packages?: unknown; missing?: { secrets?: unknown }; warnings?: unknown };
+export interface PackageInstall {
+  /** `inst_<16 hex>`. */
+  id: string;
+  /** What was asked: the ref, or a subscription's refs joined. */
+  ref: string;
+  /** A person's install, or the box's distro (a subscription). */
+  door: "install" | "distro";
+  actor?: string;
+  status: "queued" | "running" | "done" | "failed";
+  /**
+   * `queued | resolving | checking | types | steps | workflows | apps |
+   * concepts | concept-tree | retiring | claims`, as strut has them now;
+   * a newer strut may add one.
+   */
+  phase: string;
+  /** The package of the set the phase is about. */
+  package?: string;
+  /** How far, of what, when the phase counts: steps, workflows, apps, Concept pages, edges. */
+  done?: number;
+  total?: number;
+  /** Epoch ms. */
+  startedAt: number;
+  finishedAt?: number;
+  /** Once done: what the install wrote. */
+  result?: InstallResult;
+  /** Once failed: the refusal, as strut words it (`package_conflict: …`). */
+  error?: string;
+}
+
+const INSTALL_STATUSES = new Set(["queued", "running", "done", "failed"]);
+const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined);
+
+/** `InstallResult` as strut answers it: `POST /packages/install`'s 201, an install record's `result`. */
+function readInstallResult(v: unknown, ref: string): InstallResult {
+  const d = (v ?? {}) as { package?: unknown; packages?: unknown; missing?: { secrets?: unknown }; warnings?: unknown };
   return {
     package: str(d.package) ?? ref,
     packages: (Array.isArray(d.packages) ? d.packages : [])
@@ -468,6 +497,74 @@ export async function installPackage(ref: string, opts: { index?: string; digest
     missingSecrets: strings(d.missing?.secrets),
     warnings: strings(d.warnings),
   };
+}
+
+function readInstall(v: unknown): PackageInstall | null {
+  const s = (v ?? {}) as Record<string, unknown>;
+  if (typeof s.id !== "string" || typeof s.ref !== "string" || typeof s.status !== "string" || !INSTALL_STATUSES.has(s.status)) return null;
+  const at = (k: string) => (typeof s[k] === "number" ? (s[k] as number) : undefined);
+  return {
+    id: s.id,
+    ref: s.ref,
+    door: s.door === "distro" ? "distro" : "install",
+    ...(str(s.actor) ? { actor: s.actor as string } : {}),
+    status: s.status as PackageInstall["status"],
+    phase: str(s.phase) ?? "queued",
+    ...(str(s.package) ? { package: s.package as string } : {}),
+    ...(count(s.done) !== undefined ? { done: count(s.done) } : {}),
+    ...(count(s.total) !== undefined ? { total: count(s.total) } : {}),
+    startedAt: at("startedAt") ?? 0,
+    ...(at("finishedAt") !== undefined ? { finishedAt: at("finishedAt") } : {}),
+    ...(s.status === "done" ? { result: readInstallResult(s.result, s.ref) } : {}),
+    ...(s.status === "failed" ? { error: str(s.error) ?? "the install failed" } : {}),
+  };
+}
+
+/**
+ * `POST /packages/install { ref, index?, digest?, wait: false }` as
+ * `actor`: strut answers 202 with the install's record at once and goes on
+ * behind it; follow it with `getPackageInstall`. A bare `publisher/name`
+ * resolves through the followed indexes (the one `index` names) and is
+ * checked against the publisher's own signed catalog, so a refusal of that
+ * kind (`package_not_listed: …`) comes as the record's `error`. A body
+ * strut will not take throws a StrutHttpError, as before.
+ *
+ * A strut from before 2026-11-10 (stakwork/strut#588) does not know
+ * `wait`: it answers 201 with the result once the install is done, which
+ * comes back here as a record that is already done.
+ */
+export async function startPackageInstall(ref: string, opts: { index?: string; digest?: string }, actor: string): Promise<PackageInstall> {
+  const body = { ref, ...(opts.index ? { index: opts.index } : {}), ...(opts.digest ? { digest: opts.digest } : {}), wait: false };
+  const res = await strutFetch("POST", "/packages/install", body, PACKAGE_WRITE_TIMEOUT_MS, actor);
+  if (!res.ok) await fail("POST", "/packages/install", res);
+  const d = (await res.json()) as { install?: unknown };
+  if (res.status === 201) {
+    const now = Date.now();
+    return { id: "", ref, door: "install", status: "done", phase: "claims", startedAt: now, finishedAt: now, result: readInstallResult(d, ref) };
+  }
+  const install = readInstall(d.install);
+  if (!install) throw new Error("POST /packages/install answered with no install record");
+  return install;
+}
+
+/** `GET /packages/installs/:id`; `null` when strut holds no such record (a restart forgets them, and an ended one goes after an hour). */
+export async function getPackageInstall(id: string): Promise<PackageInstall | null> {
+  const path = `/packages/installs/${encodeURIComponent(id)}`;
+  const res = await strutFetch("GET", path);
+  if (res.status === 404) return null;
+  if (!res.ok) await fail("GET", path, res);
+  const install = readInstall(await res.json());
+  if (!install) throw new Error(`GET ${path} returned no install record`);
+  return install;
+}
+
+/** `GET /packages/installs`: the installs going on, and those that ended within the hour, newest first. */
+export async function listPackageInstalls(): Promise<PackageInstall[]> {
+  const res = await strutFetch("GET", "/packages/installs");
+  if (!res.ok) await fail("GET", "/packages/installs", res);
+  const { installs } = (await res.json()) as { installs?: unknown };
+  if (!Array.isArray(installs)) throw new Error("GET /packages/installs returned no installs list");
+  return installs.map(readInstall).filter((i): i is PackageInstall => i !== null);
 }
 
 /** `DELETE /packages/:publisher/:name` as `actor`: what went, and what stayed. */
