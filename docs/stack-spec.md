@@ -469,6 +469,19 @@ ago"; "c15177a is out, built 2 hours ago"; "Not checked yet"; "Current when
 checked 3 hours ago" once the answer is more than 30 minutes old; or "Could
 not check" with why, and what the last answer was.
 
+**Check now and Update now** each file a request, one open of a kind: a
+second click shows the open one, never another. The page follows it from
+what stadeum-ui already has (`ui/src/lib/ops/progress.ts`), re-reading
+`GET /api/updates` every 3 s while it is open: waiting until ops takes it
+up (or why not: ops busy, or not answering); then each phase ops reports,
+with the time it began; then what ops recorded since it was asked (updated,
+from and to which commit or release; rolled back or failed, and why), or
+nothing to update with what the check found. A check ends with what the
+registries said, and when. ops marks an update done before it hands a
+release over, and says so (updating) until the ops it brings has recorded
+the release's outcome and gone idle, so the page follows the release too,
+across stadeum-ui's own restart.
+
 **An update** of a group that follows a channel (strut's):
 
 1. `compose pull` the group, and compare the image ID each tag now names

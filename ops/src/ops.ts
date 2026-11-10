@@ -170,13 +170,35 @@ export class Ops {
       else {
         if (kinds.has("backup")) await this.backup(settings);
         if (kinds.has("update")) next = await this.update(settings, true);
-        else if (kinds.has("check")) await this.look();
+        else if (kinds.has("check")) {
+          await this.report({ phase: "checking", detail: "Asking the registries what the channels name" });
+          await this.look();
+        }
       }
     } finally {
       this.unsentDone.push(...requests.map((r) => r.id));
+      await this.report(next ? this.handing() : { phase: "idle" });
+    }
+    if (next) await this.handOver(next);
+  }
+
+  /** What ops says while the release goes to the ops it brings: not idle, until that one reports. */
+  private handing(): Partial<OpsStatus> {
+    const r = this.status.release;
+    const which = r?.available ? `release ${short(r.running)} → ${short(r.available)}` : "the release";
+    return { phase: "updating", detail: `Handing ${which} to the ops it brings` };
+  }
+
+  /** Hand the release over; one that cannot start is recorded, and ops is idle again. */
+  private async handOver(next: HandOver): Promise<void> {
+    try {
+      await handOver(this.deps, next.checks, next.confirmed);
+    } catch (err) {
+      this.o.log(`could not hand the release over: ${errorText(err)}`);
+      const at = this.o.now().toISOString();
+      await this.outbox.record({ kind: "update", outcome: "failed", startedAt: at, endedAt: at, detail: `The release was not applied: the ops it brings did not start (${errorText(err)}). Nothing of it changed.` });
       await this.report({ phase: "idle" });
     }
-    if (next) await handOver(this.deps, next.checks, next.confirmed);
   }
 
   private async daily(settings: OpsSettings, window: string): Promise<void> {
@@ -194,9 +216,9 @@ export class Ops {
         }
       }
     } finally {
-      await this.report({ phase: "idle", lastCycle: window });
+      await this.report({ ...(next ? this.handing() : { phase: "idle" }), lastCycle: window });
     }
-    if (next) await handOver(this.deps, next.checks, next.confirmed);
+    if (next) await this.handOver(next);
   }
 
   /**
