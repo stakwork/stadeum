@@ -123,13 +123,16 @@ else
   else
     runs=$(gh run list -R "$repo" --workflow "$publish" --branch "$branch" --limit 10 \
       --json databaseId,status,conclusion,headSha,url)
-    busy=$(jq -r 'map(select(.status != "completed")) | first // empty | "\(.headSha[:7]) \(.databaseId)"' <<< "$runs")
+    # Only runs newer than the newest finished one count: a run left queued
+    # behind newer finished ones (GitHub keeps such ghosts, and will not
+    # cancel them) publishes nothing.
+    busy=$(jq -r '(map(.status == "completed") | index(true)) as $done | .[0:($done // length)] | map(select(.status != "completed")) | first // empty | "\(.headSha[:7]) \(.databaseId)"' <<< "$runs")
     if [ -n "$busy" ]; then
       echo "$branch's images are still being published (${busy% *}). Wait for it, then run this again:" >&2
       echo "  gh run watch ${busy#* } -R $repo" >&2
       exit 1
     fi
-    failed=$(jq -r '.[0] // empty | select(.conclusion != "success") | "\(.headSha[:7]), ended \(.conclusion): \(.url)"' <<< "$runs")
+    failed=$(jq -r 'map(select(.status == "completed")) | first // empty | select(.conclusion != "success") | "\(.headSha[:7]), ended \(.conclusion): \(.url)"' <<< "$runs")
     if [ -n "$failed" ]; then
       echo "$branch's newest publish, at $failed" >&2
       echo "Fix it, or name an older commit to promote." >&2
