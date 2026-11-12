@@ -67,11 +67,13 @@ export interface FakeApp {
   owner?: string;
   pinned?: boolean;
   live?: string;
+  /** An admin's app alone (§14.14): listed to full scope, the key; refused to a member's session. */
+  admin?: true;
 }
 
 const grants = (workflows: string[] = [], steps: string[] = []) => ({ workflows, steps, sqlite: false, automations: [] });
 
-/** What strut seeds on every server: its component library and Jamie. */
+/** What strut seeds on every server: its component library, Jamie and Earnings. */
 export const SEEDED_APPS: FakeApp[] = [
   { name: "strut/views", activeVersion: "v1", versions: ["v1"], title: "strut views", icon: "layout-grid", grants: grants(), publisher: "strut" },
   {
@@ -83,6 +85,17 @@ export const SEEDED_APPS: FakeApp[] = [
     icon: "message-circle",
     grants: grants(["orchestrator", "job", "builder"], ["conversation/list", "conversation/get"]),
     publisher: "strut",
+  },
+  {
+    name: "strut/earnings",
+    activeVersion: "v1",
+    versions: ["v1"],
+    title: "Earnings",
+    description: "The wallet, and what paid runs earned.",
+    icon: "wallet",
+    grants: grants([], ["earnings/read", "earnings/wallet"]),
+    publisher: "strut",
+    admin: true,
   },
 ];
 
@@ -1104,6 +1117,8 @@ function embedPage(who: { actor: string; role: string } | undefined, q: URLSearc
 <p>This page stands in for the file strut would show. It was opened with a one-use sign-in ticket, not the shared token.</p>`
       : !app
       ? `<p>No app <code>${esc(name || "(none)")}</code>.</p>`
+      : app.admin && who.role !== "admin"
+      ? `<p>${esc(app.title)} is for admins.</p>`
       : `<h1 style="font-weight:600;font-size:18px">${esc(app.title)}</h1>
 <p>App: <code>${esc(app.name)}</code>${q.get("solo") === "1" ? " alone" : ""}, input <code>${esc(q.get("input") ?? "(none)")}</code>, theme <code>${esc(q.get("theme") ?? "dark")}</code></p>
 <p>Signed in as actor: <code>${esc(who.actor)}</code>, role <code>${esc(who.role)}</code></p>

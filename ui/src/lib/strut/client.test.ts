@@ -96,12 +96,13 @@ describe("embedUrl", () => {
 });
 
 describe("listApps", () => {
-  it("reads GET /apps with the key: name, title, description, pinned", async () => {
+  it("reads GET /apps with the key: name, title, description, pinned, admin", async () => {
     configure();
     const apps = await listApps();
     expect(fake.state.requests).toContain("GET /strut/apps");
-    expect(apps.map((a) => a.name)).toEqual(["strut/jamie", "strut/views"]);
-    expect(apps[0]).toEqual({ name: "strut/jamie", title: "Jamie", description: "Jamie, the person's assistant.", activeVersion: "v1" });
+    expect(apps.map((a) => a.name)).toEqual(["strut/earnings", "strut/jamie", "strut/views"]);
+    expect(apps[0]).toMatchObject({ name: "strut/earnings", admin: true });
+    expect(apps[1]).toEqual({ name: "strut/jamie", title: "Jamie", description: "Jamie, the person's assistant.", activeVersion: "v1" });
   });
 
   it("falls back to the name for a title, and keeps pinned only when true", async () => {

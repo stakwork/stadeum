@@ -1,5 +1,6 @@
 import { cache } from "react";
 
+import { isAdmin } from "@/lib/roles";
 import { listApps as strutApps, type StrutApp } from "@/lib/strut/client";
 
 /**
@@ -36,6 +37,14 @@ const NOT_OPENED = new Set(["strut/views"]);
 /** Whether a person opens the app at all. */
 export const isOpened = (name: string) => !NOT_OPENED.has(name);
 
+/**
+ * Strut's Earnings (§14.14): the wallet and what paid runs earned, an
+ * admin's alone. Stadeum frames it among the org's admin pages
+ * (`/earnings`), never in the launcher. A strut without it (one older
+ * than stakwork/strut#650, or seeded with `earnings: false`) lists none.
+ */
+export const EARNINGS = "strut/earnings";
+
 const STRUT_APPS_TIMEOUT_MS = 5_000;
 
 export const appHref = (name: string) => (ASSISTANT.has(name) ? "/" : `/apps/${encodeURIComponent(name)}`);
@@ -48,8 +57,13 @@ export function launcherOrder<T extends Pick<StrutApp, "name" | "title" | "pinne
     .sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title) || a.name.localeCompare(b.name));
 }
 
+/**
+ * The launcher's apps: everyone's. Stadeum lists with its key, which strut
+ * answers as full scope, so an admin-only app (`admin: true`, §14.14) is
+ * in the listing and is left out here: the rail is every person's.
+ */
 export function launcherApps(apps: StrutApp[]): App[] {
-  return launcherOrder(apps).map((a) => ({
+  return launcherOrder(apps.filter((a) => !a.admin && a.name !== EARNINGS)).map((a) => ({
     name: a.name,
     title: a.title,
     ...(a.description ? { description: a.description } : {}),
@@ -64,8 +78,23 @@ export function launcherApps(apps: StrutApp[]): App[] {
  * still renders without them.
  */
 export const listApps = cache(async (): Promise<App[] | null> => {
+  const apps = await strutListing();
+  return apps && launcherApps(apps);
+});
+
+/** Strut's Earnings for a person with `role`: only an admin's, and only when strut lists it. */
+export function earningsFor(role: string, apps: StrutApp[] | null): Pick<App, "name" | "title"> | null {
+  const app = isAdmin(role) ? apps?.find((a) => a.name === EARNINGS) : undefined;
+  return app ? { name: app.name, title: app.title } : null;
+}
+
+/** `earningsFor` on this request's listing. */
+export const earningsApp = async (role: string) => earningsFor(role, isAdmin(role) ? await strutListing() : null);
+
+/** `GET /apps`, once per request; `null` when strut does not answer. */
+const strutListing = cache(async (): Promise<StrutApp[] | null> => {
   try {
-    return launcherApps(await strutApps(STRUT_APPS_TIMEOUT_MS));
+    return await strutApps(STRUT_APPS_TIMEOUT_MS);
   } catch (err) {
     console.warn(`[apps] GET /apps failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;

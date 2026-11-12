@@ -15,6 +15,8 @@ export interface RailProps {
   /** Strut's other apps, in launcher order. */
   apps: Array<{ title: string; href: string }>;
   admin: boolean;
+  /** Strut's Earnings, among the organisation's pages: an admin's, when strut has it. */
+  earnings?: string;
   person: Person;
 }
 
@@ -25,6 +27,7 @@ const SETTINGS = {
     { href: "/members", label: "Members" },
     { href: "/models", label: "Models" },
     { href: "/spending", label: "Spending" },
+    { href: "/earnings", label: "Earnings" },
     { href: "/apps", label: "Apps" },
     { href: "/packages", label: "Packages" },
     { href: "/branding", label: "Branding" },
@@ -52,7 +55,7 @@ function settingsPage(path: string): string | undefined {
  * On phones the rail folds behind a menu button and, when opened, sits
  * above the page in the flow: it pushes content down, never covers it.
  */
-export function Rail({ orgName, home, apps, admin, person }: RailProps) {
+export function Rail({ orgName, home, apps, admin, earnings, person }: RailProps) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
@@ -120,7 +123,13 @@ export function Rail({ orgName, home, apps, admin, person }: RailProps) {
               Back to {orgName}
             </Link>
             <SettingsSection label="You" pages={SETTINGS.you} current={current} />
-            {admin && <SettingsSection label="Organisation" pages={SETTINGS.organisation} current={current} />}
+            {admin && (
+              <SettingsSection
+                label="Organisation"
+                pages={SETTINGS.organisation.flatMap((p) => (p.href !== "/earnings" ? [p] : earnings ? [{ ...p, label: earnings }] : []))}
+                current={current}
+              />
+            )}
             {admin && <SettingsSection label="This server" pages={SETTINGS.server} current={current} />}
             {showCall && (
               <div className="mt-auto hidden md:block">

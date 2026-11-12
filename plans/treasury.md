@@ -4,7 +4,8 @@
 > service, its tokens, its backup and restore, and the image's `stable`
 > channel (stakwork/sphinx#430, `scripts/promote.sh daemon`). Kept for its
 > decisions, the risk accepted (§2), and Earnings in the admin pages (§6),
-> not built. Read against stadeum `main` @64de7a6, strut `main` @b0863473,
+> built since (strut's app, stakwork/strut#650, framed by stadeum's
+> `/earnings`). Read against stadeum `main` @64de7a6, strut `main` @b0863473,
 > stakwork/sphinx `master` @48d7d87b and sphinx-swarm `master` @8997ceb3,
 > whose treasury (stakwork/sphinx-swarm#787) this copies.
 
@@ -31,7 +32,7 @@ first boot, with nothing to set up, as a swarm can.
 | The tokens | **agreed.** `scripts/init-env.sh` generates `DAEMON_ADMIN_TOKEN`, `DAEMON_RECEIVE_TOKEN` and `DAEMON_PAY_TOKEN`, three different values (the daemon and strut each refuse two equal ones). The admin token goes to the treasury alone; no service holds it. |
 | The channel | **agreed.** `sphinx-daemon:${TREASURY_TAG:-stable}`. `stable` is moved by stakwork/sphinx's `promote-daemon.yml`, run with `scripts/promote.sh daemon`, never `latest` (rule 7). |
 | Its update group | **built.** `stadeum.ops.update: strut`, as voice: strut's payer and the daemon's wallet routes are one contract, so they move in one drain, one health check, one rollback. A recreate keeps the volume. |
-| Stadeum's pages | **agreed (2026-11-12).** None in this work. Later, Earnings among the org's admin pages, as a framed strut app (§6). |
+| Stadeum's pages | **agreed (2026-11-12).** None in this work. Later, Earnings among the org's admin pages, as a framed strut app (§6, since built). |
 | Existing boxes | **agreed (2026-11-12).** There is one box; its admin runs the installer (`scripts/install.sh`) again once after the release, which runs the release's `init-env.sh`. Ops does not write `.env`. |
 | The alias | **agreed (2026-11-12).** `treasury` on every box. |
 | The LSP | **agreed (2026-11-12).** The image's default broker; no `SPHINX_LSP` setting until a box needs one (rule 10). |
@@ -141,11 +142,13 @@ No change to `ops/src/`.
 
 ## 6. Open
 
-- **Earnings in the org's admin pages** (*proposed*; not part of this
-  work). People never see strut's own UI, so an admin needs the balance,
+- **Earnings in the org's admin pages** (**built**, 2026-11-12: strut's
+  `strut/earnings`, an admin-only app, stakwork/strut#650; stadeum's
+  `/earnings` frames it for an admin, and the Organisation settings list
+  it when strut does). People never see strut's own UI, so an admin needs the balance,
   earnings, Add sats and Withdraw among stadeum's admin pages (beside
   Spending, Models, Backups). Rule 2 still holds: the page is a strut app
   (strut's Earnings, shipped as an app and listed by `GET /apps`) framed
   there and signed in as the admin, not a page stadeum draws from
   `/earnings`, which would make stadeum know what a payment is (rule 1).
-  First step: a strut change that ships Earnings as an app.
+  First step: a strut change that ships Earnings as an app (done).

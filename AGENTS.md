@@ -35,6 +35,11 @@ work on it. Read the rules before adding anything.
    framed, signed in as the person. Stadeum's own pages are sign-in, the
    person, Calls, the members and the admin pages. The list of apps comes
    from strut, never from a list in this repo.
+   - **Earnings** sits among the org's admin pages, but it is strut's app
+     (`strut/earnings`, strut `specs/API.md` §14.14) framed there, signed
+     in as the admin: stadeum knows no payment. It shows only when strut
+     lists it. Strut lists admin-only apps (`admin: true`) to stadeum's
+     key, so the launcher leaves them out: the rail is every person's.
    - **Calls** is stadeum's because a strut app cannot carry live media:
      its frame allows no connections (`connect-src 'none'`). The page
      knows a call, never a conversation, a run or a job. It gets a room
@@ -164,8 +169,8 @@ order of the work, each step its own PR:
 9. A treasury: the Sphinx daemon beside strut, on an account of its own,
    the Lightning wallet strut sells paid public runs through and an admin
    withdraws from. Its volume is the money, so it is in the backup.
-   `plans/treasury.md`. (Done.) Next: Earnings among the org's admin pages,
-   as a strut app framed there.
+   `plans/treasury.md`. (Done.) Earnings among the org's admin pages, strut's
+   `strut/earnings` framed there for an admin (`/earnings`). (Done.)
 
 ## Layout
 
@@ -177,7 +182,7 @@ order of the work, each step its own PR:
 | `ui/` | stadeum-ui: Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db`) |
 | `ui/src/lib/mothership/` | Each person's virtual key and delegation, minted, pushed to strut, renewed |
 | `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the brand, the frame's sign-in ticket, a call's room |
-| `ui/src/app/(app)/apps/` | A strut app framed for the person (`strut-frame.tsx`) and its one-use ticket (`open.ts`); the assistant's frame is the `(app)` layout's (`home-frame.tsx`), kept open across stadeum's pages |
+| `ui/src/app/(app)/apps/` | A strut app framed for the person (`strut-frame.tsx`) and its one-use ticket (`open.ts`); the assistant's frame is the `(app)` layout's (`home-frame.tsx`), kept open across stadeum's pages. `ui/src/app/(app)/earnings/` frames strut's Earnings the same way, for an admin |
 | `ui/src/components/call.tsx`, `ui/src/lib/call*.ts` | A call: held by the `(app)` layout, its key and its checks, its LiveKit room (loaded only on a call), its transcript and artifacts; `ui/src/app/api/calls/` hands it to strut, `ui/src/app/(app)/calls/` draws it |
 | `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
 | `ui/src/lib/models/` | The Models page's work: each provider's key in the gateway, the org's model list and default, carried to every person's virtual key and to strut |
