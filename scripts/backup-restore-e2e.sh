@@ -3,7 +3,8 @@
 # (stack/dev.yml, project stadeum-restore-e2e, port 8089) it:
 #
 #   1. puts data in each place that keeps it: a strut workflow, a stadeum-ui
-#      person, a Neo4j node;
+#      person, a Neo4j node, and notes the treasury's account (its seed,
+#      made at its first start: a real, empty account on the broker);
 #   2. backs up with `ops backup` to a local restic repository, through a
 #      restore kit, as the Backups page gives one;
 #   3. wipes every volume and replaces .env with fresh secrets, as on a new box;
@@ -39,6 +40,7 @@ fresh_env() {
     echo "HTTP_PORT=$PORT"
     echo "STRUT_IMAGE_TAG=${STRUT_IMAGE_TAG:-}"
     echo "STRUT_BROWSER_TAG=${STRUT_BROWSER_TAG:-}"
+    echo "TREASURY_TAG=${TREASURY_TAG:-}"
     # Small, beside whatever else this machine runs.
     echo "NEO4J_HEAP_INITIAL=512m"
     echo "NEO4J_HEAP_MAX=512m"
@@ -62,6 +64,13 @@ trap cleanup EXIT
 
 strut() { curl -fsS -H "Host: strut.stadeum.localhost" -H "Authorization: Bearer $(value SHARED_API_TOKEN)" "$@"; }
 cypher() { compose exec -T neo4j cypher-shell -u neo4j -p "$(value NEO4J_PASSWORD)" --format plain "$1"; }
+# The treasury's account, by its public key (GET /me, the admin token).
+treasury_key() {
+  compose exec -T treasury node -e "
+    fetch('http://127.0.0.1:8095/me', { headers: { authorization: 'Bearer ' + process.env.DAEMON_ADMIN_TOKEN } })
+      .then((r) => r.json()).then((j) => console.log(j.pubkey || ''));
+  "
+}
 person() {
   compose exec -T stadeum-ui node -e "
     const { PrismaClient } = require('@prisma/client');
@@ -79,7 +88,9 @@ strut -X POST -H 'Content-Type: application/json' "http://127.0.0.1:$PORT/workfl
   -d "{\"name\":\"restore-e2e\",\"description\":\"$MARKER\",\"steps\":[{\"id\":\"pause\",\"type\":\"wait\",\"config\":{\"durationMs\":1}}]}" > /dev/null
 person "db.user.create({ data: { id: 'restoree2e', email: '$EMAIL', name: '$MARKER', role: 'member', actor: 'restore-e2e-restoree2e' } })" > /dev/null
 cypher "CREATE (:RestoreE2E {marker: '$MARKER'})" > /dev/null
-echo "a workflow, a person and a node"
+TREASURY_KEY=$(treasury_key)
+[ -n "$TREASURY_KEY" ] || { echo "the treasury has no account" >&2; exit 1; }
+echo "a workflow, a person, a node, and the treasury's account ${TREASURY_KEY::16}…"
 
 say "Back up with ops, through a restore kit"
 {
@@ -104,4 +115,5 @@ fail=0
 if strut "http://127.0.0.1:$PORT/workflows/restore-e2e" > /dev/null; then echo "ok   strut workflow restore-e2e"; else echo "FAIL strut workflow restore-e2e"; fail=1; fi
 if person "db.user.findUnique({ where: { email: '$EMAIL' } })" | grep -q "$MARKER"; then echo "ok   stadeum-ui person $EMAIL"; else echo "FAIL stadeum-ui person $EMAIL"; fail=1; fi
 if cypher "MATCH (n:RestoreE2E {marker: '$MARKER'}) RETURN count(n)" | grep -qx 1; then echo "ok   Neo4j node $MARKER"; else echo "FAIL Neo4j node $MARKER"; fail=1; fi
+if [ "$(treasury_key)" = "$TREASURY_KEY" ]; then echo "ok   treasury account ${TREASURY_KEY::16}…"; else echo "FAIL treasury account ${TREASURY_KEY::16}…"; fail=1; fi
 [ "$fail" = 0 ] && say "Restored: the same data came back" || { say "Restore check failed"; exit 1; }

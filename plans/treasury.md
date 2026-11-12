@@ -1,12 +1,12 @@
 # The treasury: a Lightning wallet for strut on every box
 
-> **Status (2026-11-12): a plan, agreed in outline with the owner; nothing
-> is built but the image's `stable` channel and `scripts/promote.sh
-> daemon`.** Rows in "Decided" marked **agreed** are the owner's; rows and
-> sections marked *proposed* are mine and open. Read against stadeum `main`
-> @64de7a6, strut `main` @b0863473, stakwork/sphinx `master` @48d7d87b and
-> sphinx-swarm `master` @8997ceb3, whose treasury
-> (stakwork/sphinx-swarm#787) this copies.
+> **Status (2026-11-12): built** (stakwork/stadeum#34): the `treasury`
+> service, its tokens, its backup and restore, and the image's `stable`
+> channel (stakwork/sphinx#430, `scripts/promote.sh daemon`). Kept for its
+> decisions, the risk accepted (§2), and Earnings in the admin pages (§6),
+> not built. Read against stadeum `main` @64de7a6, strut `main` @b0863473,
+> stakwork/sphinx `master` @48d7d87b and sphinx-swarm `master` @8997ceb3,
+> whose treasury (stakwork/sphinx-swarm#787) this copies.
 
 ## Problem
 
@@ -30,7 +30,7 @@ first boot, with nothing to set up, as a swarm can.
 | One account, one container | **agreed.** A second daemon on the same seed knocks the first off the broker. A restore onto a new box while the old one still runs does exactly that, so the restore says so, in `scripts/install.sh` and on the Backups page's restore kit. |
 | The tokens | **agreed.** `scripts/init-env.sh` generates `DAEMON_ADMIN_TOKEN`, `DAEMON_RECEIVE_TOKEN` and `DAEMON_PAY_TOKEN`, three different values (the daemon and strut each refuse two equal ones). The admin token goes to the treasury alone; no service holds it. |
 | The channel | **agreed.** `sphinx-daemon:${TREASURY_TAG:-stable}`. `stable` is moved by stakwork/sphinx's `promote-daemon.yml`, run with `scripts/promote.sh daemon`, never `latest` (rule 7). |
-| Its update group | *proposed.* `stadeum.ops.update: strut`, as voice: strut's payer and the daemon's wallet routes are one contract, so they move in one drain, one health check, one rollback. A recreate keeps the volume. |
+| Its update group | **built.** `stadeum.ops.update: strut`, as voice: strut's payer and the daemon's wallet routes are one contract, so they move in one drain, one health check, one rollback. A recreate keeps the volume. |
 | Stadeum's pages | **agreed (2026-11-12).** None in this work. Later, Earnings among the org's admin pages, as a framed strut app (§6). |
 | Existing boxes | **agreed (2026-11-12).** There is one box; its admin runs `scripts/init-env.sh` once after the release. Ops does not write `.env`. |
 | The alias | **agreed (2026-11-12).** `treasury` on every box. |
@@ -38,52 +38,19 @@ first boot, with nothing to set up, as a swarm can.
 
 ## 1. The service
 
-In `stack/stadeum.yml`, beside voice:
+Built as `stack/stadeum.yml`'s `treasury` service and volume, and strut's
+`LIGHTNING_DAEMON_*`; `docs/stack-spec.md` ("treasury") describes it. Two
+choices made there:
 
-```yaml
-  treasury:
-    <<: *common
-    image: ghcr.io/stakwork/sphinx-daemon:${TREASURY_TAG:-stable}
-    labels:
-      stadeum.ops.update: strut
-      stadeum.ops.backup: stop
-    environment:
-      DAEMON_ADMIN_TOKEN: ${DAEMON_ADMIN_TOKEN:-}
-      DAEMON_RECEIVE_TOKEN: ${DAEMON_RECEIVE_TOKEN:-}
-      DAEMON_PAY_TOKEN: ${DAEMON_PAY_TOKEN:-}
-      DAEMON_ALIAS: treasury
-      DAEMON_REPLY: none          # answers nobody, joins no tribe
-      SPHINX_HOME: /data
-      DAEMON_HOST: 0.0.0.0        # strut reaches it on the stack's network
-      DAEMON_PORT: "8095"
-    volumes:
-      - treasury:/data
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges]
-    healthcheck: GET /health
-```
-
-and in strut's environment, set only when the box has the tokens (the
-pattern `STRUT_VOICE_URL` uses):
-
-```yaml
-      LIGHTNING_DAEMON_URL: ${DAEMON_RECEIVE_TOKEN:+${DAEMON_PAY_TOKEN:+http://treasury:8095}}
-      LIGHTNING_DAEMON_TOKEN: ${DAEMON_RECEIVE_TOKEN:-}
-      LIGHTNING_DAEMON_PAY_TOKEN: ${DAEMON_PAY_TOKEN:-}
-```
-
-Strut writes them into its encrypted `payments.json` at every boot, and
-its wallet form shows the wallet as the deployment's (`env: true`), with no
-Change or Remove.
-
-*Proposed:* without the tokens the treasury waits (`sleep infinity`, as
-voice does without LiveKit's keys) instead of starting. The daemon would
-otherwise make its own tokens and a seed, and an account on the broker,
-that nothing uses. So a box that has not run `init-env.sh` since the
-treasury came has no wallet, and every other service is as before.
-
-`ops` mounts the volume at `/volumes/treasury` with the others, so it is in
-the snapshot with no change to `ops/src/backup.ts`.
+- **Without its tokens it waits** (`sleep infinity`, as voice does without
+  LiveKit's keys). The daemon would otherwise make its own tokens, a seed,
+  and an account on the broker that nothing uses. Strut gets its three
+  `LIGHTNING_*` only when `.env` has all three tokens, so a box that has
+  not run `init-env.sh` since the treasury came has no wallet, and every
+  other service is as before.
+- **No change to ops.** It mounts the volume at `/volumes/treasury` with
+  the others and stops the service by its label, so the volume is in the
+  snapshot with no change to `ops/src/backup.ts`.
 
 ## 2. The risk we accepted
 
@@ -93,8 +60,11 @@ by decision. What it means:
 
 - **What can happen.** Anything that runs a shell in strut's container (an
   agent's `exec` step, a workflow an admin installed, a prompt injection
-  that steers either) can read `LIGHTNING_DAEMON_PAY_TOKEN` from the
-  environment and `POST /pay` to the treasury: it can send the wallet's
+  that steers either) can read the pay token and `POST /pay` to the
+  treasury. Strut hides `LIGHTNING_*` from steps' secrets and empties its
+  `process.env` after boot, so a child process does not inherit it, but
+  the environment the process started with is still readable to its own
+  user (`/proc/<pid>/environ`). With it, a shell can send the wallet's
   whole balance anywhere. The receive token alone could only make
   invoices and read the balance.
 - **Why we accept it.** The wallet holds what the box's paid runs earned:

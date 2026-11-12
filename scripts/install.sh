@@ -42,7 +42,9 @@
 #
 # puts the latest snapshot back (STADEUM_SNAPSHOT=<id> for another) before
 # it starts: the volumes and the old box's .env. For another name than the
-# old box's, pass STADEUM_HOST too.
+# old box's, pass STADEUM_HOST too. Stop the old box first: the treasury's
+# account comes back too, and two boxes on one account knock each other off
+# its broker.
 #
 # A scripted install answers each question with STADEUM_ and the .env name.
 # sudo drops the environment, so put them after it:
@@ -492,6 +494,7 @@ restore() {
   step "Restore"
   [ -f "$STADEUM_RESTORE" ] || die "STADEUM_RESTORE names no file: $STADEUM_RESTORE (the Backups page's restore kit)"
   [ -z "$(compose ps -q)" ] || die "the stack is running here: a restore is for a new box (or stop it first: $(compose_cmd) down)."
+  say "The treasury's account comes back with it: stop the box this backup came from, if it still runs, or the two knock each other off the wallet's broker."
   compose run --rm --no-deps --env-from-file "$STADEUM_RESTORE" ops restore ${STADEUM_SNAPSHOT:+"$STADEUM_SNAPSHOT"} ||
     die "the restore failed (above): nothing was started."
   # The snapshot's .env names the old box: STADEUM_HOST names this one (configure checks it).
