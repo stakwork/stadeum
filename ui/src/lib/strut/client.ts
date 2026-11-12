@@ -596,6 +596,8 @@ export interface StrutApp {
   live?: string;
   /** The live version's usage warnings in the last day (§14.6), when it has any. */
   warnings?: number;
+  /** An admin's app alone (§14.14): strut lists it only to full scope, as stadeum's key is. */
+  admin?: true;
 }
 
 const isApp = (a: unknown): a is StrutApp =>
@@ -617,6 +619,7 @@ export async function listApps(timeoutMs?: number): Promise<StrutApp[]> {
     ...(a.pinned === true ? { pinned: true } : {}),
     ...(typeof a.live === "string" && a.live ? { live: a.live } : {}),
     ...(typeof a.warnings === "number" && a.warnings > 0 ? { warnings: a.warnings } : {}),
+    ...(a.admin === true ? { admin: true as const } : {}),
   }));
 }
 

@@ -32,7 +32,8 @@ describe("managedApps", () => {
     fake.state.appRecords.get("acme/legal")!.warnings.push({ kind: "repeat", version: "v1", times: 2, lastAt: new Date().toISOString(), message: "m", fix: "f" });
 
     const apps = await managedApps();
-    expect(apps.map((a) => a.name)).toEqual(["strut/jamie", "acme/legal", "acme/books"]);
+    // Earnings is an admin's app (§14.14), and this page is an admin's: it is listed.
+    expect(apps.map((a) => a.name)).toEqual(["strut/jamie", "acme/legal", "acme/books", "strut/earnings"]);
     expect(apps[0]).toMatchObject({ title: "Jamie", seeded: true, held: false, drafts: 0, pinned: false });
     expect(apps[1]).toMatchObject({ title: "Legal", active: "v1", live: "r1", held: true, drafts: 0, pinned: true, warnings: 1, seeded: false });
     // v2, v3 and v4 are newer than the held v1 and were never made live: drafts, as strut's rows count them.

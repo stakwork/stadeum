@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { CallProvider } from "@/components/call";
 import { describeDelegation } from "@/components/delegation";
 import { Rail } from "@/components/rail";
-import { listApps } from "@/lib/apps";
+import { earningsApp, listApps } from "@/lib/apps";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { isAdmin, isRole, roleLabel } from "@/lib/roles";
@@ -13,8 +13,9 @@ import { strutOrigin } from "./apps/app-frame";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const [apps, mothership] = await Promise.all([
+  const [apps, earnings, mothership] = await Promise.all([
     listApps(),
+    earningsApp(user.role),
     db.mothershipUser.findUnique({ where: { userId: user.id } }),
   ]);
   const access = describeDelegation(mothership);
@@ -29,6 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           home={home?.title ?? "Home"}
           apps={(apps ?? []).filter((a) => !a.assistant).map((a) => ({ title: a.title, href: a.href }))}
           admin={isAdmin(user.role)}
+          earnings={earnings?.title}
           person={{
             name: user.name || user.email,
             email: user.email,

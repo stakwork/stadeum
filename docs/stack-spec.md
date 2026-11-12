@@ -22,7 +22,7 @@ but maple (`ui/src/lib/status.ts`, `SERVICES`).
 | `voice` | `sphinxlightning/sphinx-voice:stable` | A person's voice call with the assistant (sphinx-voice's 1:1 mode): the LiveKit room and the agent in it | None (stadeum-ui never calls it) |
 | `treasury` | `ghcr.io/stakwork/sphinx-daemon:stable` | The Lightning wallet strut sells paid public runs through: a Sphinx daemon on an account of its own | None (stadeum-ui never calls it) |
 | `bootstrap` | `node:22.20.0-alpine` | One shot: org signing key + trust registration | Org key registered with bifrost, same key as stadeum-ui's |
-| `stadeum-ui` | `ghcr.io/stakwork/stadeum-ui:stable` (built from `ui/`) | Sign-in, the person, Calls, Members, Packages, Status, Updates, Backups | Running (it serves the page) |
+| `stadeum-ui` | `ghcr.io/stakwork/stadeum-ui:stable` (built from `ui/`) | Sign-in, the person, Calls, Members, Packages, Status, Updates, Backups; Earnings is strut's app (`strut/earnings`) framed among them for an admin | Running (it serves the page) |
 | `ops` | `ghcr.io/stakwork/stadeum-ops:stable` (built from `ops/`, carrying `stack/`) | stadeum's releases, strut's updates, backups; the Docker socket | Reported in the last 3 minutes |
 
 stadeum-ui has no Docker socket, so it cannot see container state; each
@@ -294,7 +294,8 @@ checked".
   `wasm/daemon`): a Sphinx daemon on an account of its own, alias
   `treasury`, the wallet strut sells paid public runs through (strut
   `plans/paid-runs.md`, `specs/LIGHTNING.md`) and an admin withdraws from
-  in strut's Earnings. Copied from sphinx-swarm's treasury. Why and what is
+  in strut's Earnings (`strut/earnings`, framed for an admin on stadeum's
+  `/earnings`). Copied from sphinx-swarm's treasury. Why and what is
   open: `plans/treasury.md`.
 - **Who calls it.** strut alone, at `http://treasury:8095`, on the stack's
   network: no published port, no route in the Caddyfile. It connects out to
