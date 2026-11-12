@@ -53,6 +53,10 @@ volumes:
   org:
   # stadeum-ui's SQLite database (people, invites, delegation state).
   stadeum-ui:
+  # The treasury's account: its seed, made on the first start, and
+  # wallet.jsonl, the payments it took. It is the money: lose it and every
+  # snapshot of it, and the sats are gone.
+  treasury:
 
 services:
   caddy:
@@ -256,6 +260,16 @@ services:
       # Packages strut installs at first boot, when they are not installed
       # yet (strut's STRUT_PACKAGES). Empty: none.
       STRUT_PACKAGES: ${STRUT_PACKAGES:-}
+      # The wallet strut sells paid public runs through, and an admin
+      # withdraws from: the treasury, below. Set only when .env has the
+      # treasury's three tokens (scripts/init-env.sh); unset, strut has no
+      # wallet and sells nothing. Strut keeps them in its encrypted
+      # payments.json and hides them from steps, but a shell in this
+      # container can still read the pay token and spend the treasury's
+      # balance: a risk accepted on purpose (plans/treasury.md §2).
+      LIGHTNING_DAEMON_URL: ${DAEMON_ADMIN_TOKEN:+${DAEMON_RECEIVE_TOKEN:+${DAEMON_PAY_TOKEN:+http://treasury:8095}}}
+      LIGHTNING_DAEMON_TOKEN: ${DAEMON_ADMIN_TOKEN:+${DAEMON_PAY_TOKEN:+${DAEMON_RECEIVE_TOKEN:-}}}
+      LIGHTNING_DAEMON_PAY_TOKEN: ${DAEMON_ADMIN_TOKEN:+${DAEMON_RECEIVE_TOKEN:+${DAEMON_PAY_TOKEN:-}}}
     volumes:
       - strut-workspace:/data/workspace
       - strut-models:/data/models
@@ -315,6 +329,61 @@ services:
         echo "[voice] calls are off: set LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env, and run scripts/init-env.sh";
         exec sleep infinity; fi;
         exec node dist/one-to-one.js
+
+  # The treasury (plans/treasury.md): a Sphinx daemon (stakwork/sphinx
+  # wasm/daemon) on an account of its own, the Lightning wallet strut sells
+  # through. Strut alone calls it, with the receive token (invoices, the
+  # balance) and the pay token (a withdrawal). The admin token, which could
+  # post and join tribes as the account, is in this container alone. It
+  # answers nobody and joins no tribe: it connects out to its LSP only
+  # (the image's default broker), so no port and no route in the Caddyfile.
+  # The `stable` channel stakwork/sphinx's promote-daemon.yml moves
+  # (scripts/promote.sh daemon). It speaks strut's wallet contract, so ops
+  # moves it in strut's group, as voice. A commit tag (`b31014c`) pins one.
+  # One container per account: a second daemon on the same seed, on
+  # another box, knocks this one off the broker.
+  treasury:
+    <<: *common
+    image: ghcr.io/stakwork/sphinx-daemon:${TREASURY_TAG:-stable}
+    labels:
+      stadeum.ops.update: strut
+      # wallet.jsonl is appended as payments settle.
+      stadeum.ops.backup: stop
+    # tini as PID 1, so a stop reaches node (or the sleep below) at once.
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges]
+    environment:
+      DAEMON_ADMIN_TOKEN: ${DAEMON_ADMIN_TOKEN:-}
+      DAEMON_RECEIVE_TOKEN: ${DAEMON_RECEIVE_TOKEN:-}
+      DAEMON_PAY_TOKEN: ${DAEMON_PAY_TOKEN:-}
+      DAEMON_ALIAS: treasury
+      # No service: it answers no mention and joins no tribe.
+      DAEMON_REPLY: none
+      SPHINX_HOME: /data
+      DAEMON_HOST: 0.0.0.0
+      DAEMON_PORT: "8095"
+    volumes:
+      - treasury:/data
+    # Without its three tokens it waits instead of making an account
+    # nothing uses, and the box runs without a wallet (strut has no
+    # LIGHTNING_DAEMON_URL).
+    command:
+      - sh
+      - -c
+      - >-
+        if [ -z "$$DAEMON_ADMIN_TOKEN" ] || [ -z "$$DAEMON_RECEIVE_TOKEN" ] || [ -z "$$DAEMON_PAY_TOKEN" ]; then
+        echo "[treasury] no wallet: run scripts/init-env.sh for the DAEMON_*_TOKENs, then up -d";
+        exec sleep infinity; fi;
+        exec node build/daemon/src/index.js
+    healthcheck:
+      # Healthy once it listens (GET /health, no token), or at once while it
+      # waits for its tokens.
+      test: ["CMD", "node", "-e", "const e = process.env; if (!e.DAEMON_ADMIN_TOKEN || !e.DAEMON_RECEIVE_TOKEN || !e.DAEMON_PAY_TOKEN) process.exit(0); fetch('http://127.0.0.1:8095/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
   # One-shot: org signing key + bifrost trust registration. Idempotent;
   # re-run with `docker compose ... run --rm bootstrap`. An update never
@@ -420,6 +489,7 @@ services:
       - strut-workspace:/volumes/strut-workspace
       - org:/volumes/org
       - stadeum-ui:/volumes/stadeum-ui
+      - treasury:/volumes/treasury
     healthcheck:
       # No port to probe: the loop writes a heartbeat every 15 s.
       test: ["CMD-SHELL", "find /tmp/heartbeat -mmin -2 | grep -q ."]

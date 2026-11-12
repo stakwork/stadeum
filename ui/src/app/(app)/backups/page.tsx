@@ -133,6 +133,10 @@ docker compose --env-file .env -f stack/stadeum.yml up -d --wait`}
             It restores the newest snapshot (name one to pick another: <code className="font-mono">ops restore 1a2b3c4d</code>),
             and the snapshot&apos;s <code className="font-mono">.env</code> with it. On this box, the same command puts a snapshot back.
           </p>
+          <p>
+            Stop the old box first if it still runs. The wallet comes back too, and two boxes on one wallet knock each
+            other offline.
+          </p>
         </div>
       </section>
 

@@ -16,6 +16,7 @@ work on it. Read the rules before adding anything.
 | **neo4j** | The graph strut keeps | Updated by anything but a person |
 | **bifrost** + **redis** (`ghcr.io/stakwork/stakgraph-gateway`) | Every model call: provider keys, a virtual key and a cap per person | Lets a call through without a valid delegation |
 | **voice** (`sphinxlightning/sphinx-voice`) | A person's voice call with the assistant: the LiveKit room, the agent in it, each turn run through strut as the person | Has a published port, holds the org key or the Docker socket, or keeps what was said: strut's conversation does |
+| **treasury** (`ghcr.io/stakwork/sphinx-daemon`) | The Lightning wallet strut sells through: an account of its own, its seed and the payments it took | Has a published port, answers anyone but strut, or runs beside another box on the same account |
 | **stadeum-ui** (`ui/`) | Who people are (sign-in, members, roles), the org signing key's use, each person's delegation, the admin pages, the Calls page | Draws an app, or knows what a workflow or document is |
 | **ops** (`ops/`) | The box's upkeep: stadeum's releases (its image carries the stack files), strut's updates, old images, backups, restores | Has an open port, or touches an image it never named |
 | **caddy** | TLS and routing; the only published ports | Holds any credential but its certificates |
@@ -67,7 +68,11 @@ work on it. Read the rules before adding anything.
      read. The LiveKit key pair is in `.env` and the voice container alone.
      Nothing logs, keeps or puts in a URL a call's key, room or tokens.
    - Strut's container holds neither the org key nor the Docker socket:
-     its agents run shell commands there.
+     its agents run shell commands there. It does hold the treasury's pay
+     token, so an agent could spend the treasury's balance: a risk
+     accepted on purpose, since the treasury holds only what paid runs
+     brought in (`plans/treasury.md` §2). The treasury's admin token and
+     seed stay in the treasury's container.
 
 5. **Any cloud.** One compose file is the deployment: stock images, every
    setting in `.env` with a comment in `.env.example`. Nothing depends on
@@ -97,7 +102,8 @@ work on it. Read the rules before adding anything.
    are the secrets needed to read it, except the backup's own password,
    which the admin keeps outside the box. The one volume left out is
    `strut-models`: models strut downloads, which a restored box fetches
-   again. A backup nobody has restored is not one: restoring is part of
+   again. The `treasury` volume is money: its seed is in no other place.
+   A backup nobody has restored is not one: restoring is part of
    the feature, and it is tested.
 
 9. **It stands alone.** No runtime dependency on Hive, mcp, repo2graph or
@@ -155,6 +161,11 @@ order of the work, each step its own PR:
    transcript and the artifacts handed over, opened through strut. (Done.)
    Next: one LiveKit key per box once a box's provisioning can mint one
    (the LiveKit server has no API for it yet).
+9. A treasury: the Sphinx daemon beside strut, on an account of its own,
+   the Lightning wallet strut sells paid public runs through and an admin
+   withdraws from. Its volume is the money, so it is in the backup.
+   `plans/treasury.md`. (Done.) Next: Earnings among the org's admin pages,
+   as a strut app framed there.
 
 ## Layout
 
@@ -173,9 +184,9 @@ order of the work, each step its own PR:
 | `ui/src/app/(app)/packages/`, `ui/src/lib/packages.ts` | The Packages page: strut's packages installed, searched, installed and uninstalled, their missing secrets set, the indexes followed, and the store's Install link (`?install=`) read |
 | `ops/` | stadeum-ops: the update and backup loop, driving `docker compose` and restic, and the release (`src/release.ts`): its image carries `stack/`, built from the repository's root. No runtime dependencies |
 | `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |
-| `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the release's stack files from stadeum-ops's image, `.env`, the DNS check, the stack; or a restore), `init-env.sh` (generates `.env`'s secrets), `promote.sh` (moves strut's or stadeum's `stable` to main's newest images, or sphinx-voice's to its newest release), the gateway end-to-end check, the backup-and-restore proof, the release proof |
+| `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the release's stack files from stadeum-ops's image, `.env`, the DNS check, the stack; or a restore), `init-env.sh` (generates `.env`'s secrets), `promote.sh` (moves strut's or stadeum's `stable` to main's newest images, the Sphinx daemon's to stakwork/sphinx master's newest, or sphinx-voice's to its newest release), the gateway end-to-end check, the backup-and-restore proof, the release proof |
 | `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract), `models.md` (who picks a model, where the keys live) |
-| `plans/` | Work not built yet, one file each, with what is decided and what is open: `github-app.md` (roadmap step 7) |
+| `plans/` | Work not built yet, one file each, with what is decided and what is open: `github-app.md` (roadmap step 7), `treasury.md` (step 9: built, kept for its decisions and what is open) |
 
 ## Running
 
