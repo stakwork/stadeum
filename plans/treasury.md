@@ -31,7 +31,10 @@ first boot, with nothing to set up, as a swarm can.
 | The tokens | **agreed.** `scripts/init-env.sh` generates `DAEMON_ADMIN_TOKEN`, `DAEMON_RECEIVE_TOKEN` and `DAEMON_PAY_TOKEN`, three different values (the daemon and strut each refuse two equal ones). The admin token goes to the treasury alone; no service holds it. |
 | The channel | **agreed.** `sphinx-daemon:${TREASURY_TAG:-stable}`. `stable` is moved by stakwork/sphinx's `promote-daemon.yml`, run with `scripts/promote.sh daemon`, never `latest` (rule 7). |
 | Its update group | *proposed.* `stadeum.ops.update: strut`, as voice: strut's payer and the daemon's wallet routes are one contract, so they move in one drain, one health check, one rollback. A recreate keeps the volume. |
-| Stadeum's pages | *proposed.* None. The balance, earnings, Add sats and Withdraw are strut's Earnings tab; stadeum draws no app (rule 2) and learns nothing about a payment. |
+| Stadeum's pages | **agreed (2026-11-12).** None in this work. Later, Earnings among the org's admin pages, as a framed strut app (§6). |
+| Existing boxes | **agreed (2026-11-12).** There is one box; its admin runs `scripts/init-env.sh` once after the release. Ops does not write `.env`. |
+| The alias | **agreed (2026-11-12).** `treasury` on every box. |
+| The LSP | **agreed (2026-11-12).** The image's default broker; no `SPHINX_LSP` setting until a box needs one (rule 10). |
 
 ## 1. The service
 
@@ -168,15 +171,11 @@ No change to `ops/src/`.
 
 ## 6. Open
 
-- **Existing boxes.** A box gets the treasury's tokens only when an admin
-  runs `init-env.sh` again. Should ops generate a missing secret that a
-  release names, writing `.env`, which rule 7 keeps the box's? Or should
-  the Updates page say "run `init-env.sh`" when a release brings one?
-  Voice's `STRUT_VOICE_TOKEN` has the same gap today.
-- **Where an admin sees Earnings.** Strut's Earnings tab is in strut's own
-  UI. On a stadeum box it must arrive as a strut app from `GET /apps`
-  (rule 2), framed and signed in as an admin. Check strut ships it as one.
-- **The alias.** `treasury` on every box, or the org's name, so a payer's
-  wallet shows who they paid?
-- **The LSP.** The image's default broker. A setting (`SPHINX_LSP`) only
-  if a box ever needs another; rule 10 says not before.
+- **Earnings in the org's admin pages** (*proposed*; not part of this
+  work). People never see strut's own UI, so an admin needs the balance,
+  earnings, Add sats and Withdraw among stadeum's admin pages (beside
+  Spending, Models, Backups). Rule 2 still holds: the page is a strut app
+  (strut's Earnings, shipped as an app and listed by `GET /apps`) framed
+  there and signed in as the admin, not a page stadeum draws from
+  `/earnings`, which would make stadeum know what a payment is (rule 1).
+  First step: a strut change that ships Earnings as an app.
