@@ -155,6 +155,10 @@ order of the work, each step its own PR:
    transcript and the artifacts handed over, opened through strut. (Done.)
    Next: one LiveKit key per box once a box's provisioning can mint one
    (the LiveKit server has no API for it yet).
+9. A treasury: the Sphinx daemon beside strut, on an account of its own,
+   the Lightning wallet strut sells paid public runs through and an admin
+   withdraws from. Its volume is the money, so it is in the backup.
+   `plans/treasury.md`.
 
 ## Layout
 
@@ -173,9 +177,9 @@ order of the work, each step its own PR:
 | `ui/src/app/(app)/packages/`, `ui/src/lib/packages.ts` | The Packages page: strut's packages installed, searched, installed and uninstalled, their missing secrets set, the indexes followed, and the store's Install link (`?install=`) read |
 | `ops/` | stadeum-ops: the update and backup loop, driving `docker compose` and restic, and the release (`src/release.ts`): its image carries `stack/`, built from the repository's root. No runtime dependencies |
 | `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |
-| `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the release's stack files from stadeum-ops's image, `.env`, the DNS check, the stack; or a restore), `init-env.sh` (generates `.env`'s secrets), `promote.sh` (moves strut's or stadeum's `stable` to main's newest images, or sphinx-voice's to its newest release), the gateway end-to-end check, the backup-and-restore proof, the release proof |
+| `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the release's stack files from stadeum-ops's image, `.env`, the DNS check, the stack; or a restore), `init-env.sh` (generates `.env`'s secrets), `promote.sh` (moves strut's or stadeum's `stable` to main's newest images, the Sphinx daemon's to stakwork/sphinx master's newest, or sphinx-voice's to its newest release), the gateway end-to-end check, the backup-and-restore proof, the release proof |
 | `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract), `models.md` (who picks a model, where the keys live) |
-| `plans/` | Work not built yet, one file each, with what is decided and what is open: `github-app.md` (roadmap step 7) |
+| `plans/` | Work not built yet, one file each, with what is decided and what is open: `github-app.md` (roadmap step 7), `treasury.md` (step 9) |
 
 ## Running
 

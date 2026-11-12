@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # Moves a `stable` channel, which is what a box follows in its upkeep window:
-# strut's or stadeum's to main's newest images, sphinx-voice's to its newest
+# strut's or stadeum's to main's newest images, the Sphinx daemon's (the
+# treasury) to stakwork/sphinx master's newest, sphinx-voice's to its newest
 # release. It runs that repository's promote workflow (strut's
-# promote-image.yml, stadeum's promote-images.yml, sphinx-voice's
-# promote-image.yml), waits for it, and checks the tags moved.
+# promote-image.yml, stadeum's promote-images.yml, sphinx's
+# promote-daemon.yml, sphinx-voice's promote-image.yml), waits for it, and
+# checks the tags moved.
 #
-#   scripts/promote.sh strut|stadeum [commit] [--dry-run]
+#   scripts/promote.sh strut|stadeum|daemon [commit] [--dry-run]
 #   scripts/promote.sh voice [version] [--dry-run]
 #
-# strut and stadeum: it promotes the newest images at or before COMMIT
-# (main's newest without one): each repository builds an image only when
-# what goes into it changed. Without a commit it refuses while main's images
-# are still being published, or when the newest publish failed: `stable`
-# would move to an older image than main's. strut's workflow also moves
+# strut, stadeum and daemon: it promotes the newest images at or before
+# COMMIT (the default branch's newest without one: main, or master for
+# stakwork/sphinx): each repository builds an image only when what goes into
+# it changed. Without a commit it refuses while the branch's images are
+# still being published, or when the newest publish failed: `stable` would
+# move to an older image than the branch's. strut's workflow also moves
 # strut-browser:stable to the Playwright version that commit pins.
 #
 # voice: sphinx-voice's images are its releases' (sphinxlightning/sphinx-voice
@@ -26,7 +29,7 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 strut|stadeum [commit] [--dry-run]" >&2
+  echo "usage: $0 strut|stadeum|daemon [commit] [--dry-run]" >&2
   echo "       $0 voice [version] [--dry-run]" >&2
   exit 2
 }
@@ -44,9 +47,10 @@ for arg in "$@"; do
 done
 
 case "$project" in
-  strut) repo=stakwork/strut promote=promote-image.yml publish=publish-image.yml images=(strut) ;;
-  stadeum) repo=stakwork/stadeum promote=promote-images.yml publish=publish-images.yml images=(stadeum-ui stadeum-ops) ;;
-  voice) repo=stakwork/sphinx-voice promote=promote-image.yml publish=docker-release.yml images=(sphinx-voice) ;;
+  strut) repo=stakwork/strut branch=main promote=promote-image.yml publish=publish-image.yml images=(strut) ;;
+  stadeum) repo=stakwork/stadeum branch=main promote=promote-images.yml publish=publish-images.yml images=(stadeum-ui stadeum-ops) ;;
+  daemon) repo=stakwork/sphinx branch=master promote=promote-daemon.yml publish=publish-daemon.yml images=(sphinx-daemon) ;;
+  voice) repo=stakwork/sphinx-voice branch=main promote=promote-image.yml publish=docker-release.yml images=(sphinx-voice) ;;
   *) usage ;;
 esac
 
@@ -55,7 +59,7 @@ for tool in gh curl jq; do
 done
 
 # The registries answer anonymous pulls of these public images: ghcr.io
-# strut's and stadeum's, Docker Hub sphinx-voice's.
+# strut's, stadeum's and the daemon's, Docker Hub sphinx-voice's.
 if [ "$project" = voice ]; then
   owner=sphinxlightning api=registry-1.docker.io
   token() { curl -fsS "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$owner/$1:pull" | jq -r .token; }
@@ -112,29 +116,29 @@ else
   if [ -n "$at" ]; then
     start=$(gh api "repos/$repo/commits/$at" --jq .sha 2> /dev/null) ||
       { echo "no commit '$at' in $repo" >&2; exit 1; }
-    case "$(gh api "repos/$repo/compare/$start...main" --jq .status)" in
+    case "$(gh api "repos/$repo/compare/$start...$branch" --jq .status)" in
       ahead | identical) ;;
-      *) echo "$at is not on $repo's main: only main's images are published" >&2; exit 1 ;;
+      *) echo "$at is not on $repo's $branch: only $branch's images are published" >&2; exit 1 ;;
     esac
   else
-    runs=$(gh run list -R "$repo" --workflow "$publish" --branch main --limit 10 \
+    runs=$(gh run list -R "$repo" --workflow "$publish" --branch "$branch" --limit 10 \
       --json databaseId,status,conclusion,headSha,url)
     busy=$(jq -r 'map(select(.status != "completed")) | first // empty | "\(.headSha[:7]) \(.databaseId)"' <<< "$runs")
     if [ -n "$busy" ]; then
-      echo "main's images are still being published (${busy% *}). Wait for it, then run this again:" >&2
+      echo "$branch's images are still being published (${busy% *}). Wait for it, then run this again:" >&2
       echo "  gh run watch ${busy#* } -R $repo" >&2
       exit 1
     fi
     failed=$(jq -r '.[0] // empty | select(.conclusion != "success") | "\(.headSha[:7]), ended \(.conclusion): \(.url)"' <<< "$runs")
     if [ -n "$failed" ]; then
-      echo "main's newest publish, at $failed" >&2
+      echo "$branch's newest publish, at $failed" >&2
       echo "Fix it, or name an older commit to promote." >&2
       exit 1
     fi
-    start=main
+    start=$branch
   fi
 
-  # Main's commits from START, newest first, with their subjects.
+  # The branch's commits from START, newest first, with their subjects.
   commits=$(gh api "repos/$repo/commits?sha=$start&per_page=100" --jq '.[] | "\(.sha) \(.commit.message | split("\n")[0])"')
   head_sha=${commits%% *}
 
@@ -167,15 +171,15 @@ if [ -z "$moves" ]; then
 fi
 [ -z "$dry_run" ] || exit 0
 
-# strut's workflow wants the commit its image was built at; stadeum's finds
-# each image at or before the commit it is given; sphinx-voice's takes the
-# release's version.
+# strut's and the daemon's workflows want the commit the image was built at;
+# stadeum's finds each image at or before the commit it is given;
+# sphinx-voice's takes the release's version.
 case "$project" in
-  strut) inputs=(-f commit="${from[0]%% *}") ;;
+  strut | daemon) inputs=(-f commit="${from[0]%% *}") ;;
   stadeum) inputs=(-f commit="$head_sha") ;;
   voice) inputs=(-f version="$version") ;;
 esac
-out=$(gh workflow run "$promote" -R "$repo" --ref main "${inputs[@]}" -f channel=stable 2>&1) ||
+out=$(gh workflow run "$promote" -R "$repo" --ref "$branch" "${inputs[@]}" -f channel=stable 2>&1) ||
   { echo "$out" >&2; exit 1; }
 run=$(grep -oE 'runs/[0-9]+' <<< "$out" | head -1 | cut -d/ -f2 || true)
 if [ -z "$run" ]; then
