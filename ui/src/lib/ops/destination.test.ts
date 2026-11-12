@@ -64,6 +64,7 @@ describe("a backup destination", () => {
     expect(kit).toContain("AWS_ACCESS_KEY_ID=<yours>\n");
     expect(kit).not.toContain("AKIA");
     expect(kit).not.toContain("s3cr3t");
-    expect(kit).toMatch(/run --rm --env-from-file restore.env ops restore/);
+    expect(kit).toMatch(/STADEUM_RESTORE=\/root\/restore\.env bash/);
+    expect(kit).not.toContain("init-env");
   });
 });

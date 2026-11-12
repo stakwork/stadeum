@@ -32,7 +32,7 @@ first boot, with nothing to set up, as a swarm can.
 | The channel | **agreed.** `sphinx-daemon:${TREASURY_TAG:-stable}`. `stable` is moved by stakwork/sphinx's `promote-daemon.yml`, run with `scripts/promote.sh daemon`, never `latest` (rule 7). |
 | Its update group | **built.** `stadeum.ops.update: strut`, as voice: strut's payer and the daemon's wallet routes are one contract, so they move in one drain, one health check, one rollback. A recreate keeps the volume. |
 | Stadeum's pages | **agreed (2026-11-12).** None in this work. Later, Earnings among the org's admin pages, as a framed strut app (§6). |
-| Existing boxes | **agreed (2026-11-12).** There is one box; its admin runs `scripts/init-env.sh` once after the release. Ops does not write `.env`. |
+| Existing boxes | **agreed (2026-11-12).** There is one box; its admin runs the installer (`scripts/install.sh`) again once after the release, which runs the release's `init-env.sh`. Ops does not write `.env`. |
 | The alias | **agreed (2026-11-12).** `treasury` on every box. |
 | The LSP | **agreed (2026-11-12).** The image's default broker; no `SPHINX_LSP` setting until a box needs one (rule 10). |
 
@@ -46,8 +46,8 @@ choices made there:
   LiveKit's keys). The daemon would otherwise make its own tokens, a seed,
   and an account on the broker that nothing uses. Strut gets its three
   `LIGHTNING_*` only when `.env` has all three tokens, so a box that has
-  not run `init-env.sh` since the treasury came has no wallet, and every
-  other service is as before.
+  not run the installer again since the treasury came has no wallet, and
+  every other service is as before.
 - **No change to ops.** It mounts the volume at `/volumes/treasury` with
   the others and stops the service by its label, so the volume is in the
   snapshot with no change to `ops/src/backup.ts`.
@@ -118,9 +118,9 @@ rule 4 and `docs/stack-spec.md` each say this in a line, pointing here.
 - In strut's update group, a box moves the treasury in its nightly window
   with strut and voice, and rolls all three back together.
 - The first release that has the treasury adds the service and the volume.
-  Ops applies it; the box has no tokens until an admin runs
-  `scripts/init-env.sh` and `docker compose … up -d`, so until then the
-  treasury waits and strut has no wallet (§1).
+  Ops applies it; the box has no tokens until an admin runs the installer
+  (`scripts/install.sh`) again, so until then the treasury waits and strut
+  has no wallet (§1).
 
 ## 5. What changes, by file
 

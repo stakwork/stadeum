@@ -262,11 +262,12 @@ services:
       STRUT_PACKAGES: ${STRUT_PACKAGES:-}
       # The wallet strut sells paid public runs through, and an admin
       # withdraws from: the treasury, below. Set only when .env has the
-      # treasury's three tokens (scripts/init-env.sh); unset, strut has no
-      # wallet and sells nothing. Strut keeps them in its encrypted
-      # payments.json and hides them from steps, but a shell in this
-      # container can still read the pay token and spend the treasury's
-      # balance: a risk accepted on purpose (plans/treasury.md §2).
+      # treasury's three tokens (scripts/init-env.sh, which install.sh
+      # runs); unset, strut has no wallet and sells nothing. Strut keeps
+      # them in its encrypted payments.json and hides them from steps, but a
+      # shell in this container can still read the pay token and spend the
+      # treasury's balance: a risk accepted on purpose (plans/treasury.md
+      # §2).
       LIGHTNING_DAEMON_URL: ${DAEMON_ADMIN_TOKEN:+${DAEMON_RECEIVE_TOKEN:+${DAEMON_PAY_TOKEN:+http://treasury:8095}}}
       LIGHTNING_DAEMON_TOKEN: ${DAEMON_ADMIN_TOKEN:+${DAEMON_PAY_TOKEN:+${DAEMON_RECEIVE_TOKEN:-}}}
       LIGHTNING_DAEMON_PAY_TOKEN: ${DAEMON_ADMIN_TOKEN:+${DAEMON_RECEIVE_TOKEN:+${DAEMON_PAY_TOKEN:-}}}
@@ -326,7 +327,7 @@ services:
       - -c
       - >-
         if [ -z "$$LIVEKIT_API_KEY" ] || [ -z "$$LIVEKIT_API_SECRET" ] || [ -z "$$STRUT_VOICE_TOKEN" ]; then
-        echo "[voice] calls are off: set LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env, and run scripts/init-env.sh";
+        echo "[voice] calls are off: set LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env; for STRUT_VOICE_TOKEN, run the installer again (scripts/install.sh)";
         exec sleep infinity; fi;
         exec node dist/one-to-one.js
 
@@ -373,7 +374,7 @@ services:
       - -c
       - >-
         if [ -z "$$DAEMON_ADMIN_TOKEN" ] || [ -z "$$DAEMON_RECEIVE_TOKEN" ] || [ -z "$$DAEMON_PAY_TOKEN" ]; then
-        echo "[treasury] no wallet: run scripts/init-env.sh for the DAEMON_*_TOKENs, then up -d";
+        echo "[treasury] no wallet: run the installer again (scripts/install.sh), which adds the DAEMON_*_TOKENs to .env and starts it";
         exec sleep infinity; fi;
         exec node build/daemon/src/index.js
     healthcheck:
