@@ -282,7 +282,9 @@ checked".
   `init: true`) and says why in its log: the box comes up, strut has no
   `STRUT_VOICE_URL`, and the Calls page says no voice service is
   configured. `scripts/init-env.sh` generates `STRUT_VOICE_TOKEN`; a box
-  from before calls gets one from a re-run.
+  from before calls gets one by running `scripts/install.sh` again, which
+  runs the release's `init-env.sh` (a box has no `scripts/` of its own: the
+  script is in ops's image).
 - The voice turns ask for `VOICE_MODEL`, sphinx-voice's default `sonnet`,
   not the org's model from the Models page: what strut resolves for
   `sonnet`.
@@ -306,8 +308,9 @@ checked".
   posting and tribes as the account) to the treasury alone. Without all
   three the command waits (`sleep infinity`, under `init: true`) instead of
   making an account nothing uses, strut has no wallet, and the box runs as
-  before. A box from before the treasury gets them from a re-run of
-  `init-env.sh`, then `up -d`.
+  before. A box from before the treasury gets them by running
+  `scripts/install.sh` again: it runs the release's `init-env.sh`, which
+  keeps every value `.env` has, and starts the stack.
 - **The risk accepted.** strut hides `LIGHTNING_*` from steps and empties
   its `process.env` after boot, but a shell in strut's container can still
   read the environment the process started with, so an agent can read the

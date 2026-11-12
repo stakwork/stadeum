@@ -122,17 +122,21 @@ export default async function BackupsPage() {
         <SectionLabel id="restore">Restore</SectionLabel>
         <div className="flex flex-col gap-3 text-[14px] text-ink-2">
           <p>
-            On a fresh box, in a checkout of stadeum, with the restore kit saved as <code className="font-mono">restore.env</code>:
+            On a new box, with the restore kit saved as <code className="font-mono">/root/restore.env</code>:
           </p>
           <pre className="overflow-x-auto rounded-[10px] border border-rule bg-surface p-4 font-mono text-[12.5px] leading-relaxed">
-            {`scripts/init-env.sh
-docker compose --env-file .env -f stack/stadeum.yml run --rm --env-from-file restore.env ops restore
-docker compose --env-file .env -f stack/stadeum.yml up -d --wait`}
+            {`curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo STADEUM_RESTORE=/root/restore.env bash`}
           </pre>
           <p>
-            It restores the newest snapshot (name one to pick another: <code className="font-mono">ops restore 1a2b3c4d</code>),
-            and the snapshot&apos;s <code className="font-mono">.env</code> with it. On this box, the same command puts a snapshot back.
+            It installs the box, restores the newest snapshot (<code className="font-mono">STADEUM_SNAPSHOT=1a2b3c4d</code>{" "}
+            picks another) and the snapshot&apos;s <code className="font-mono">.env</code> with it, then starts the stack. For a new
+            name, add <code className="font-mono">STADEUM_HOST</code>. On this box, in <code className="font-mono">/opt/stadeum</code>,
+            this puts a snapshot back:
           </p>
+          <pre className="overflow-x-auto rounded-[10px] border border-rule bg-surface p-4 font-mono text-[12.5px] leading-relaxed">
+            {`docker compose --env-file .env -f stack/stadeum.yml run --rm --env-from-file restore.env ops restore
+docker compose --env-file .env -f stack/stadeum.yml up -d --wait`}
+          </pre>
           <p>
             Stop the old box first if it still runs. The wallet comes back too, and two boxes on one wallet knock each
             other offline.

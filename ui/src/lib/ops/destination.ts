@@ -177,8 +177,8 @@ export function restoreKit(kind: Kind, built: Built, password: string): string {
   return [
     "# stadeum restore kit. Keep it off the box (a password manager).",
     "# Without RESTIC_PASSWORD the backups cannot be read by anyone.",
-    "# On a fresh box, in the checkout: scripts/init-env.sh, then",
-    "#   docker compose --env-file .env -f stack/stadeum.yml run --rm --env-from-file restore.env ops restore",
+    "# On a new box, saved as /root/restore.env (stop the old box first):",
+    "#   curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo STADEUM_RESTORE=/root/restore.env bash",
     `RESTIC_REPOSITORY=${built.repository}`,
     `RESTIC_PASSWORD=${password}`,
     ...plain,
