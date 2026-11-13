@@ -35,6 +35,17 @@ export const env = {
   neo4jHttpUrl: () => stripSlash(trimmed("NEO4J_HTTP_URL") ?? "http://neo4j:7474"),
   /** stadeum-ui's own public origin: the Strut embed origin and the trust issuer URL. */
   publicUrl: () => stripSlash(trimmed("AUTH_URL") ?? "http://localhost:3000"),
+  /** The sign-in bounce's origin, https only (lib/signin-bounce.ts). */
+  signinBounce: (): string | undefined => {
+    const value = trimmed("STADEUM_SIGNIN_BOUNCE");
+    if (!value) return undefined;
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" ? url.origin : undefined;
+    } catch {
+      return undefined;
+    }
+  },
   entra: () =>
     trimmed("AUTH_MICROSOFT_ENTRA_ID_ID")
       ? {

@@ -44,7 +44,10 @@ runs. From then on ops keeps the box current, files and all.
 
 - **Sign-in redirect URLs**, registered in each provider's OAuth client:
   Google `https://$HOST/api/auth/callback/google`, Microsoft
-  `https://$HOST/api/auth/callback/microsoft-entra-id`.
+  `https://$HOST/api/auth/callback/microsoft-entra-id`. Boxes under one
+  domain can share one set instead, through a bounce
+  (`STADEUM_SIGNIN_BOUNCE`; `docs/stack-spec.md`, "Sign-in through a
+  bounce").
 - **Ports** 80 and 443 (TCP, and 443 UDP) open to the internet in the
   cloud's firewall or security group. Caddy fetches and renews the
   certificates through them, and they are the only ports the stack

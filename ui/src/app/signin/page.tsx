@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { signIn, signInOptions } from "@/auth";
 import { env } from "@/lib/env";
 import { safeNext, signInHref } from "@/lib/next-path";
+import { labelState } from "@/lib/signin-bounce";
 import { currentUser } from "@/lib/session";
 import { ThemeButton } from "@/components/theme-switch";
 import { ArtCarousel } from "./art/carousel";
@@ -21,17 +22,21 @@ const errors: Record<string, string> = {
 /** Where a sign-in lands: the page that sent the person here (each form's `next`), else home. */
 const landing = (form: FormData) => safeNext(form.get("next")) ?? "/";
 
-/** An unconfigured provider does nothing; the page just reloads. */
+/**
+ * An unconfigured provider does nothing; the page just reloads. A
+ * configured one goes to the provider, with this box's label on the state
+ * when it signs in through a bounce (lib/signin-bounce.ts).
+ */
 async function microsoft(form: FormData) {
   "use server";
   if (!signInOptions().microsoft) redirect(signInHref(form.get("next")));
-  await signIn("microsoft-entra-id", { redirectTo: landing(form) });
+  redirect(labelState(await signIn("microsoft-entra-id", { redirectTo: landing(form), redirect: false })));
 }
 
 async function google(form: FormData) {
   "use server";
   if (!signInOptions().google) redirect(signInHref(form.get("next")));
-  await signIn("google", { redirectTo: landing(form) });
+  redirect(labelState(await signIn("google", { redirectTo: landing(form), redirect: false })));
 }
 
 async function dev(form: FormData) {

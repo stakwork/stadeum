@@ -147,7 +147,9 @@ Hive is not part of this. Two things are central, and Stakwork runs both:
   the front of `state`, checks that it is a DNS label, and redirects the
   browser to `https://<label>.<domain>/api/github/callback` with the query
   unchanged. It holds no secret, verifies nothing and stores nothing. A
-  Caddy rule does it.
+  Caddy rule does it. The sign-in bounce (`STADEUM_SIGNIN_BOUNCE`,
+  `docs/stack-spec.md`) is built the same way and its rule keeps the
+  path, so one bounce serves both.
 
 Nothing else is central:
 
