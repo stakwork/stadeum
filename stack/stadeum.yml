@@ -441,6 +441,7 @@ services:
       AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
       STADEUM_DEV_LOGIN: ${STADEUM_DEV_LOGIN:-}
       STADEUM_ALLOWED_DOMAINS: ${STADEUM_ALLOWED_DOMAINS:-}
+      STADEUM_ADMIN_EMAIL: ${STADEUM_ADMIN_EMAIL:-}
       STADEUM_ORG_NAME: ${STADEUM_ORG_NAME:-}
       # Org identity written by `bootstrap` (docs/mothership-spec.md).
       STADEUM_ORG_SLUG: ${STADEUM_ORG_SLUG:-org}

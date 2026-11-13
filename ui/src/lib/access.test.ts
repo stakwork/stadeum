@@ -8,6 +8,7 @@ beforeEach(async () => {
   await db.invite.deleteMany();
   await db.user.deleteMany();
   process.env.STADEUM_ALLOWED_DOMAINS = "";
+  process.env.STADEUM_ADMIN_EMAIL = "";
 });
 afterAll(() => db.$disconnect());
 
@@ -46,6 +47,28 @@ describe("admit", () => {
     const again = (await admit("ada@acme.test")).user!;
     expect(again.actor).toBe(first.actor);
     expect(again.role).toBe("admin");
+  });
+
+  describe("a first admin named at install", () => {
+    beforeEach(() => {
+      process.env.STADEUM_ADMIN_EMAIL = " Ada@Acme.test ";
+    });
+
+    it("a stranger who arrives first is refused, and the named person becomes admin", async () => {
+      expect((await admit("eve@elsewhere.com")).user).toBeNull();
+      expect((await admit("ada@acme.test")).user?.role).toBe("admin");
+    });
+
+    it("an allowlisted person who arrives first is a member, not admin", async () => {
+      process.env.STADEUM_ALLOWED_DOMAINS = "acme.test";
+      expect((await admit("cal@acme.test")).user?.role).toBe("member");
+      expect((await admit("ADA@acme.test")).user?.role).toBe("admin");
+    });
+
+    it("the name makes no admin once the box has one", async () => {
+      await db.user.create({ data: { id: "u1", email: "ben@acme.test", role: "admin", actor: "a1" } });
+      expect((await admit("ada@acme.test")).user).toBeNull();
+    });
   });
 
   it("only one admin when two people sign in at once", async () => {

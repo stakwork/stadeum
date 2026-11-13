@@ -7,9 +7,14 @@ import { buildActor } from "@/lib/mothership/actor";
 import { isRole, type Role } from "@/lib/roles";
 
 /**
- * Who may sign in. Existing people always; otherwise, in order: the very
- * first person (becomes admin), an invited email (the invite's role), an
+ * Who may sign in. Existing people always; otherwise, in order: the first
+ * admin (becomes admin), an invited email (the invite's role), an
  * allowlisted domain (member). Everyone else is refused.
+ *
+ * The first admin is the person `STADEUM_ADMIN_EMAIL` names, while the box
+ * has no admin; with none named, the very first person to sign in. A box
+ * whose name is public before its admin arrives names them, so the first
+ * stranger through the door is not it.
  */
 
 export const normaliseEmail = (e: string) => e.trim().toLowerCase();
@@ -38,7 +43,11 @@ export async function admit(rawEmail: string, name?: string | null): Promise<Adm
 
     let role: Role | null = null;
     const invite = await tx.invite.findUnique({ where: { email } });
-    if ((await tx.user.count()) === 0) role = "admin";
+    const named = env.adminEmail();
+    const firstAdmin = named
+      ? email === named && (await tx.user.count({ where: { role: "admin" } })) === 0
+      : (await tx.user.count()) === 0;
+    if (firstAdmin) role = "admin";
     else if (invite && !invite.acceptedAt) role = isRole(invite.role) ? invite.role : "member";
     else if (env.allowedDomains().includes(emailDomain(email))) role = "member";
     if (!role) return { user: null, reason: "not-invited" as const };
