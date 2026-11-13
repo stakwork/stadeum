@@ -46,6 +46,17 @@
 # account comes back too, and two boxes on one account knock each other off
 # its broker.
 #
+# Prepare a box now and set it up later (a VM image, or a box kept ready
+# to hand out):
+#
+#   curl -fsSL …/scripts/install.sh | sudo STADEUM_PREPARE=1 bash
+#
+# does steps 1 and 2 and pulls every image the release names, then stops.
+# It asks nothing and starts nothing, and writes no .env: a prepared box
+# holds no secret, so an image made of it is safe to copy. A later run, with
+# the answers below or on a terminal, makes .env and does steps 3 to 5, as
+# on a fresh box, without the long pull.
+#
 # A scripted install answers each question with STADEUM_ and the .env name.
 # sudo drops the environment, so put them after it:
 #
@@ -64,6 +75,7 @@
 #   STADEUM_SKIP_DNS_CHECK=1  start without the DNS check, when a load
 #                             balancer or proxy sits in front of the box
 #   STADEUM_DIR               the box's directory (default /opt/stadeum)
+#   STADEUM_PREPARE=1         prepare only (above)
 #
 # It refuses STADEUM_DEV_LOGIN: on a public host the password-less dev login
 # lets anyone sign in as anyone, and the first to sign in becomes admin.
@@ -479,10 +491,11 @@ compose_files() {
 }
 
 # compose on .env alone: a variable in this shell must not override it.
+# STACK_ENV names another env file (prepare's, when the box has no .env).
 compose() {
   local files
   read -ra files <<<"$(compose_files)"
-  (cd "$BOX" && env -i PATH="$PATH" HOME="${HOME:-/root}" docker compose --env-file .env "${files[@]}" "$@")
+  (cd "$BOX" && env -i PATH="$PATH" HOME="${HOME:-/root}" docker compose --env-file "${STACK_ENV:-.env}" "${files[@]}" "$@")
 }
 
 # The command a person runs, for the messages.
@@ -516,11 +529,11 @@ neo4j_guard() {
   [[ $reply == [yY]* ]] || die "not started: Neo4j stays on $running."
 }
 
-start() {
-  step "Stack"
+# Pull only what is missing: ops moves the rest, in its window. Each image
+# must be built for this machine.
+pull_images() {
   local arch img built bad=""
   arch=$(docker version --format '{{.Server.Arch}}')
-  # Pull only what is missing: ops moves the rest, in its window.
   for img in $(compose config --images | sort -u); do
     if ! docker image inspect "$img" >/dev/null 2>&1; then
       say "pulling $img"
@@ -530,6 +543,29 @@ start() {
     [ "$built" = "$arch" ] || bad+=" $img ($built)"
   done
   [ -z "$bad" ] || die "this machine is $arch, and these images have no $arch build:$bad. Run the box on a machine they are built for."
+}
+
+# STADEUM_PREPARE=1: the images too, then stop. A box with no .env keeps
+# none: a throwaway one, with the release's defaults, names the images.
+prepare() {
+  local env=$ENV_FILE had=1
+  if [ ! -f "$env" ]; then
+    had=0
+    env=$RELEASE/.env
+    "$RELEASE/scripts/init-env.sh" "$env" >/dev/null
+  fi
+  step "Images"
+  STACK_ENV=$env pull_images
+  rm -rf "$RELEASE"
+  step "Prepared: $BOX"
+  say "Docker, the release's stack files and its images are here. Nothing was asked, started or stopped."
+  [ "$had" = 1 ] || say "There is no .env yet, so nothing here is secret: an image of this machine is safe to copy."
+  say "Run this again without STADEUM_PREPARE, with the answers or on a terminal, to set the box up and start it."
+}
+
+start() {
+  step "Stack"
+  pull_images
   neo4j_guard
   say "starting: the first start seeds the graph and fetches strut's models, a few minutes"
   compose up -d --wait ||
@@ -583,8 +619,15 @@ main() {
   check_system
   locate_box
   refuse_dev_login
+  if [ "${STADEUM_PREPARE:-}" = 1 ] && [ -n "${STADEUM_RESTORE:-}" ]; then
+    die "STADEUM_PREPARE and STADEUM_RESTORE together: a restore starts the box. Prepare first, then run again with STADEUM_RESTORE alone."
+  fi
   install_docker
   put_release
+  if [ "${STADEUM_PREPARE:-}" = 1 ]; then
+    prepare
+    return 0
+  fi
   FRESH=0
   [ -f "$ENV_FILE" ] || FRESH=1
   "$RELEASE/scripts/init-env.sh" "$ENV_FILE" >/dev/null
