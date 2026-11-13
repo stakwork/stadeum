@@ -698,6 +698,36 @@ admin's fields into restic's repository string and its own variables
 destination and never changes; the Backups page shows it, with a restore
 kit, until the admin says they keep it off the box, and never again.
 
+**Backups given at install** (`STADEUM_BACKUP_DESTINATION`,
+`STADEUM_BACKUP_PASSWORD`; `ui/src/lib/ops/given.ts`). A host that keeps a
+box's backups for it gives the destination at install, so backups run from
+the first night and nobody fills in the Backups page. The destination is
+the page's own fields with the kind, as JSON:
+
+```
+STADEUM_BACKUP_DESTINATION='{"kind":"s3","bucket":"…","path":"boxes/acme","region":"us-east-1","accessKeyId":"…","secretAccessKey":"…"}'
+```
+
+- **Written by upkeep.** stadeum-ui writes it into the backup settings, its
+  secrets encrypted as an admin's are, with backups on, a minute after it
+  starts and every six hours. An edit to them is put right. ops reads them
+  as it reads any destination.
+- **The password.** A given password (at least 16 characters) is the
+  backups' password from the start, so the host can keep a copy. It is
+  used only when the box has none yet: a repository keeps the password it
+  was made with, so a different one given later is logged and left.
+  Blank, the box makes its own. Either way the Backups page still shows it
+  to the admin, with the restore kit, until they keep it off the box.
+- **Shown, not changed.** The Backups page says the destination is given
+  and drops its form. Changing the destination, or turning nightly backups
+  off, is refused.
+- **Left out whole.** A setting that can't be used (not JSON, an unknown
+  kind, a missing field, a short password) is left out with a line in the
+  log, and the box has no given destination.
+- **Where it lives.** In `.env` (so in each backup, which it can't help
+  read: the password opens the backup, not the other way round) and, once
+  written, encrypted in `stadeum.db`. stadeum-ui alone gets it.
+
 **A restore** is the install on a new box, with the restore kit (saved as
 `/root/restore.env`): it puts the release's files in place, restores the
 snapshot, then starts the stack.

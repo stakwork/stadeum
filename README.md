@@ -69,6 +69,10 @@ curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/insta
   and writes no `.env`, so a VM image made of the machine holds no secret
   and is safe to copy. A later run with the answers sets the box up without
   the long pull.
+- **Backups given at install**: a host that keeps a box's backups gives
+  their destination, and optionally their password, as
+  `STADEUM_BACKUP_DESTINATION` and `STADEUM_BACKUP_PASSWORD`. Backups then
+  run from the first night (`docs/stack-spec.md`).
 - It refuses `STADEUM_DEV_LOGIN`: on a public host the password-less login
   lets anyone sign in as anyone.
 
