@@ -17,6 +17,8 @@ export const env = {
       .split(",")
       .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
       .filter(Boolean),
+  /** The first admin, named at install: lower-cased, as `admit` compares. */
+  adminEmail: () => trimmed("STADEUM_ADMIN_EMAIL")?.toLowerCase(),
   orgSlug: () => trimmed("STADEUM_ORG_SLUG") ?? "org",
   /** Shown beside the wordmark and in sign-in copy. */
   orgName: () => trimmed("STADEUM_ORG_NAME") ?? trimmed("STADEUM_ORG_SLUG") ?? "Your organisation",

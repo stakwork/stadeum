@@ -49,7 +49,9 @@ runs. From then on ops keeps the box current, files and all.
   cloud's firewall or security group. Caddy fetches and renews the
   certificates through them, and they are the only ports the stack
   publishes.
-- **Sign in first**: the first person to sign in becomes admin.
+- **The first admin**: the email the script asks for (`STADEUM_ADMIN_EMAIL`)
+  becomes admin by signing in, and nobody else can. Left blank, the first
+  person to sign in becomes admin, so sign in first.
 - A scripted install answers each question with `STADEUM_` and the `.env`
   name, placed after `sudo` (which drops the environment). The full list is
   at the top of `scripts/install.sh`:
@@ -216,7 +218,8 @@ admins only) and strut's apps.
   change shows in an app the next time it loads.
 - Sign-in: Microsoft Entra ID and Google when their `AUTH_*` vars are set;
   `STADEUM_DEV_LOGIN=1` adds a password-less email login for local work.
-  The first person becomes admin; others need an invite or an email at
+  The first admin is `STADEUM_ADMIN_EMAIL` when it is set, else the first
+  person to sign in; others need an invite or an email at
   `STADEUM_ALLOWED_DOMAINS`.
 - Mothership: `ui/src/lib/mothership/` (ported from Hive). It calls
   `ensureOrgTrust()` at install and `ensureDelegation(user)` per person;

@@ -68,6 +68,8 @@
 #   STADEUM_AUTH_GOOGLE_ID, STADEUM_AUTH_GOOGLE_SECRET
 #   STADEUM_AUTH_MICROSOFT_ENTRA_ID_ID, STADEUM_AUTH_MICROSOFT_ENTRA_ID_SECRET,
 #   STADEUM_AUTH_MICROSOFT_ENTRA_ID_ISSUER (the issuer URL, or the tenant ID)
+#   STADEUM_ADMIN_EMAIL (optional: the first admin; blank, whoever signs in
+#                             first becomes admin)
 #   STADEUM_ORG_NAME (optional)
 #   STADEUM_LIVEKIT_API_KEY, STADEUM_LIVEKIT_API_SECRET (optional: calls stay
 #                             off without them; STADEUM_LIVEKIT_URL for a
@@ -326,6 +328,12 @@ check_email() {
   return 1
 }
 
+check_admin_email() {
+  [ -z "$ANSWER" ] && return 0
+  ANSWER=${ANSWER,,}
+  check_email
+}
+
 check_google_id() {
   [[ -z $ANSWER || $ANSWER == *.apps.googleusercontent.com ]] && return 0
   note "a Google client ID ends in .apps.googleusercontent.com"
@@ -393,6 +401,7 @@ configure() {
     [ "$TTY" = 1 ] || die "no sign-in provider: pass STADEUM_AUTH_GOOGLE_ID and STADEUM_AUTH_GOOGLE_SECRET, or Microsoft's STADEUM_AUTH_MICROSOFT_ENTRA_ID_*."
     note "one sign-in provider is needed: a server has no other way in"
   done
+  optional STADEUM_ADMIN_EMAIL "The first admin's email (Enter: whoever signs in first becomes admin)" check_admin_email
   optional STADEUM_ORG_NAME "Your organisation's name, shown beside the logo (Enter to skip)" any
   # Calls: the LiveKit server's keys. Without them the box runs with calls off.
   optional LIVEKIT_URL "LiveKit server for calls (Enter for wss://livekit.sphinx.chat)" any
@@ -590,7 +599,7 @@ check_https() {
 }
 
 finish() {
-  local ok=1
+  local ok=1 admin
   check_https || ok=0
   if [ "$ok" = 1 ]; then
     step "Stadeum is up: https://$HOST_NAME"
@@ -605,7 +614,12 @@ finish() {
   say "    Microsoft  https://$HOST_NAME/api/auth/callback/microsoft-entra-id"
   say "  Keep ports 80 and 443 (TCP, and 443 UDP) open to the internet, in the cloud's"
   say "  firewall or security group: Caddy renews the certificates through them."
-  say "  Sign in first: the first person to sign in becomes admin."
+  admin=$(env_get STADEUM_ADMIN_EMAIL)
+  if [ -n "$admin" ]; then
+    say "  Sign in as $admin: that person becomes admin, and nobody else can."
+  else
+    say "  Sign in first: the first person to sign in becomes admin."
+  fi
   say "  Then set the model keys and the models people may use: Organisation → Models."
   say "  And set up backups: Organisation → Backups."
   say ""
