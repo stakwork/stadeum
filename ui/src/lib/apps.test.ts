@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { startFakeStack, type FakeStack } from "@/test/fake-stack";
-import { appHref, earningsApp, earningsFor, launcherApps, listApps } from "./apps";
+import { adminApps, adminAppsFor, appHref, isAdminOnly, launcherApps, listApps } from "./apps";
 
 describe("launcherApps", () => {
   const app = (name: string, title: string, pinned?: boolean) => ({ name, title, activeVersion: "v1", ...(pinned ? { pinned } : {}) });
@@ -79,53 +79,64 @@ describe("listApps", () => {
   });
 });
 
-describe("earningsFor", () => {
+describe("adminAppsFor", () => {
   const earnings = { name: "strut/earnings", title: "Earnings", activeVersion: "v1", admin: true as const };
+  const payroll = { name: "acme/payroll", title: "Payroll", activeVersion: "v1", admin: true as const };
   const legal = { name: "acme/legal", title: "Legal", activeVersion: "v1" };
 
-  it("is strut's Earnings for an admin when strut lists it", () => {
-    expect(earningsFor("admin", [legal, earnings])).toEqual({ name: "strut/earnings", title: "Earnings" });
+  it("is strut's admin-only apps for an admin, by title: Earnings at its page, the rest at their name", () => {
+    expect(adminAppsFor("admin", [payroll, legal, earnings]).map((a) => [a.name, a.href])).toEqual([
+      ["strut/earnings", "/earnings"],
+      ["acme/payroll", "/apps/acme%2Fpayroll"],
+    ]);
   });
 
-  it("is none for an admin when strut lists no Earnings, or does not answer", () => {
-    expect(earningsFor("admin", [legal])).toBeNull();
-    expect(earningsFor("admin", null)).toBeNull();
+  it("is none for an admin when strut lists none, or does not answer", () => {
+    expect(adminAppsFor("admin", [legal])).toEqual([]);
+    expect(adminAppsFor("admin", null)).toEqual([]);
   });
 
-  it("is none for a member, even when strut lists it", () => {
-    expect(earningsFor("member", [legal, earnings])).toBeNull();
+  it("is none for a member, even when strut lists them", () => {
+    expect(adminAppsFor("member", [legal, earnings, payroll])).toEqual([]);
   });
 });
 
-describe("earningsApp", () => {
+describe("adminApps", () => {
   let fake: FakeStack;
   const saved = { ...process.env };
 
   beforeAll(async () => {
-    fake = await startFakeStack({ token: "earnings-test-token" });
+    fake = await startFakeStack({ token: "admin-apps-test-token" });
   });
   afterAll(() => fake.close());
   afterEach(() => {
     process.env = { ...saved };
   });
 
-  it("finds Earnings in strut's listing for an admin, keeps it out of the launcher, and asks strut nothing for a member", async () => {
+  it("finds the admin-only apps for an admin, keeps them out of the launcher, and asks strut nothing for a member", async () => {
     Object.assign(process.env, { SHARED_API_TOKEN: fake.token, STRUT_URL: fake.strutUrl });
-    expect(await earningsApp("admin")).toEqual({ name: "strut/earnings", title: "Earnings" });
+    expect((await adminApps("admin")).map((a) => a.name)).toEqual(["strut/earnings"]);
     expect((await listApps())?.map((a) => a.name)).toEqual(["strut/jamie"]);
     const asked = fake.state.requests.length;
-    expect(await earningsApp("member")).toBeNull();
+    expect(await adminApps("member")).toEqual([]);
     expect(fake.state.requests.length).toBe(asked);
   });
 
-  it("is none for an admin on a strut seeded without it", async () => {
+  it("is none for an admin on a strut seeded without Earnings", async () => {
     Object.assign(process.env, { SHARED_API_TOKEN: fake.token, STRUT_URL: fake.strutUrl });
     const kept = fake.state.apps;
     fake.state.apps = kept.filter((a) => a.name !== "strut/earnings");
     try {
-      expect(await earningsApp("admin")).toBeNull();
+      expect(await adminApps("admin")).toEqual([]);
     } finally {
       fake.state.apps = kept;
     }
+  });
+
+  it("knows an admin-only app by strut's flag, not its name", async () => {
+    Object.assign(process.env, { SHARED_API_TOKEN: fake.token, STRUT_URL: fake.strutUrl });
+    expect(await isAdminOnly("strut/earnings")).toBe(true);
+    expect(await isAdminOnly("strut/jamie")).toBe(false);
+    expect(await isAdminOnly("acme/unknown")).toBe(false);
   });
 });
