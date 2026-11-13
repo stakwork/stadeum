@@ -58,6 +58,11 @@ runs. From then on ops keeps the box current, files and all.
 curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo STADEUM_HOST=stadeum1.example.com STADEUM_ACME_EMAIL=admin@example.com STADEUM_AUTH_GOOGLE_ID=… STADEUM_AUTH_GOOGLE_SECRET=… bash
 ```
 
+- **Prepare now, set up later**: `STADEUM_PREPARE=1` installs Docker, the
+  stack files and every image, then stops. It asks nothing, starts nothing
+  and writes no `.env`, so a VM image made of the machine holds no secret
+  and is safe to copy. A later run with the answers sets the box up without
+  the long pull.
 - It refuses `STADEUM_DEV_LOGIN`: on a public host the password-less login
   lets anyone sign in as anyone.
 
