@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { earningsApp } from "@/lib/apps";
+import { adminApps, EARNINGS } from "@/lib/apps";
 import { requireAdmin } from "@/lib/session";
 import { AppFrame } from "../apps/app-frame";
 
@@ -19,7 +19,7 @@ type Params = { searchParams: Promise<{ input?: string }> };
  */
 export default async function EarningsPage({ searchParams }: Params) {
   const user = await requireAdmin();
-  const app = await earningsApp(user.role);
+  const app = (await adminApps(user.role)).find((a) => a.name === EARNINGS);
   if (!app) notFound();
   return <AppFrame app={app} input={(await searchParams).input} />;
 }

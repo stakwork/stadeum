@@ -15,8 +15,8 @@ export interface RailProps {
   /** Strut's other apps, in launcher order. */
   apps: Array<{ title: string; href: string }>;
   admin: boolean;
-  /** Strut's Earnings, among the organisation's pages: an admin's, when strut has it. */
-  earnings?: string;
+  /** Strut's admin-only apps (Earnings among them), among the organisation's pages: an admin's. */
+  adminApps?: Array<{ title: string; href: string }>;
   person: Person;
 }
 
@@ -27,7 +27,6 @@ const SETTINGS = {
     { href: "/members", label: "Members" },
     { href: "/models", label: "Models" },
     { href: "/spending", label: "Spending" },
-    { href: "/earnings", label: "Earnings" },
     { href: "/apps", label: "Apps" },
     { href: "/packages", label: "Packages" },
     { href: "/branding", label: "Branding" },
@@ -41,9 +40,13 @@ const SETTINGS = {
 
 const SETTINGS_PATHS = [...SETTINGS.you, ...SETTINGS.organisation, ...SETTINGS.server].map((p) => p.href);
 
-/** The admin Apps page and an app's versions are Settings; `/apps/<name>` alone is the app's frame. */
-function settingsPage(path: string): string | undefined {
+/**
+ * The admin Apps page, an app's versions and an admin-only app are
+ * Settings; any other `/apps/<name>` is the app's frame.
+ */
+function settingsPage(path: string, adminPages: Array<{ href: string }>): string | undefined {
   if (/^\/apps\/[^/]+\/versions(\/|$)/.test(path)) return "/apps";
+  if (adminPages.some((p) => p.href === path)) return path;
   return SETTINGS_PATHS.find((href) => path === href || (href !== "/apps" && path.startsWith(`${href}/`)));
 }
 
@@ -55,12 +58,14 @@ function settingsPage(path: string): string | undefined {
  * On phones the rail folds behind a menu button and, when opened, sits
  * above the page in the flow: it pushes content down, never covers it.
  */
-export function Rail({ orgName, home, apps, admin, earnings, person }: RailProps) {
+export function Rail({ orgName, home, apps, admin, adminApps = [], person }: RailProps) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
 
-  const current = settingsPage(path);
+  // Strut's admin-only apps sit among the organisation's pages, before Apps.
+  const adminPages = adminApps.map((a) => ({ href: a.href, label: a.title }));
+  const current = settingsPage(path, adminPages);
   const call = useCall();
   const showCall = call.active && path !== "/calls";
 
@@ -126,7 +131,7 @@ export function Rail({ orgName, home, apps, admin, earnings, person }: RailProps
             {admin && (
               <SettingsSection
                 label="Organisation"
-                pages={SETTINGS.organisation.flatMap((p) => (p.href !== "/earnings" ? [p] : earnings ? [{ ...p, label: earnings }] : []))}
+                pages={SETTINGS.organisation.flatMap((p) => (p.href === "/apps" ? [...adminPages, p] : [p]))}
                 current={current}
               />
             )}

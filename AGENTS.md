@@ -35,11 +35,13 @@ work on it. Read the rules before adding anything.
    framed, signed in as the person. Stadeum's own pages are sign-in, the
    person, Calls, the members and the admin pages. The list of apps comes
    from strut, never from a list in this repo.
-   - **Earnings** sits among the org's admin pages, but it is strut's app
-     (`strut/earnings`, strut `specs/API.md` §14.14) framed there, signed
-     in as the admin: stadeum knows no payment. It shows only when strut
-     lists it. Strut lists admin-only apps (`admin: true`) to stadeum's
-     key, so the launcher leaves them out: the rail is every person's.
+   - **Admin-only apps** (`admin: true`, strut `specs/API.md` §14.14)
+     sit among the org's admin pages, for an admin alone, framed and
+     signed in as the admin. Strut lists them to stadeum's key, so the
+     launcher leaves them out (the rail is every person's), a member gets
+     a 404 for one, and strut refuses a member's session one anyway.
+     **Earnings** (`strut/earnings`) is one, at its own `/earnings`:
+     stadeum knows no payment. Each shows only when strut lists it.
    - **Calls** is stadeum's because a strut app cannot carry live media:
      its frame allows no connections (`connect-src 'none'`). The page
      knows a call, never a conversation, a run or a job. It gets a room
