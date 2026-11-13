@@ -43,7 +43,7 @@ function KeyState({ p }: { p: ProviderState }) {
 /**
  * One provider: its key as the gateway shows it (masked), whether the key
  * works, and Set, Test and Remove. The key goes from this form to the
- * gateway and nowhere else.
+ * gateway and nowhere else. A provider the box's host gives has Test alone.
  */
 function ProviderRow({ p }: { p: ProviderState }) {
   const [editing, setEditing] = useState(false);
@@ -68,7 +68,8 @@ function ProviderRow({ p }: { p: ProviderState }) {
         <div className="flex min-w-[180px] flex-1 flex-col gap-0.5">
           <span className="text-[15px] font-medium text-ink">{p.label}</span>
           {p.note && <span className="text-[13px] text-ink-2">{p.note}</span>}
-          {p.kind === "other" && p.baseUrl && <span className="font-mono text-[12.5px] text-ink-3">{p.baseUrl}</span>}
+          {p.given && <span className="text-[13px] text-ink-2">Given by this box&rsquo;s host.</span>}
+          {(p.kind === "other" || p.given) && p.baseUrl && <span className="font-mono text-[12.5px] text-ink-3">{p.baseUrl}</span>}
           <span className="font-mono text-[12.5px] text-ink-3">{p.preview || "—"}</span>
         </div>
         <span className="w-[150px] text-[13px]">
@@ -76,10 +77,17 @@ function ProviderRow({ p }: { p: ProviderState }) {
         </span>
         {!p.missing && (
           <div className="flex flex-wrap gap-2 md:w-[262px] md:justify-end">
-            <button type="button" className={small} onClick={() => setEditing((e) => !e)} aria-expanded={editing}>
-              {p.preview ? "Replace key" : "Set key"}
-            </button>
-            {p.preview && (
+            {!p.given && (
+              <button type="button" className={small} onClick={() => setEditing((e) => !e)} aria-expanded={editing}>
+                {p.preview ? "Replace key" : "Set key"}
+              </button>
+            )}
+            {p.given && p.preview && (
+              <button type="button" className={small} disabled={pending} onClick={() => run(() => testKey(p.id))}>
+                Test
+              </button>
+            )}
+            {!p.given && p.preview && (
               <>
                 <button type="button" className={small} disabled={pending} onClick={() => run(() => testKey(p.id))}>
                   Test

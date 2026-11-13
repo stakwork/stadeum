@@ -80,6 +80,16 @@ export interface VirtualKeyResponse {
   virtual_key: BifrostVirtualKey;
 }
 
+/** A provider's network settings: its address among them, and fields stadeum sends back as read. */
+export type BifrostNetworkConfig = { base_url?: string; allow_private_network?: boolean } & Record<string, unknown>;
+
+/** `GET /api/providers/:p`: a provider's config. */
+export interface BifrostProviderConfig {
+  name?: string;
+  network_config?: BifrostNetworkConfig;
+  concurrency_and_buffer_size?: unknown;
+}
+
 /** One provider of `GET /api/providers`. A custom one carries `custom_provider_config`. */
 export interface BifrostProviderEntry {
   name: string;

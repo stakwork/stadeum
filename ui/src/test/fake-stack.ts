@@ -209,6 +209,8 @@ export interface FakeState {
   providerKeys: Map<string, FakeKey[]>;
   /** The custom providers an admin added, by name. Their keys are in providerKeys. */
   customProviders: Map<string, FakeCustomProvider>;
+  /** Each built-in's network settings (`GET`/`PUT /api/providers/:p`): no `base_url` until one is set. */
+  providerNetwork: Map<string, Record<string, unknown>>;
   /** The gateway's runtime price table (`PUT /_plugin/pricing`). Null: the gateway predates the route (404). */
   pricing: Record<string, unknown> | null;
   /** The gateway's client config (`GET /api/config`'s `client_config`). */
@@ -312,6 +314,9 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       providers.map((p) => [p, [{ id: randomUUID(), name: `${p}-key-1`, value: { value: "", ref: `env.${p.toUpperCase()}_API_KEY`, type: "env" as const }, models: ["*"], weight: 1 }]]),
     ),
     customProviders: new Map(),
+    providerNetwork: new Map(
+      providers.map((p) => [p, { default_request_timeout_in_seconds: 30, max_retries: 0, retry_backoff_initial: 500, retry_backoff_max: 5000 }]),
+    ),
     pricing: {},
     clientConfig: { log_retention_days: 365, enable_logging: true, disable_content_logging: false, drop_excess_requests: false },
     deploymentSecrets: new Map(),
@@ -448,6 +453,18 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
           state.providerKeys.delete(name);
           return send(res, 200, { message: "deleted" });
         }
+        const net = state.providerNetwork.get(name);
+        if (m === "PUT" && net) {
+          // Bifrost replaces the network settings with the body's, and refuses a private address without leave.
+          const nc = body?.network_config;
+          if (!nc || typeof nc !== "object") return send(res, 400, { error: "Invalid request payload" });
+          const host = nc.base_url ? (() => { try { return new URL(nc.base_url).hostname; } catch { return ""; } })() : ".";
+          if (!host) return send(res, 400, { error: "Invalid base URL" });
+          if (!host.includes(".") && !nc.allow_private_network) return send(res, 400, { error: "Invalid base URL: private network address" });
+          state.providerNetwork.set(name, nc);
+          return send(res, 200, { name, network_config: nc });
+        }
+        if (net) return send(res, 200, { name, network_config: net, concurrency_and_buffer_size: { concurrency: 1000, buffer_size: 5000 } });
         return send(res, 200, listed().find((p) => p.name === name));
       }
       const keys = path.match(/^\/api\/providers\/([^/]+)\/keys(?:\/([^/]+))?(\/refresh-models)?$/);

@@ -5,7 +5,17 @@ import { ensureGatewayLogRetention } from "@/lib/mothership/gateway-settings";
 import { ensureVirtualKey } from "@/lib/mothership/virtual-key";
 import { startFakeStack, type FakeKey, type FakeStack } from "@/test/fake-stack";
 import { allowProviderModels, applyModels, modelsView, STRUT_DEFAULT_MODEL, STRUT_MODELS } from "./apply";
-import { addOtherProvider, checkProviderKey, otherNameProblem, providerSays, providerStates, removeProviderKey, setProviderKey } from "./providers";
+import { GIVEN_REFUSAL } from "./given";
+import {
+  addOtherProvider,
+  applyGivenProviders,
+  checkProviderKey,
+  otherNameProblem,
+  providerSays,
+  providerStates,
+  removeProviderKey,
+  setProviderKey,
+} from "./providers";
 import { readModelSettings, saveModelSettings } from "./settings";
 
 let fake: FakeStack;
@@ -268,5 +278,73 @@ describe("ensureGatewayLogRetention", () => {
     expect(await ensureGatewayLogRetention()).toBe("set");
     expect(fake.state.clientConfig).toEqual({ log_retention_days: 60, enable_logging: true, disable_content_logging: false, drop_excess_requests: false });
     expect(await ensureGatewayLogRetention()).toBe("kept");
+  });
+});
+
+describe("providers given at install", () => {
+  const give = (v: unknown) => {
+    process.env.STADEUM_MODEL_PROVIDERS = JSON.stringify(v);
+  };
+  const net = (p: string) => fake.state.providerNetwork.get(p)!;
+  afterAll(() => {
+    delete process.env.STADEUM_MODEL_PROVIDERS;
+  });
+
+  it("writes nothing when none is given", async () => {
+    delete process.env.STADEUM_MODEL_PROVIDERS;
+    expect(await applyGivenProviders()).toBe(0);
+  });
+
+  it("writes each one's address and key; the gateway checks the key, and the page shows it as given", async () => {
+    give([
+      { provider: "openai", key: "sk-good-given-openai", url: "https://models.example.com/openai/" },
+      { provider: "openrouter", key: "sk-good-given-openrouter" },
+    ]);
+    const before = slot("openai");
+    expect(await applyGivenProviders()).toBe(2);
+    // The address, with the rest of the network settings sent back as they were.
+    expect(net("openai")).toEqual({
+      default_request_timeout_in_seconds: 30,
+      max_retries: 0,
+      retry_backoff_initial: 500,
+      retry_backoff_max: 5000,
+      base_url: "https://models.example.com/openai",
+    });
+    expect(net("openrouter").base_url).toBeUndefined();
+    // The key replaces the env slot in place, as a pasted one does.
+    expect(fake.state.providerKeys.get("openai")).toHaveLength(1);
+    expect(slot("openai")).toMatchObject({ id: before.id, name: before.name, value: "sk-good-given-openai" });
+    const states = await providerStates();
+    expect(states.find((s) => s.id === "openai")).toMatchObject({ given: true, baseUrl: "https://models.example.com/openai", check: { ok: true } });
+    expect(states.find((s) => s.id === "openrouter")).toMatchObject({ given: true, check: { ok: true } });
+    expect(states.find((s) => s.id === "openrouter")!.baseUrl).toBeUndefined();
+    expect(states.find((s) => s.id === "gemini")!.given).toBeUndefined();
+  });
+
+  it("refuses an admin's change or removal, and still tests the key", async () => {
+    await expect(setProviderKey("openai", "sk-good-mine")).rejects.toThrow(GIVEN_REFUSAL);
+    await expect(removeProviderKey("openai")).rejects.toThrow(GIVEN_REFUSAL);
+    expect(slot("openai").value).toBe("sk-good-given-openai");
+    expect(await checkProviderKey("openai")).toMatchObject({ check: { ok: true } });
+  });
+
+  it("puts back what the gateway lost, and leaves an address that is already right", async () => {
+    const openrouterNet = net("openrouter");
+    fake.state.providerNetwork.set("openai", { default_request_timeout_in_seconds: 30 });
+    slot("openai").value = { value: "", ref: "env.OPENAI_API_KEY", type: "env" };
+    expect(await applyGivenProviders()).toBe(2);
+    expect(net("openai")).toEqual({ default_request_timeout_in_seconds: 30, base_url: "https://models.example.com/openai" });
+    expect(slot("openai").value).toBe("sk-good-given-openai");
+    expect(net("openrouter")).toBe(openrouterNet);
+  });
+
+  it("gives an address on the box's network the gateway's leave, and dropping it gives the provider its own back", async () => {
+    give([{ provider: "openai", key: "sk-good-given-openai", url: "http://models:8080" }]);
+    await applyGivenProviders();
+    expect(net("openai")).toMatchObject({ base_url: "http://models:8080", allow_private_network: true });
+    give([{ provider: "openai", key: "sk-good-given-openai" }]);
+    await applyGivenProviders();
+    expect(net("openai").base_url).toBeUndefined();
+    expect(net("openai").allow_private_network).toBeUndefined();
   });
 });

@@ -34,7 +34,7 @@ export default async function ModelsPage() {
             <SectionLabel id="providers">Providers</SectionLabel>
             <Providers providers={view.providers} />
             <p className="text-[13px] text-ink-3">
-              A key is kept in the gateway and nowhere else. Every call goes through it, on the caller&rsquo;s own spending cap.
+              A key you set is kept in the gateway and nowhere else. Every call goes through it, on the caller&rsquo;s own spending cap.
             </p>
           </section>
 

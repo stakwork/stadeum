@@ -25,7 +25,8 @@ carries them: the box needs no git checkout) and makes `.env`. It asks for
 the domain, an email for Let's Encrypt and a Google or Microsoft sign-in,
 checks DNS, starts the stack and checks its certificates. Model keys go in
 afterwards, on Organisation → Models (the gateway keeps them, never
-`.env`). Run it again to restart with the same `.env`: it asks only for
+`.env`), unless a host that pays for them gives them at install
+(`STADEUM_MODEL_PROVIDERS`). Run it again to restart with the same `.env`: it asks only for
 what `.env` lacks, and writes back the stack files of the release the box
 runs. From then on ops keeps the box current, files and all.
 

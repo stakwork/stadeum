@@ -26,7 +26,9 @@ stakgraph `mcp/src/aieo/src/`. `gateway …` is stakgraph `gateway/`.
    gateway's admin API, with no restart. The provider's known models
    arrive already allowed; the admin can untick any of them.
 3. **The keys live in the gateway** and nowhere else: bifrost's config
-   store, on the `bifrost` volume. Strut learns the allowed models and
+   store, on the `bifrost` volume. The one exception is a key the box's
+   host gives at install, which `.env` holds too ("Providers given at
+   install"). Strut learns the allowed models and
    the default from `STRUT_MODELS` and `STRUT_DEFAULT_MODEL`, which
    stadeum pushes through strut's HTTP API. The gateway enforces the list
    through each person's virtual key.
@@ -207,6 +209,44 @@ new model or provider is one strut PR. Today it takes four steps
 (`strut plans/aieo-in-strut.md`). Stadeum reads the catalog through
 `GET /llm/models` and keeps no copy, just as its list of apps comes from
 strut.
+
+## Providers given at install
+
+A host that pays for a box's models gives them at install, so the box's
+admin has nothing to paste (`STADEUM_MODEL_PROVIDERS`,
+`ui/src/lib/models/given.ts`):
+
+```
+STADEUM_MODEL_PROVIDERS='[{"provider":"anthropic","key":"sk-…","url":"https://models.example.com/anthropic"}]'
+```
+
+- **What each entry is.** A built-in, by the gateway's name (`anthropic`,
+  `openai`, `gemini`, `xai`, `openrouter`), and its key. `url`, when set,
+  is where its calls go instead of the provider itself: an upstream
+  gateway that holds the real keys and a budget for each box, or a
+  company's proxy. It is the provider's `network_config.base_url` in the
+  gateway: the gateway appends the provider's own path to it, so an
+  upstream bifrost's `…/anthropic` takes a box's Anthropic calls. A
+  bifrost upstream reads its virtual key from the provider's usual header
+  (`x-api-key`, `Authorization`, `x-goog-api-key`).
+- **Written by upkeep.** stadeum-ui writes each entry's address and key
+  into the gateway a minute after it starts and every six hours, before
+  the models are applied (`applyGivenProviders`). A gateway that lost
+  them (a restart, a restore, a hand edit) gets them back. The address is
+  left alone when it is already right, and the gateway checks the key as
+  it does a pasted one. An entry that can't be read is left out, with a
+  line in the log.
+- **Shown, not changed.** The Models page marks each one "Given by this
+  box's host", with its address, and offers Test alone. Setting or
+  removing its key is refused. The admin still picks which of its models
+  people may use, and each person's limit.
+- **Where the key lives.** In `.env` (so in every backup) and the
+  gateway. stadeum-ui alone gets the setting; strut's container never
+  does.
+- **Taking one back.** Removing an entry leaves its key and its address
+  in the gateway. To hand a provider back to the admin, give it once more
+  without a `url` (its own address comes back), then remove the entry:
+  the admin can then replace or remove its key.
 
 ## Maple and Numes through the gateway
 
