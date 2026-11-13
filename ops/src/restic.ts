@@ -47,13 +47,21 @@ export function destinationFromEnv(env: NodeJS.ProcessEnv): Destination | null {
 export function resticError(err: unknown): string {
   if (err instanceof CommandError) {
     const said = (err.result.stderr || err.result.stdout).trim().split("\n").filter((l) => !/^\s*$/.test(l));
-    return (said.at(-1) ?? err.message).replace(/^Fatal:\s*/, "").slice(0, 300);
+    let last = said.at(-1) ?? err.message;
+    // With --json, restic says its fatal error as JSON too.
+    try {
+      const j = JSON.parse(last) as { message_type?: string; message?: unknown };
+      if (j.message_type === "exit_error" && typeof j.message === "string") last = j.message.split("\n")[0]!;
+    } catch {
+      // Plain text.
+    }
+    return last.replace(/^Fatal:\s*/, "").slice(0, 300);
   }
   return (err as Error).message;
 }
 
-/** What backups and restores use; tests pass a fake. */
-export type ResticApi = Pick<Restic, "ensureRepo" | "backup" | "forget" | "snapshots" | "list" | "restore" | "dump">;
+/** What backups, restores and checks use; tests pass a fake. */
+export type ResticApi = Pick<Restic, "ensureRepo" | "backup" | "forget" | "snapshots" | "list" | "restore" | "dump" | "check">;
 
 export class Restic {
   private readonly env: NodeJS.ProcessEnv;
@@ -98,9 +106,9 @@ export class Restic {
     await this.run(["forget", "--tag", TAG, "--prune", ...RETENTION]);
   }
 
-  /** Newest first. */
+  /** Newest first. Reads take no lock: a check or a listing never stands in a backup's way. */
   async snapshots(): Promise<Snapshot[]> {
-    const list = JSON.parse(await this.run(["snapshots", "--json", "--tag", TAG])) as Array<{
+    const list = JSON.parse(await this.run(["snapshots", "--no-lock", "--json", "--tag", TAG])) as Array<{
       id: string;
       time: string;
       summary?: { data_added?: number };
@@ -112,7 +120,7 @@ export class Restic {
 
   /** The names directly under `dir` in a snapshot. */
   async list(snapshot: string, dir: string): Promise<string[]> {
-    const out = await this.run(["ls", "--json", snapshot, dir]);
+    const out = await this.run(["ls", "--no-lock", "--json", snapshot, dir]);
     const prefix = `${dir.replace(/\/+$/, "")}/`;
     return out
       .split("\n")
@@ -134,6 +142,15 @@ export class Restic {
   }
 
   async dump(snapshot: string, path: string): Promise<string> {
-    return this.run(["dump", snapshot, path]);
+    return this.run(["dump", "--no-lock", snapshot, path]);
+  }
+
+  /**
+   * restic's own check of the repository, reading `subset` of its data
+   * (`n/t`: the n-th of t parts). Without a lock: a plain check takes an
+   * exclusive one, and a backup that started beside it would fail.
+   */
+  async check(subset: string): Promise<void> {
+    await this.run(["check", "--no-lock", "--read-data-subset", subset]);
   }
 }
