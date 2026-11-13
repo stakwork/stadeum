@@ -7,6 +7,7 @@ import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import { admit } from "@/lib/access";
 import { env } from "@/lib/env";
 import { ensureDelegation } from "@/lib/mothership/delegation";
+import { bounceOptions } from "@/lib/signin-bounce";
 
 /**
  * Sign-in: Microsoft Entra ID and Google when configured, plus an
@@ -18,9 +19,9 @@ import { ensureDelegation } from "@/lib/mothership/delegation";
 function providers(): Provider[] {
   const list: Provider[] = [];
   const entra = env.entra();
-  if (entra) list.push(MicrosoftEntraID(entra));
+  if (entra) list.push(MicrosoftEntraID({ ...entra, ...bounceOptions() }));
   const google = env.google();
-  if (google) list.push(Google(google));
+  if (google) list.push(Google({ ...google, ...bounceOptions() }));
   if (env.devLogin()) {
     list.push(
       Credentials({

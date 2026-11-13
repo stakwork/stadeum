@@ -68,6 +68,10 @@
 #   STADEUM_AUTH_GOOGLE_ID, STADEUM_AUTH_GOOGLE_SECRET
 #   STADEUM_AUTH_MICROSOFT_ENTRA_ID_ID, STADEUM_AUTH_MICROSOFT_ENTRA_ID_SECRET,
 #   STADEUM_AUTH_MICROSOFT_ENTRA_ID_ISSUER (the issuer URL, or the tenant ID)
+#   STADEUM_SIGNIN_BOUNCE (optional, never asked: https://<bounce>, the one
+#                             sign-in callback that boxes under one domain
+#                             share; docs/stack-spec.md, "Sign-in through a
+#                             bounce")
 #   STADEUM_ADMIN_EMAIL (optional: the first admin; blank, whoever signs in
 #                             first becomes admin)
 #   STADEUM_ORG_NAME (optional)
@@ -357,7 +361,31 @@ check_issuer() {
   return 1
 }
 
+# The bounce is an https origin, at the box's parent domain or a name in
+# it: it sends people back to <label>.<that domain>.
+check_bounce() {
+  local host parent=${HOST_NAME#*.}
+  ANSWER=${ANSWER,,}
+  ANSWER=${ANSWER%/}
+  host=${ANSWER#https://}
+  if [[ $ANSWER != https://* || ! $host =~ ^[a-z0-9.-]+$ ]]; then
+    note "an https origin, e.g. https://auth.example.com"
+  elif [ "$host" != "$parent" ] && [ "${host#*.}" != "$parent" ]; then
+    note "a bounce for $HOST_NAME is at $parent or a name in it, e.g. https://auth.$parent"
+  else
+    return 0
+  fi
+  return 1
+}
+
 signin_ids() { printf '%s' "$(env_get AUTH_GOOGLE_ID)$(env_get AUTH_MICROSOFT_ENTRA_ID_ID)"; }
+
+# Where the providers send people back: the bounce, when the box has one.
+callback_base() {
+  local bounce
+  bounce=$(env_get STADEUM_SIGNIN_BOUNCE)
+  printf '%s' "${bounce:-https://$HOST_NAME}"
+}
 
 signin_help() {
   if [ "$TTY" != 1 ] || [ -n "${SIGNIN_HELP:-}" ]; then return 0; fi
@@ -366,10 +394,10 @@ signin_help() {
   say "Sign-in: Google, Microsoft, or both (Enter skips one). Each needs an OAuth client:"
   say "  Google     console.cloud.google.com → APIs & Services → Credentials → Create"
   say "             credentials → OAuth client ID → Web application, with the redirect URI"
-  say "             https://$HOST_NAME/api/auth/callback/google"
+  say "             $(callback_base)/api/auth/callback/google"
   say "  Microsoft  entra.microsoft.com → App registrations → New registration → Web,"
   say "             with the redirect URI"
-  say "             https://$HOST_NAME/api/auth/callback/microsoft-entra-id"
+  say "             $(callback_base)/api/auth/callback/microsoft-entra-id"
   say "             then Certificates & secrets → New client secret"
 }
 
@@ -394,6 +422,7 @@ configure() {
   setting HOST "Domain name for this box (e.g. stadeum1.example.com)" check_host
   HOST_NAME=$(env_get HOST)
   setting ACME_EMAIL "Email for Let's Encrypt" check_email
+  [ -z "${STADEUM_SIGNIN_BOUNCE:-}" ] || setting STADEUM_SIGNIN_BOUNCE "Sign-in bounce" check_bounce
   while :; do
     provider Google check_google_id AUTH_GOOGLE_ID AUTH_GOOGLE_SECRET
     provider Microsoft check_microsoft_id AUTH_MICROSOFT_ENTRA_ID_ID AUTH_MICROSOFT_ENTRA_ID_SECRET AUTH_MICROSOFT_ENTRA_ID_ISSUER
@@ -609,9 +638,14 @@ finish() {
     say "  $(compose_cmd) logs caddy"
   fi
   say ""
-  say "  Register the sign-in redirect URLs, in each provider's OAuth client:"
-  say "    Google     https://$HOST_NAME/api/auth/callback/google"
-  say "    Microsoft  https://$HOST_NAME/api/auth/callback/microsoft-entra-id"
+  if [ -n "$(env_get STADEUM_SIGNIN_BOUNCE)" ]; then
+    say "  Sign-in goes through the bounce at $(callback_base): its redirect URLs, registered"
+    say "  once for every box it serves, are"
+  else
+    say "  Register the sign-in redirect URLs, in each provider's OAuth client:"
+  fi
+  say "    Google     $(callback_base)/api/auth/callback/google"
+  say "    Microsoft  $(callback_base)/api/auth/callback/microsoft-entra-id"
   say "  Keep ports 80 and 443 (TCP, and 443 UDP) open to the internet, in the cloud's"
   say "  firewall or security group: Caddy renews the certificates through them."
   admin=$(env_get STADEUM_ADMIN_EMAIL)

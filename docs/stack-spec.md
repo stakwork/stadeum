@@ -367,6 +367,40 @@ checked".
   address in `x-stadeum-path`, set by it whatever the request carried;
   `next` is kept only as a path on this site, never sign-in or the API
   (`ui/src/lib/next-path.ts`).
+- **Sign-in through a bounce** (`STADEUM_SIGNIN_BOUNCE`,
+  `ui/src/lib/signin-bounce.ts`). Google takes no wildcard in a redirect
+  URL and has no API to add one, so boxes under one domain can't each
+  register their own. With the setting (e.g. `https://auth.example.com`)
+  they share the bounce's. Google and Microsoft are registered once, with
+  `<bounce>/api/auth/callback/google` and
+  `<bounce>/api/auth/callback/microsoft-entra-id`, for every box.
+  - Auth.js sends the provider to the bounce on both legs
+    (`redirectProxyUrl`): the authorization, and the code exchange that
+    must repeat its `redirect_uri`.
+  - The box puts its label, its host's first name (`acme` for
+    `acme.example.com`), in front of the OAuth `state`: `acme.<state>`.
+  - The bounce reads the label and redirects to
+    `https://<label>.<its domain>`, with the path and query unchanged. It
+    holds no secret, checks nothing else and stores nothing. A Caddy site
+    does it:
+
+    ```
+    auth.example.com {
+    	@box vars_regexp box {query.state} ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)\.
+    	redir @box https://{re.box.1}.example.com{uri} 302
+    	respond 400
+    }
+    ```
+
+  - The box takes its label off when the callback comes back, before
+    Auth.js checks the state against its own cookie.
+  - Every box behind one bounce holds the same client secrets. The state
+    cookie and PKCE still bind each code to the browser that started the
+    sign-in, so one box can't sign in to another. Run a bounce only for
+    boxes whose `.env` you alone hold, and name no box like the bounce.
+  - Not Auth.js's own redirect proxy (`AUTH_REDIRECT_PROXY_URL`): its
+    proxy decrypts the state, so every box would share one `AUTH_SECRET`,
+    and any box could forge another's sessions.
 - **The frame.** Per page load the server mints a sign-in ticket for the
   person (`POST /auth/ticket { actor, role }` → `{ ticket, expiresAt }`, good
   once for 60 s; `role` is the person's stadeum role, `admin` or `member`:
