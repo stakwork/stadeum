@@ -443,6 +443,9 @@ services:
       STADEUM_DEV_LOGIN: ${STADEUM_DEV_LOGIN:-}
       STADEUM_ALLOWED_DOMAINS: ${STADEUM_ALLOWED_DOMAINS:-}
       STADEUM_ADMIN_EMAIL: ${STADEUM_ADMIN_EMAIL:-}
+      # Model providers the box's host gives (docs/models.md): stadeum-ui
+      # alone holds them, and writes them to the gateway.
+      STADEUM_MODEL_PROVIDERS: ${STADEUM_MODEL_PROVIDERS:-}
       STADEUM_ORG_NAME: ${STADEUM_ORG_NAME:-}
       # Org identity written by `bootstrap` (docs/mothership-spec.md).
       STADEUM_ORG_SLUG: ${STADEUM_ORG_SLUG:-org}

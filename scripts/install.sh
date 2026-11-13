@@ -19,7 +19,8 @@
 #      Encrypt, a sign-in provider and, the first time, the org's name and
 #      the LiveKit keys calls need (both can be skipped).
 #      Model keys are not asked for: an admin sets them on the Models page,
-#      which writes them to the gateway and nowhere else (docs/models.md);
+#      which writes them to the gateway and nowhere else (docs/models.md),
+#      unless a host that pays for them gives them (STADEUM_MODEL_PROVIDERS);
 #   4. checks that DNS points $HOST and strut.$HOST at this machine, which
 #      the certificates need, and starts nothing until it does;
 #   5. starts the stack, checks that both names answer over https, and says
@@ -82,6 +83,9 @@
 #                             balancer or proxy sits in front of the box
 #   STADEUM_DIR               the box's directory (default /opt/stadeum)
 #   STADEUM_PREPARE=1         prepare only (above)
+#   STADEUM_MODEL_PROVIDERS   optional, never asked: the model providers a
+#                             host that pays for them gives, a JSON list of
+#                             { provider, key, url? } (.env.example)
 #
 # It refuses STADEUM_DEV_LOGIN: on a public host the password-less dev login
 # lets anyone sign in as anyone, and the first to sign in becomes admin.
@@ -338,6 +342,13 @@ check_admin_email() {
   check_email
 }
 
+# A JSON list: stadeum-ui reads each entry, and logs any it can't use.
+check_model_providers() {
+  [[ $ANSWER == \[*\] ]] && return 0
+  note 'a JSON list, e.g. [{"provider":"anthropic","key":"sk-…"}]'
+  return 1
+}
+
 check_google_id() {
   [[ -z $ANSWER || $ANSWER == *.apps.googleusercontent.com ]] && return 0
   note "a Google client ID ends in .apps.googleusercontent.com"
@@ -432,6 +443,7 @@ configure() {
   done
   optional STADEUM_ADMIN_EMAIL "The first admin's email (Enter: whoever signs in first becomes admin)" check_admin_email
   optional STADEUM_ORG_NAME "Your organisation's name, shown beside the logo (Enter to skip)" any
+  [ -z "${STADEUM_MODEL_PROVIDERS:-}" ] || setting STADEUM_MODEL_PROVIDERS "Model providers" check_model_providers secret
   # Calls: the LiveKit server's keys. Without them the box runs with calls off.
   optional LIVEKIT_URL "LiveKit server for calls (Enter for wss://livekit.sphinx.chat)" any
   optional LIVEKIT_API_KEY "LiveKit API key for calls (Enter to skip: calls stay off)" any
@@ -654,7 +666,12 @@ finish() {
   else
     say "  Sign in first: the first person to sign in becomes admin."
   fi
-  say "  Then set the model keys and the models people may use: Organisation → Models."
+  if [ -n "$(env_get STADEUM_MODEL_PROVIDERS)" ]; then
+    say "  The model keys are given (STADEUM_MODEL_PROVIDERS): pick the models people may use"
+    say "  on Organisation → Models."
+  else
+    say "  Then set the model keys and the models people may use: Organisation → Models."
+  fi
   say "  And set up backups: Organisation → Backups."
   say ""
   say "  The settings are in $ENV_FILE, and the box's own compose changes go in"

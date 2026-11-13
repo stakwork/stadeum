@@ -3,6 +3,7 @@ import type { BifrostClient } from "@/lib/mothership/bifrost-client";
 import { KNOWN_CUSTOM, PROVIDERS, RESERVED_PROVIDER_NAMES } from "@/lib/mothership/constants";
 import { BifrostHttpError } from "@/lib/mothership/http";
 import type { BifrostKey, BifrostProviderEntry } from "@/lib/mothership/types";
+import { GIVEN_REFUSAL, givenProviders, type GivenProvider } from "./given";
 
 /**
  * Each provider's key, in the gateway and nowhere else (docs/models.md).
@@ -20,6 +21,10 @@ import type { BifrostKey, BifrostProviderEntry } from "@/lib/mothership/types";
  *   provider, then its key: bifrost drops a key sent with the provider) and
  *   removed whole. Strut's model names start with the provider's name, and
  *   bifrost routes `<name>/<id>` on its OpenAI route to it.
+ *
+ * A built-in the box's host gives (models/given.ts) is written by upkeep,
+ * with its address when it has one, and an admin can test it but not change
+ * or remove it.
  */
 
 export type ProviderKind = "builtin" | "known" | "other";
@@ -31,8 +36,10 @@ export interface ProviderState {
   strut: string;
   label: string;
   kind: ProviderKind;
-  /** A custom provider's address (what bifrost appends `/v1/chat/completions` to). */
+  /** A custom provider's address (what bifrost appends `/v1/chat/completions` to), or a given one's. */
   baseUrl?: string;
+  /** The box's host gives this provider's key: the page shows it, and does not change it. */
+  given?: boolean;
   /** One line about a known provider. */
   note?: string;
   /** bifrost's masked preview of the key; "" when none is set. */
@@ -111,8 +118,13 @@ export async function providerStates(client?: BifrostClient): Promise<ProviderSt
     .filter((e) => !builtinShape(e.name) && !knownShape(e.name) && e.custom_provider_config)
     .sort((a, b) => a.name.localeCompare(b.name));
   const shapes: Shape[] = [...PROVIDERS.map((p) => builtinShape(p.id)!), ...KNOWN_CUSTOM.map((p) => knownShape(p.id)!), ...others.map(otherShape)];
+  const given = new Map(givenProviders().map((g) => [g.id, g]));
   return Promise.all(
-    shapes.map(async (s) => stateOf(s, s.kind === "known" && !has.has(s.id) ? [] : await keysOf(c, s.id))),
+    shapes.map(async (s) => {
+      const state = stateOf(s, s.kind === "known" && !has.has(s.id) ? [] : await keysOf(c, s.id));
+      const g = given.get(s.id);
+      return g ? { ...state, given: true, ...(g.url ? { baseUrl: g.url } : {}) } : state;
+    }),
   );
 }
 
@@ -173,6 +185,7 @@ async function shapeOf(c: BifrostClient, id: string): Promise<Shape | undefined>
  * for a provider stadeum does not offer.
  */
 export async function setProviderKey(id: string, value: string, client?: BifrostClient): Promise<ProviderState> {
+  if (isGiven(id)) throw new Error(GIVEN_REFUSAL);
   const c = client ?? (await governanceClient());
   const shape = await shapeOf(c, id);
   if (!shape) throw new Error("That is not a provider stadeum offers.");
@@ -230,6 +243,7 @@ export async function checkProviderKey(id: string, client?: BifrostClient): Prom
  * comes back at the gateway's next start); a custom provider goes whole.
  */
 export async function removeProviderKey(id: string, client?: BifrostClient): Promise<void> {
+  if (isGiven(id)) throw new Error(GIVEN_REFUSAL);
   const c = client ?? (await governanceClient());
   const shape = await shapeOf(c, id);
   if (!shape) throw new Error("That is not a provider stadeum offers.");
@@ -240,4 +254,47 @@ export async function removeProviderKey(id: string, client?: BifrostClient): Pro
   for (const k of (await keysOf(c, id)) ?? []) {
     if (previewOf(k)) await c.deleteProviderKey(id, k.id);
   }
+}
+
+// ── given providers ─────────────────────────────────────────────────────
+
+const isGiven = (id: string) => givenProviders().some((g) => g.id === id);
+
+/**
+ * The provider's address: the given url, or the provider's own (no
+ * `base_url`). Untouched when it already is; the rest of its network
+ * settings, and its concurrency, are sent back as read.
+ */
+async function setAddress(c: BifrostClient, g: GivenProvider): Promise<void> {
+  const current = await c.getProvider(g.id);
+  const net = { ...(current.network_config ?? {}) };
+  const want = g.url ? rootOf(g.url) : undefined;
+  if ((net.base_url || undefined) === want) return;
+  delete net.base_url;
+  delete net.allow_private_network;
+  if (want) Object.assign(net, { base_url: want }, isPrivateHost(want) ? { allow_private_network: true } : {});
+  await c.updateProvider(g.id, { network_config: net, concurrency_and_buffer_size: current.concurrency_and_buffer_size });
+}
+
+/**
+ * Write each given provider into the gateway: its address, then its key,
+ * which the gateway then checks. Upkeep runs it, so a gateway that lost
+ * them (a restart, a restore, a hand edit) gets them back. One that fails is
+ * logged and the others go on. Returns how many were written.
+ */
+export async function applyGivenProviders(client?: BifrostClient): Promise<number> {
+  const given = givenProviders();
+  if (!given.length) return 0;
+  const c = client ?? (await governanceClient());
+  let written = 0;
+  for (const g of given) {
+    try {
+      await setAddress(c, g);
+      await writeKey(c, builtinShape(g.id)!, g.key);
+      written++;
+    } catch (err) {
+      console.warn(`[models] given provider ${g.id} not written: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return written;
 }

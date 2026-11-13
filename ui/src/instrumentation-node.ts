@@ -1,4 +1,5 @@
 import { applyModels } from "@/lib/models/apply";
+import { applyGivenProviders } from "@/lib/models/providers";
 import { ensureGatewayLogRetention } from "@/lib/mothership/gateway-settings";
 import { renewAllDelegations } from "@/lib/mothership/renew";
 import { applyLimits } from "@/lib/spend/limits";
@@ -8,6 +9,8 @@ import { applyLimits } from "@/lib/spend/limits";
  * - every person's delegation, kept alive even when they don't visit
  *   (Hive's `strut-delegations` cron);
  * - the gateway's log retention;
+ * - the providers the box's host gives (STADEUM_MODEL_PROVIDERS), so a
+ *   gateway that lost them gets them back before the models are applied;
  * - the org's models: each virtual key and strut's list and default
  *   (a wiped strut or a new person's key is put right here);
  * - spending limits: every person's budget, so a limit the gateway missed
@@ -23,6 +26,7 @@ if (process.env.STADEUM_RENEWAL !== "0") {
   const tick = async () => {
     await renewAllDelegations().catch(warn("delegation renewal"));
     await ensureGatewayLogRetention().catch(warn("gateway log retention"));
+    await applyGivenProviders().catch(warn("given providers"));
     await applyModels().catch(warn("models"));
     await applyLimits().catch(warn("spending limits"));
   };

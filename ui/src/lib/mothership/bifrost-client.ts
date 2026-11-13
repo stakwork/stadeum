@@ -13,6 +13,8 @@ import type {
   ListProvidersResponse,
   ListVirtualKeysResponse,
   VirtualKeyResponse,
+  BifrostNetworkConfig,
+  BifrostProviderConfig,
 } from "./types";
 
 /**
@@ -102,6 +104,16 @@ export class BifrostClient {
 
   deleteProvider(provider: string) {
     return this.request<unknown>("DELETE", `/api/providers/${encodeURIComponent(provider)}`);
+  }
+
+  /** One provider's config: its network settings and concurrency among them. */
+  getProvider(provider: string) {
+    return this.request<BifrostProviderConfig>("GET", `/api/providers/${encodeURIComponent(provider)}`);
+  }
+
+  /** Bifrost replaces the provider's network settings and concurrency with these: send both, as getProvider read them. */
+  updateProvider(provider: string, input: { network_config: BifrostNetworkConfig; concurrency_and_buffer_size?: unknown }) {
+    return this.request<unknown>("PUT", `/api/providers/${encodeURIComponent(provider)}`, input);
   }
 
   // ── provider keys (bifrost transports/v2.2.2 handlers/provider_keys.go) ──
