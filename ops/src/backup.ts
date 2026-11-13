@@ -103,6 +103,65 @@ export async function backup(d: Deps, restic: ResticApi, opts: BackupOptions): P
   );
 }
 
+export interface Verified {
+  ok: boolean;
+  /** What was found, in words; never the env file's contents. */
+  detail: string;
+  /** Set when it didn't run: inside the upkeep window, say. */
+  skipped?: string;
+  /** The newest snapshot, which it read back. */
+  snapshot?: string;
+  time?: string;
+  snapshots: number;
+  /** The part of the data restic's check read. */
+  subset: string;
+  /** The env file's size as it came back. */
+  envBytes?: number;
+}
+
+const WEEK = 7 * 86_400_000;
+/** A different tenth of the data each week: all of it every ten weeks. */
+export const subsetFor = (now: Date) => `${(Math.floor(now.getTime() / WEEK) % 10) + 1}/10`;
+
+/**
+ * Check the backups can be read back (stack-spec, Backups): restic's check
+ * of the repository, reading a tenth of its data, and the newest
+ * snapshot's env file read back. Reads only, with no lock. The env file is
+ * counted, never shown: it holds the box's secrets.
+ */
+export async function verify(restic: ResticApi, now: Date, subset = subsetFor(now)): Promise<Verified> {
+  let snapshots: Snapshot[];
+  try {
+    snapshots = await restic.snapshots();
+  } catch (err) {
+    return { ok: false, detail: `Could not list the snapshots: ${resticError(err)}`, snapshots: 0, subset };
+  }
+  const latest = snapshots[0];
+  if (!latest) return { ok: false, detail: "The repository has no stadeum snapshot yet.", snapshots: 0, subset };
+  const about = { snapshot: latest.id, time: latest.time, snapshots: snapshots.length, subset };
+  const name = `${latest.id.slice(0, 8)} of ${latest.time.slice(0, 16).replace("T", " ")}`;
+  try {
+    await restic.check(subset);
+  } catch (err) {
+    return { ok: false, detail: `restic's check, reading ${subset} of the data, failed: ${resticError(err)}`, ...about };
+  }
+  let env: string;
+  try {
+    env = await restic.dump(latest.id, ENV_IN_SNAPSHOT);
+  } catch (err) {
+    return { ok: false, detail: `Snapshot ${name}: its env file did not come back: ${resticError(err)}`, ...about };
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*=/m.test(env)) {
+    return { ok: false, detail: `Snapshot ${name}: its env file came back with no setting in it.`, ...about, envBytes: env.length };
+  }
+  return {
+    ok: true,
+    detail: `Snapshot ${name}: restic's check found no error in ${subset} of the data, and its env file came back (${env.length} bytes).`,
+    ...about,
+    envBytes: env.length,
+  };
+}
+
 export interface RestoreOptions {
   envFile: string | undefined;
   volumes?: string;

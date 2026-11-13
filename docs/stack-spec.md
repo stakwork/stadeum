@@ -752,6 +752,20 @@ name, pass `STADEUM_HOST` to the install, or change it before `up`. `scripts/bac
 strut, stadeum-ui and Neo4j, a backup, every volume wiped and `.env`
 regenerated, a restore, and the same data back.
 
+**Checking the backups** (`ops verify`). A backup nobody has read back is
+a hope. `ops verify` runs restic's own check of the repository, reading a
+tenth of the data (a different tenth each week, so all of it every ten
+weeks), and reads the newest snapshot's `.env` back, saying its size and
+never what is in it. It only reads, and takes no lock: a plain check takes
+an exclusive one, and a backup that started beside it would fail. It
+refuses inside the upkeep window, where backups and their pruning run, and
+exits 3 then; otherwise 0 when the backups read back, 1 when they don't.
+`--json` prints one line, for a script.
+
+```bash
+docker compose --env-file .env -f stack/stadeum.yml run --rm --no-deps ops verify
+```
+
 ## The shared token
 
 `SHARED_API_TOKEN` is the deployment key: bifrost's

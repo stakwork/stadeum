@@ -370,6 +370,8 @@ export class FakeRestic implements ResticApi {
   env: string | null = null;
   failBackup = false;
   failOpen = false;
+  /** What restic's check says, when it fails. */
+  failCheck: string | null = null;
   repoExists = true;
   async ensureRepo() {
     this.calls.push("open");
@@ -400,6 +402,10 @@ export class FakeRestic implements ResticApi {
   async dump(_snapshot: string, path: string) {
     if (this.env === null) throw new Error(`no ${path}`);
     return this.env;
+  }
+  async check(subset: string) {
+    this.calls.push(`check ${subset}`);
+    if (this.failCheck) throw new Error(this.failCheck);
   }
 }
 

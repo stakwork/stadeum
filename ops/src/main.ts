@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { backup, restore } from "./backup.js";
+import { backup, restore, verify, type Verified } from "./backup.js";
 import { ComposeStack, discover } from "./compose.js";
 import type { Destination, OpsEvent } from "./contract.js";
 import { errorText, type Deps } from "./deps.js";
@@ -14,6 +14,7 @@ import { destinationFromEnv, Restic } from "./restic.js";
 import { Stadeum } from "./stadeum.js";
 import { Strut } from "./strut.js";
 import { handOver } from "./update.js";
+import { currentWindow } from "./window.js";
 
 /**
  * stadeum-ops. No port: it starts every connection itself.
@@ -25,13 +26,20 @@ import { handOver } from "./update.js";
  *   ops update              update now, as the admin page's "Update now"
  *   ops backup              back up now
  *   ops snapshots           list the repository's snapshots
+ *   ops verify [n/t] [--json]
+ *                           check the backups can be read back: restic's
+ *                           check reading a tenth of the data (a different
+ *                           one each week), and the newest snapshot's env
+ *                           file read back; reads only, no lock. Exits 0
+ *                           when they can, 1 when not, 3 when skipped:
+ *                           inside the upkeep window, where backups run
  *   ops restore [snapshot]  put a snapshot back (default: latest)
  *   ops hand-over <image> [--confirm <ref,…>]
  *                           internal, in a one-off container on a new
  *                           release's image: apply it (release.ts);
  *                           <image> is the ops image that ran before
  *
- * backup, snapshots and restore take the destination from
+ * backup, snapshots, verify and restore take the destination from
  * RESTIC_REPOSITORY + RESTIC_PASSWORD (and the backend's own variables)
  * when they are set, as on a fresh box, else from stadeum-ui.
  */
@@ -124,6 +132,31 @@ async function main(argv: string[]): Promise<number> {
       for (const s of await new Restic(await destination(), run).snapshots()) console.log(`${s.id.slice(0, 8)}  ${s.time}`);
       return 0;
     }
+    case "verify": {
+      const now = new Date();
+      const json = argv.includes("--json");
+      const subset = arg && !arg.startsWith("--") ? arg : undefined;
+      const say = (v: Verified) => (json ? console.log(JSON.stringify(v)) : log(v.detail));
+      let window: Awaited<ReturnType<Stadeum["settings"]>>["window"];
+      try {
+        window = (await stadeum.settings()).window;
+      } catch (err) {
+        say({ ok: false, skipped: "stadeum-ui", detail: `stadeum-ui isn't answering, so the upkeep window can't be read: try again later (${errorText(err)}).`, snapshots: 0, subset: subset ?? "" });
+        return 3;
+      }
+      if (currentWindow(now, window)) {
+        say({ ok: false, skipped: "the upkeep window", detail: `Inside the upkeep window (${window.start}–${window.end} ${window.timeZone}), where backups run: try again after it.`, snapshots: 0, subset: subset ?? "" });
+        return 3;
+      }
+      let v: Verified;
+      try {
+        v = await verify(new Restic(await destination(), run), now, subset);
+      } catch (err) {
+        v = { ok: false, detail: `No backups to check: ${errorText(err)}`, snapshots: 0, subset: subset ?? "" };
+      }
+      say(v);
+      return v.ok ? 0 : 1;
+    }
     case "restore": {
       const event = await restore(d, new Restic(await destination(), run), arg ?? "latest", { envFile: stack.envFiles[0] });
       log(event.detail);
@@ -162,7 +195,7 @@ async function main(argv: string[]): Promise<number> {
       return !event || event.outcome === "ok" ? 0 : 1;
     }
     default:
-      console.error(`unknown command ${cmd}: run, check, update, backup, snapshots, restore [snapshot]`);
+      console.error(`unknown command ${cmd}: run, check, update, backup, snapshots, verify [n/t] [--json], restore [snapshot]`);
       return 2;
   }
 }

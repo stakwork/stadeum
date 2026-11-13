@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { backup, restore } from "./backup.js";
+import { backup, restore, subsetFor, verify } from "./backup.js";
 import { deps, FakeRestic, FakeStack, FakeStrut } from "./test/fakes.js";
 
 function box() {
@@ -119,5 +119,56 @@ describe("a restore", () => {
   it("refuses a snapshot the repository does not have", async () => {
     const restic = new FakeRestic();
     await expect(restore(deps(FakeStack.standard(), new FakeStrut()).d, restic, "latest", { envFile: undefined })).rejects.toThrow(/no stadeum snapshot/);
+  });
+});
+
+describe("verifying the backups", () => {
+  const now = new Date("2026-11-10T12:00:00Z");
+  const withSnapshots = () => {
+    const restic = new FakeRestic();
+    restic.snaps = [
+      { id: "b2c3d4e5f6a7", time: "2026-11-10T03:12:00Z" },
+      { id: "a1b2c3d4e5f6", time: "2026-11-09T03:11:00Z" },
+    ];
+    restic.env = "NEO4J_PASSWORD=secret\nSTADEUM_HOST=acme.example.com\n";
+    return restic;
+  };
+
+  it("checks a tenth of the data, reads the newest snapshot's env file back, and never says what is in it", async () => {
+    const restic = withSnapshots();
+    const v = await verify(restic, now);
+    expect(v).toEqual({
+      ok: true,
+      detail: `Snapshot b2c3d4e5 of 2026-11-10 03:12: restic's check found no error in ${subsetFor(now)} of the data, and its env file came back (52 bytes).`,
+      snapshot: "b2c3d4e5f6a7",
+      time: "2026-11-10T03:12:00Z",
+      snapshots: 2,
+      subset: subsetFor(now),
+      envBytes: 52,
+    });
+    expect(restic.calls).toEqual([`check ${subsetFor(now)}`]);
+    expect(JSON.stringify(v)).not.toContain("secret");
+  });
+
+  it("reads a different tenth each week, all of it every ten weeks", () => {
+    const weeks = Array.from({ length: 10 }, (_, i) => subsetFor(new Date(now.getTime() + i * 7 * 86_400_000)));
+    expect(new Set(weeks).size).toBe(10);
+    expect(weeks.every((s) => /^(10|[1-9])\/10$/.test(s))).toBe(true);
+  });
+
+  it("fails when there is nothing to check, the check fails, or the env file doesn't come back whole", async () => {
+    expect(await verify(new FakeRestic(), now, "1/10")).toMatchObject({ ok: false, detail: "The repository has no stadeum snapshot yet.", snapshots: 0 });
+
+    const broken = withSnapshots();
+    broken.failCheck = "pack 3f2a… is damaged";
+    expect(await verify(broken, now, "1/10")).toMatchObject({ ok: false, detail: "restic's check, reading 1/10 of the data, failed: pack 3f2a… is damaged", snapshot: "b2c3d4e5f6a7" });
+
+    const lost = withSnapshots();
+    lost.env = null;
+    expect((await verify(lost, now, "1/10")).detail).toBe("Snapshot b2c3d4e5 of 2026-11-10 03:12: its env file did not come back: no /env/.env");
+
+    const empty = withSnapshots();
+    empty.env = "\n";
+    expect(await verify(empty, now, "1/10")).toMatchObject({ ok: false, detail: "Snapshot b2c3d4e5 of 2026-11-10 03:12: its env file came back with no setting in it.", envBytes: 1 });
   });
 });
