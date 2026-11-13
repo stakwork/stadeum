@@ -76,6 +76,10 @@
 #   STADEUM_ADMIN_EMAIL (optional: the first admin; blank, whoever signs in
 #                             first becomes admin)
 #   STADEUM_ORG_NAME (optional)
+#   STADEUM_BACKUP_DESTINATION, STADEUM_BACKUP_PASSWORD (optional, never
+#                             asked: a host that keeps the box's backups
+#                             gives where they go, and their password;
+#                             .env.example)
 #   STADEUM_LIVEKIT_API_KEY, STADEUM_LIVEKIT_API_SECRET (optional: calls stay
 #                             off without them; STADEUM_LIVEKIT_URL for a
 #                             LiveKit server other than the central one)
@@ -361,6 +365,20 @@ check_microsoft_id() {
   return 1
 }
 
+# The Backups page's fields as a JSON object; stadeum-ui checks the rest,
+# and logs what it can't use.
+check_backup_destination() {
+  [[ $ANSWER == \{*\} ]] && return 0
+  note 'a JSON object, e.g. {"kind":"s3","bucket":"…","accessKeyId":"…","secretAccessKey":"…"}'
+  return 1
+}
+
+check_backup_password() {
+  [ ${#ANSWER} -ge 16 ] && return 0
+  note "at least 16 characters"
+  return 1
+}
+
 check_issuer() {
   if [[ $ANSWER == https://* ]]; then
     return 0
@@ -448,6 +466,8 @@ configure() {
   optional LIVEKIT_URL "LiveKit server for calls (Enter for wss://livekit.sphinx.chat)" any
   optional LIVEKIT_API_KEY "LiveKit API key for calls (Enter to skip: calls stay off)" any
   [ -z "$(env_get LIVEKIT_API_KEY)" ] || setting LIVEKIT_API_SECRET "LiveKit API secret" given secret
+  [ -z "${STADEUM_BACKUP_DESTINATION:-}" ] || setting STADEUM_BACKUP_DESTINATION "Backup destination" check_backup_destination secret
+  [ -z "${STADEUM_BACKUP_PASSWORD:-}" ] || setting STADEUM_BACKUP_PASSWORD "Backup password" check_backup_password secret
 }
 
 # --- DNS ---
@@ -672,7 +692,12 @@ finish() {
   else
     say "  Then set the model keys and the models people may use: Organisation → Models."
   fi
-  say "  And set up backups: Organisation → Backups."
+  if [ -n "$(env_get STADEUM_BACKUP_DESTINATION)" ]; then
+    say "  Backups are on, to the destination given (STADEUM_BACKUP_DESTINATION): keep the"
+    say "  password Organisation → Backups shows off the box."
+  else
+    say "  And set up backups: Organisation → Backups."
+  fi
   say ""
   say "  The settings are in $ENV_FILE, and the box's own compose changes go in"
   say "  $BOX/stack/local.yml: a release never touches either. ops keeps the rest"

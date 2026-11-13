@@ -1,11 +1,24 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GET as getSettings } from "@/app/api/ops/settings/route";
 import { POST as postHistory } from "@/app/api/ops/history/route";
 import { PUT as putStatus } from "@/app/api/ops/status/route";
 import { db } from "@/lib/db";
 import type { OpsSettings, OpsStatus } from "./contract";
-import { history, markPasswordKept, pendingPassword, readStatus, request, saveDestination, saveUpdates, settingsRow } from "./store";
+import { GIVEN_BACKUP_REFUSAL } from "./given";
+import {
+  applyGivenBackup,
+  destinationForPage,
+  history,
+  markPasswordKept,
+  pendingPassword,
+  readStatus,
+  request,
+  saveDestination,
+  saveUpdates,
+  setBackupsEnabled,
+  settingsRow,
+} from "./store";
 
 const TOKEN = "ops-test-token";
 
@@ -176,5 +189,74 @@ describe("the ops routes", () => {
     const [entry] = await history(["update"]);
     expect(entry).toMatchObject({ outcome: "rolled-back", changes: event.changes });
     expect((await postHistory(call("POST", { ...event, kind: "party" }))).status).toBe(400);
+  });
+});
+
+describe("a backup destination given at install", () => {
+  const PASSWORD = "the-hosts-escrowed-password-0123";
+  const destination = { kind: "s3", bucket: "fleet-backups", path: "boxes/acme", region: "us-east-1", accessKeyId: "AKIA1", secretAccessKey: "s3cr3t" };
+  beforeEach(() => {
+    process.env.STADEUM_BACKUP_DESTINATION = JSON.stringify(destination);
+    process.env.STADEUM_BACKUP_PASSWORD = PASSWORD;
+  });
+  afterEach(() => {
+    delete process.env.STADEUM_BACKUP_DESTINATION;
+    delete process.env.STADEUM_BACKUP_PASSWORD;
+    vi.restoreAllMocks();
+  });
+
+  it("writes nothing when none is given", async () => {
+    delete process.env.STADEUM_BACKUP_DESTINATION;
+    expect(await applyGivenBackup()).toBe(false);
+    expect((await settingsRow()).backupKind).toBeNull();
+    expect((await destinationForPage()).given).toBe(false);
+  });
+
+  it("hands ops the given destination and password, backups on, its secrets encrypted", async () => {
+    expect(await applyGivenBackup()).toBe(true);
+    const row = await settingsRow();
+    expect(row.backupSecretsEnc).not.toContain("s3cr3t");
+    expect(row.resticPasswordEnc).not.toContain(PASSWORD);
+    // What ops reads, through its own route.
+    expect((await settings()).backups).toEqual({
+      enabled: true,
+      repository: "s3:s3.amazonaws.com/fleet-backups/boxes/acme",
+      env: { AWS_ACCESS_KEY_ID: "AKIA1", AWS_SECRET_ACCESS_KEY: "s3cr3t", AWS_DEFAULT_REGION: "us-east-1" },
+      password: PASSWORD,
+    });
+    expect(await destinationForPage()).toMatchObject({ kind: "s3", given: true, enabled: true, savedSecrets: ["accessKeyId", "secretAccessKey"] });
+  });
+
+  it("still shows the admin the password and the restore kit, until they keep it", async () => {
+    await applyGivenBackup();
+    const shown = await pendingPassword();
+    expect(shown?.password).toBe(PASSWORD);
+    expect(shown?.kit).toContain("RESTIC_REPOSITORY=s3:s3.amazonaws.com/fleet-backups/boxes/acme");
+    await markPasswordKept();
+    expect(await pendingPassword()).toBeNull();
+  });
+
+  it("refuses an admin's change, and turning backups off", async () => {
+    await applyGivenBackup();
+    expect(await saveDestination("local", { path: "/backups/mine" }, true)).toEqual({ ok: false, error: GIVEN_BACKUP_REFUSAL });
+    await expect(setBackupsEnabled(false)).rejects.toThrow(GIVEN_BACKUP_REFUSAL);
+    expect((await settings()).backups?.repository).toBe("s3:s3.amazonaws.com/fleet-backups/boxes/acme");
+  });
+
+  it("puts an edited row right, and keeps the password the backups are made with", async () => {
+    await applyGivenBackup();
+    await db.opsSettings.update({ where: { id: "ops" }, data: { backupsEnabled: false, backupFields: JSON.stringify({ bucket: "elsewhere" }) } });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    process.env.STADEUM_BACKUP_PASSWORD = "a-different-password-given-later";
+    await applyGivenBackup();
+    const { backups } = await settings();
+    expect(backups).toMatchObject({ enabled: true, repository: "s3:s3.amazonaws.com/fleet-backups/boxes/acme", password: PASSWORD });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("differs from the password the backups are made with"));
+  });
+
+  it("makes the box its own password when none is given", async () => {
+    delete process.env.STADEUM_BACKUP_PASSWORD;
+    await applyGivenBackup();
+    expect((await settings()).backups?.password).toHaveLength(32);
   });
 });

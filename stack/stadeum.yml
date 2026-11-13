@@ -450,6 +450,10 @@ services:
       # Org identity written by `bootstrap` (docs/mothership-spec.md).
       STADEUM_ORG_SLUG: ${STADEUM_ORG_SLUG:-org}
       STADEUM_ENCRYPTION_KEY: ${STADEUM_ENCRYPTION_KEY}
+      # A backup destination the box's host gives, and its password: written
+      # into the backup settings, encrypted (docs/stack-spec.md).
+      STADEUM_BACKUP_DESTINATION: ${STADEUM_BACKUP_DESTINATION:-}
+      STADEUM_BACKUP_PASSWORD: ${STADEUM_BACKUP_PASSWORD:-}
       STADEUM_ORG_KEY_FILE: /org/org-key.json
     volumes:
       - org:/org:ro

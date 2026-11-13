@@ -105,7 +105,8 @@ work on it. Read the rules before adding anything.
 
 8. **The data is the customer's.** Every volume is in the backup, and so
    are the secrets needed to read it, except the backup's own password,
-   which the admin keeps outside the box. The one volume left out is
+   which the admin keeps outside the box (and the host, when one gives
+   it at install). The one volume left out is
    `strut-models`: models strut downloads, which a restored box fetches
    again. The `treasury` volume is money: its seed is in no other place.
    A backup nobody has restored is not one: restoring is part of

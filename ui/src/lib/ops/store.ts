@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { OpsEvent, OpsSettings, OpsStatus, RequestKind } from "./contract";
 import { build, isKind, restoreKit, validate, type Kind, type Values } from "./destination";
+import { GIVEN_BACKUP_REFUSAL, givenBackup } from "./given";
 import { ASKED, updatesNow, type Asked, type AskedRow, type UpdatesNow } from "./progress";
 
 /**
@@ -110,6 +111,8 @@ export async function destinationForPage(): Promise<{
   enabled: boolean;
   repository: string | null;
   passwordPending: boolean;
+  /** The box's host gives the destination (STADEUM_BACKUP_DESTINATION): the page shows it, and doesn't change it. */
+  given: boolean;
 }> {
   const row = await settingsRow();
   const kind = row.backupKind && isKind(row.backupKind) ? row.backupKind : null;
@@ -122,6 +125,7 @@ export async function destinationForPage(): Promise<{
     enabled: row.backupsEnabled,
     repository: kind ? build(kind, fields, secrets).repository : null,
     passwordPending: !!row.resticPasswordEnc && !row.passwordKeptAt,
+    given: !!givenBackup(),
   };
 }
 
@@ -131,6 +135,7 @@ export async function destinationForPage(): Promise<{
  * never changes: a new destination is a new repository with the same one.
  */
 export async function saveDestination(kindRaw: unknown, values: Values, enabled: boolean): Promise<Saved> {
+  if (givenBackup()) return { ok: false, error: GIVEN_BACKUP_REFUSAL };
   if (!isKind(kindRaw)) return { ok: false, error: "Choose where the backups go." };
   const kind = kindRaw;
   const row = await settingsRow();
@@ -151,7 +156,37 @@ export async function saveDestination(kindRaw: unknown, values: Values, enabled:
 }
 
 export async function setBackupsEnabled(enabled: boolean): Promise<void> {
+  if (!enabled && givenBackup()) throw new Error(GIVEN_BACKUP_REFUSAL);
   await db.opsSettings.upsert({ where: { id: ID }, create: { id: ID, backupsEnabled: enabled }, update: { backupsEnabled: enabled } });
+}
+
+/**
+ * Write the destination the box's host gives (ops/given.ts) into the
+ * settings, with backups on. Its password is used only when the box has
+ * none yet: a repository keeps the password it was made with, so a
+ * different one given later is logged and left. Upkeep runs it, so an
+ * edit to the row is put right. Returns whether a destination is given.
+ */
+export async function applyGivenBackup(): Promise<boolean> {
+  const given = givenBackup();
+  if (!given) return false;
+  const row = await settingsRow();
+  if (row.resticPasswordEnc && given.password && decryptField("resticPassword", row.resticPasswordEnc) !== given.password) {
+    console.warn("[ops] STADEUM_BACKUP_PASSWORD differs from the password the backups are made with: the box keeps its own.");
+  }
+  await db.opsSettings.update({
+    where: { id: ID },
+    data: {
+      backupKind: given.kind,
+      backupFields: JSON.stringify(given.fields),
+      backupSecretsEnc: encryptField("backupSecrets", JSON.stringify(given.secrets)),
+      backupsEnabled: true,
+      ...(row.resticPasswordEnc
+        ? {}
+        : { resticPasswordEnc: encryptField("resticPassword", given.password ?? randomBytes(24).toString("base64url")), passwordKeptAt: null }),
+    },
+  });
+  return true;
 }
 
 /** The password and the restore kit, while the admin has not said they keep it off the box; null after. */

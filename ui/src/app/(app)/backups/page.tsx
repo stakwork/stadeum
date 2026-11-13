@@ -111,11 +111,21 @@ export default async function BackupsPage() {
 
       <section aria-labelledby="destination" className="flex max-w-3xl flex-col gap-3">
         <SectionLabel id="destination">Destination</SectionLabel>
-        <p className="text-[14px] text-ink-2">
-          {dest.kind ? `${DESTINATIONS[dest.kind].label}.` : "Any of restic's backends: object storage in your own cloud account."}{" "}
-          A new destination starts a new repository, encrypted with the same password.
-        </p>
-        <DestinationForm kind={dest.kind} fields={dest.fields} savedSecrets={dest.savedSecrets} enabled={dest.enabled} />
+        {dest.given && dest.kind ? (
+          <p className="text-[14px] text-ink-2">
+            Given by this box&rsquo;s host: {DESTINATIONS[dest.kind].label},{" "}
+            <code className="font-mono text-[12.5px] [overflow-wrap:anywhere]">{dest.repository}</code>. Nightly backups
+            stay on, and the destination can&rsquo;t be changed here. Keep the password above off the box all the same.
+          </p>
+        ) : (
+          <>
+            <p className="text-[14px] text-ink-2">
+              {dest.kind ? `${DESTINATIONS[dest.kind].label}.` : "Any of restic's backends: object storage in your own cloud account."}{" "}
+              A new destination starts a new repository, encrypted with the same password.
+            </p>
+            <DestinationForm kind={dest.kind} fields={dest.fields} savedSecrets={dest.savedSecrets} enabled={dest.enabled} />
+          </>
+        )}
       </section>
 
       <section aria-labelledby="restore" className="flex max-w-3xl flex-col gap-3">
