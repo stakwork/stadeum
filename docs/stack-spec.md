@@ -272,11 +272,12 @@ checked".
   central server; any LiveKit server works), `LIVEKIT_API_KEY`,
   `LIVEKIT_API_SECRET`. A LiveKit key is admin over every room on its
   server; with the calls encrypted, one that leaks lets its holder join or
-  end a call but not hear it. One key per box would make one revocable
-  alone; livekit.sphinx.chat has no API to mint keys (they are static in
-  its `livekit.yaml`), so for now a box takes whatever key its `.env`
-  names. `scripts/install.sh` asks for them on a fresh box
-  (`STADEUM_LIVEKIT_API_KEY`, `STADEUM_LIVEKIT_API_SECRET`).
+  end a call but not hear it. Every box shares the central server's pair
+  (decided 2026-11-14), so it is not revocable one box at a time, and a
+  box's admin can read it from their own backup's `.env`: accepted, since
+  the calls stay unheard. `scripts/install.sh` asks for them on a fresh
+  box (`STADEUM_LIVEKIT_API_KEY`, `STADEUM_LIVEKIT_API_SECRET`). Later: an
+  option for a box to run its own LiveKit.
 - **Calls off.** Without LiveKit's key and secret, or the token, its config
   refuses to start, so the command waits instead (`sleep infinity`, under
   `init: true`) and says why in its log: the box comes up, strut has no
@@ -786,9 +787,10 @@ crash-looped, and its lab would not boot without a provider key.
 
 ## Still open
 
-- **Calls.** One LiveKit key per box, minted as the box is provisioned, once
-  the LiveKit server has a way to add keys without a restart. sphinx-voice's
-  voice turns on strut's default model when `VOICE_MODEL` is unset.
+- **Calls.** A box running its own LiveKit, as an option beside the central
+  one (decided 2026-11-14: until then, every box shares the central pair).
+  sphinx-voice's voice turns on strut's default model when `VOICE_MODEL` is
+  unset.
 
 - The node `created_by` property: `graph/create-node` passes `ctx.actor`, but
   a verify run's node came back with `created_by = NULL` although the run's

@@ -167,8 +167,10 @@ order of the work, each step its own PR:
    room on LiveKit its agent joined with that key. LiveKit stays central
    and end-to-end encrypted, as Peel's Talk does. The page shows the live
    transcript and the artifacts handed over, opened through strut. (Done.)
-   Next: one LiveKit key per box once a box's provisioning can mint one
-   (the LiveKit server has no API for it yet).
+   Every box shares the central LiveKit's key pair (decided 2026-11-14):
+   the calls are end-to-end encrypted, so a pair that leaks lets its holder
+   join or end a call, never hear one. Later: an option for a box to run
+   its own LiveKit.
 9. A treasury: the Sphinx daemon beside strut, on an account of its own,
    the Lightning wallet strut sells paid public runs through and an admin
    withdraws from. Its volume is the money, so it is in the backup.
