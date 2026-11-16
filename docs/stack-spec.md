@@ -682,6 +682,29 @@ that the release the box's ops runs, so running it again writes back what
 ops last put in place instead of fighting it. A checkout would be a second
 source of the same files, one that `git pull` and ops would both write.
 
+**Answers replaced** (`STADEUM_REPLACE`). Run again, `scripts/install.sh`
+keeps every value `.env` has: a given answer fills only what is missing. A
+host that gives every box the same answers (its sign-in clients, the
+bounce, the LiveKit pair) rotates one by running it again with the new
+answer and its `.env` name in `STADEUM_REPLACE`, space-separated:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo STADEUM_REPLACE='AUTH_GOOGLE_SECRET LIVEKIT_API_SECRET' STADEUM_AUTH_GOOGLE_SECRET=… STADEUM_LIVEKIT_API_SECRET=… bash
+```
+
+- Each named value is written in its line's place, through the same check
+  as at install. Every other value stays as it was.
+- Each name needs its answer: a replaced value is never blank, and never
+  asked for. A name the run takes no answer for (not an answer at all, or
+  a client secret on a box without that client's ID) stops it before the
+  stack starts.
+- The run ends in `compose up -d --wait`, as every run does, so the
+  containers whose settings changed are recreated with them.
+
+`scripts/install-test.sh` runs the install's settings step on a box's
+`.env`: a re-run keeps every value, and `STADEUM_REPLACE` changes the ones
+it names and nothing else.
+
 **A backup**, in the window, or when an admin presses Back up now:
 
 1. Open the restic repository, making it on first use.

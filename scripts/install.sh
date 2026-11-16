@@ -33,9 +33,9 @@
 #
 # Re-running it is safe: it writes back the stack files of the release that
 # runs, and starts the stack again with the same .env. It never changes a
-# value .env has, and never re-pulls an image the box has: ops moves those
-# in its nightly window, with a drain and a rollback. A Neo4j version change
-# waits for a yes on the terminal.
+# value .env has, unless STADEUM_REPLACE names it (below), and never re-pulls
+# an image the box has: ops moves those in its nightly window, with a drain
+# and a rollback. A Neo4j version change waits for a yes on the terminal.
 #
 # Restore onto a new box: save the Backups page's restore kit on it, then
 #
@@ -90,6 +90,13 @@
 #   STADEUM_MODEL_PROVIDERS   optional, never asked: the model providers a
 #                             host that pays for them gives, a JSON list of
 #                             { provider, key, url? } (.env.example)
+#   STADEUM_REPLACE           the .env names, space-separated, whose answers
+#                             above replace the values .env has, on a re-run
+#                             (e.g. 'AUTH_GOOGLE_SECRET LIVEKIT_API_SECRET'):
+#                             how a host that gives every box the same
+#                             answers rotates one. Each name needs its
+#                             answer; every other value is kept as ever
+#                             (docs/stack-spec.md, "Answers replaced")
 #
 # It refuses STADEUM_DEV_LOGIN: on a public host the password-less dev login
 # lets anyone sign in as anyone, and the first to sign in becomes admin.
@@ -273,12 +280,40 @@ ask() {
   ANSWER=${ANSWER%"${ANSWER##*[![:space:]]}"}
 }
 
-# setting KEY QUESTION CHECK [secret]: keep KEY when .env has it; else take
-# STADEUM_<KEY>, or ask, until CHECK accepts ANSWER (it may tidy it, and
-# notes why it does not), and write it. CHECK decides whether blank will do.
+# STADEUM_REPLACE: the .env names whose given answers replace what .env
+# has. Each one's answer must be given: a replaced value is never blank,
+# and never asked for.
+check_replace() {
+  local name var
+  REPLACE=() REPLACED=()
+  read -ra REPLACE <<<"${STADEUM_REPLACE:-}"
+  for name in "${REPLACE[@]}"; do
+    [[ $name =~ ^[A-Z][A-Z0-9_]*$ ]] || die "STADEUM_REPLACE: $name is not a .env name."
+    var=STADEUM_${name#STADEUM_}
+    [ -n "${!var:-}" ] || die "STADEUM_REPLACE names $name, but $var is not given: pass its new value too."
+  done
+}
+
+replaces() { [[ " ${REPLACE[*]} " == *" $1 "* ]]; }
+
+# Every name STADEUM_REPLACE gave was an answer this run took.
+check_replaced() {
+  local name
+  for name in "${REPLACE[@]}"; do
+    [[ " ${REPLACED[*]} " == *" $name "* ]] ||
+      die "STADEUM_REPLACE names $name, which this run took no answer for: it is not one of the answers at the top of this script, or it goes with one .env lacks (a client secret with its client ID, LiveKit's secret with its key). Nothing was started."
+  done
+}
+
+# setting KEY QUESTION CHECK [secret]: keep KEY when .env has it, unless
+# STADEUM_REPLACE names it; else take STADEUM_<KEY>, or ask, until CHECK
+# accepts ANSWER (it may tidy it, and notes why it does not), and write it.
+# CHECK decides whether blank will do.
 setting() {
   local key=$1 question=$2 check=$3 secret=${4:-} var=STADEUM_${1#STADEUM_}
-  if [ -n "$(env_get "$key")" ]; then
+  if replaces "$key"; then
+    REPLACED+=("$key")
+  elif [ -n "$(env_get "$key")" ]; then
     say "kept $key"
     return 0
   fi
@@ -468,6 +503,7 @@ configure() {
   [ -z "$(env_get LIVEKIT_API_KEY)" ] || setting LIVEKIT_API_SECRET "LiveKit API secret" given secret
   [ -z "${STADEUM_BACKUP_DESTINATION:-}" ] || setting STADEUM_BACKUP_DESTINATION "Backup destination" check_backup_destination secret
   [ -z "${STADEUM_BACKUP_PASSWORD:-}" ] || setting STADEUM_BACKUP_PASSWORD "Backup password" check_backup_password secret
+  check_replaced
 }
 
 # --- DNS ---
@@ -709,6 +745,7 @@ main() {
   check_system
   locate_box
   refuse_dev_login
+  check_replace
   if [ "${STADEUM_PREPARE:-}" = 1 ] && [ -n "${STADEUM_RESTORE:-}" ]; then
     die "STADEUM_PREPARE and STADEUM_RESTORE together: a restore starts the box. Prepare first, then run again with STADEUM_RESTORE alone."
   fi
