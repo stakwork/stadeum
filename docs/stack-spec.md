@@ -686,7 +686,9 @@ source of the same files, one that `git pull` and ops would both write.
 keeps every value `.env` has: a given answer fills only what is missing. A
 host that gives every box the same answers (its sign-in clients, the
 bounce, the LiveKit pair) rotates one by running it again with the new
-answer and its `.env` name in `STADEUM_REPLACE`, space-separated:
+answer and its name in `STADEUM_REPLACE`, space-separated: its `.env` name
+(`AUTH_GOOGLE_SECRET`) or its `STADEUM_` name (`STADEUM_AUTH_GOOGLE_SECRET`),
+alike.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo STADEUM_REPLACE='AUTH_GOOGLE_SECRET LIVEKIT_API_SECRET' STADEUM_AUTH_GOOGLE_SECRET=… STADEUM_LIVEKIT_API_SECRET=… bash

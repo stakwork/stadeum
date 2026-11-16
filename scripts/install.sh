@@ -90,13 +90,14 @@
 #   STADEUM_MODEL_PROVIDERS   optional, never asked: the model providers a
 #                             host that pays for them gives, a JSON list of
 #                             { provider, key, url? } (.env.example)
-#   STADEUM_REPLACE           the .env names, space-separated, whose answers
-#                             above replace the values .env has, on a re-run
-#                             (e.g. 'AUTH_GOOGLE_SECRET LIVEKIT_API_SECRET'):
-#                             how a host that gives every box the same
-#                             answers rotates one. Each name needs its
-#                             answer; every other value is kept as ever
-#                             (docs/stack-spec.md, "Answers replaced")
+#   STADEUM_REPLACE           the answers above, space-separated, whose values
+#                             replace what .env has on a re-run, each by its
+#                             .env name or its STADEUM_ name (e.g.
+#                             'AUTH_GOOGLE_SECRET LIVEKIT_API_SECRET'): how a
+#                             host that gives every box the same answers
+#                             rotates one. Each needs its answer; every other
+#                             value is kept as ever (docs/stack-spec.md,
+#                             "Answers replaced")
 #
 # It refuses STADEUM_DEV_LOGIN: on a public host the password-less dev login
 # lets anyone sign in as anyone, and the first to sign in becomes admin.
@@ -280,28 +281,30 @@ ask() {
   ANSWER=${ANSWER%"${ANSWER##*[![:space:]]}"}
 }
 
-# STADEUM_REPLACE: the .env names whose given answers replace what .env
-# has. Each one's answer must be given: a replaced value is never blank,
-# and never asked for.
+# STADEUM_REPLACE: the answers whose given values replace what .env has,
+# each named as .env or the environment names it (AUTH_GOOGLE_SECRET or
+# STADEUM_AUTH_GOOGLE_SECRET), and kept by its STADEUM_ name. Each one's
+# answer must be given: a replaced value is never blank, and never asked for.
 check_replace() {
-  local name var
+  local name var names=()
   REPLACE=() REPLACED=()
-  read -ra REPLACE <<<"${STADEUM_REPLACE:-}"
-  for name in "${REPLACE[@]}"; do
+  read -ra names <<<"${STADEUM_REPLACE:-}"
+  for name in "${names[@]}"; do
     [[ $name =~ ^[A-Z][A-Z0-9_]*$ ]] || die "STADEUM_REPLACE: $name is not a .env name."
     var=STADEUM_${name#STADEUM_}
     [ -n "${!var:-}" ] || die "STADEUM_REPLACE names $name, but $var is not given: pass its new value too."
+    REPLACE+=("$var")
   done
 }
 
-replaces() { [[ " ${REPLACE[*]} " == *" $1 "* ]]; }
+replaces() { [[ " ${REPLACE[*]} " == *" STADEUM_${1#STADEUM_} "* ]]; }
 
-# Every name STADEUM_REPLACE gave was an answer this run took.
+# Every answer STADEUM_REPLACE named was one this run took.
 check_replaced() {
-  local name
-  for name in "${REPLACE[@]}"; do
-    [[ " ${REPLACED[*]} " == *" $name "* ]] ||
-      die "STADEUM_REPLACE names $name, which this run took no answer for: it is not one of the answers at the top of this script, or it goes with one .env lacks (a client secret with its client ID, LiveKit's secret with its key). Nothing was started."
+  local var
+  for var in "${REPLACE[@]}"; do
+    [[ " ${REPLACED[*]} " == *" $var "* ]] ||
+      die "STADEUM_REPLACE names $var, which this run took no answer for: it is not one of the answers at the top of this script, or it goes with one .env lacks (a client secret with its client ID, LiveKit's secret with its key). Nothing was started."
   done
 }
 
@@ -312,7 +315,7 @@ check_replaced() {
 setting() {
   local key=$1 question=$2 check=$3 secret=${4:-} var=STADEUM_${1#STADEUM_}
   if replaces "$key"; then
-    REPLACED+=("$key")
+    REPLACED+=("$var")
   elif [ -n "$(env_get "$key")" ]; then
     say "kept $key"
     return 0

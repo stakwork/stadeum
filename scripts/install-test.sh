@@ -103,6 +103,13 @@ diff <(grep -n . "$WORK/before.env" | cut -d= -f1) <(grep -n . "$WORK/replaced.e
 if grep -q 'livekit-new' "$WORK/out"; then fail "a replaced secret was printed"; fi
 echo "ok - STADEUM_REPLACE replaces the values it names, and only those"
 
+# 2b. Named by their STADEUM_ names, as a host's answers file has them, the
+# same values are replaced.
+rerun answered.env "${NEW[@]}" "STADEUM_REPLACE=STADEUM_AUTH_GOOGLE_SECRET STADEUM_AUTH_MICROSOFT_ENTRA_ID_ISSUER STADEUM_SIGNIN_BOUNCE STADEUM_LIVEKIT_API_SECRET" ||
+  fail "a re-run with STADEUM_REPLACE of STADEUM_ names"
+cmp -s "$WORK/replaced.env" "$WORK/answered.env" || fail "STADEUM_ names replaced otherwise: $(diff "$WORK/replaced.env" "$WORK/answered.env")"
+echo "ok - an answer is named by its .env name or its STADEUM_ name alike"
+
 # 3. A replaced value is never blank: each name needs its answer.
 if rerun unanswered.env STADEUM_REPLACE=AUTH_GOOGLE_SECRET; then fail "STADEUM_REPLACE without the answer"; fi
 grep -q 'STADEUM_AUTH_GOOGLE_SECRET is not given' "$WORK/out" || fail "STADEUM_REPLACE without the answer says so"
@@ -111,7 +118,7 @@ echo "ok - a name without its answer stops before anything is written"
 
 # 4. A name that is not an answer stops the install before it starts.
 if rerun unknown.env STADEUM_REPLACE=SHARED_API_TOKEN STADEUM_SHARED_API_TOKEN=stolen; then fail "STADEUM_REPLACE naming no answer"; fi
-grep -q 'STADEUM_REPLACE names SHARED_API_TOKEN, which this run took no answer for' "$WORK/out" || fail "STADEUM_REPLACE naming no answer says so"
+grep -q 'STADEUM_REPLACE names STADEUM_SHARED_API_TOKEN, which this run took no answer for' "$WORK/out" || fail "STADEUM_REPLACE naming no answer says so"
 cmp -s "$WORK/before.env" "$WORK/unknown.env" || fail "STADEUM_REPLACE naming no answer changed .env"
 if rerun lower.env STADEUM_REPLACE=auth_google_secret; then fail "STADEUM_REPLACE naming a lowercase name"; fi
 echo "ok - a name that is not an answer stops the install"
