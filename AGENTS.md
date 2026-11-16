@@ -194,7 +194,7 @@ order of the work, each step its own PR:
 | `ui/src/app/(app)/packages/`, `ui/src/lib/packages.ts` | The Packages page: strut's packages installed, searched, installed and uninstalled, their missing secrets set, the indexes followed, and the store's Install link (`?install=`) read |
 | `ops/` | stadeum-ops: the update and backup loop, driving `docker compose` and restic, and the release (`src/release.ts`): its image carries `stack/`, built from the repository's root. No runtime dependencies |
 | `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |
-| `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the release's stack files from stadeum-ops's image, `.env`, the DNS check, the stack; or a restore), `init-env.sh` (generates `.env`'s secrets), `promote.sh` (moves strut's or stadeum's `stable` to main's newest images, the Sphinx daemon's to stakwork/sphinx master's newest, or sphinx-voice's to its newest release), the gateway end-to-end check, the backup-and-restore proof, the release proof |
+| `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the release's stack files from stadeum-ops's image, `.env`, the DNS check, the stack; or a restore), `install-test.sh` (the install's answers on a re-run, kept or replaced), `init-env.sh` (generates `.env`'s secrets), `promote.sh` (moves strut's or stadeum's `stable` to main's newest images, the Sphinx daemon's to stakwork/sphinx master's newest, or sphinx-voice's to its newest release), the gateway end-to-end check, the backup-and-restore proof, the release proof |
 | `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract), `models.md` (who picks a model, where the keys live) |
 | `plans/` | Work not built yet, one file each, with what is decided and what is open: `github-app.md` (roadmap step 7), `treasury.md` (step 9: built, kept for its decisions and what is open) |
 
@@ -229,7 +229,8 @@ cd ui && npm run dev
 ```
 
 Checks: `cd ui && npm run typecheck && npm run lint && npm test`,
-`cd ops && npm run typecheck && npm test`, `scripts/mothership-e2e.sh` for
+`cd ops && npm run typecheck && npm test`, `scripts/install-test.sh` for
+the install's answers on a re-run, `scripts/mothership-e2e.sh` for
 the gateway path end to end, `scripts/backup-restore-e2e.sh` for a backup
 restored onto wiped volumes, and `scripts/release-e2e.sh` for releases
 applied to a running box, rolled back, and held for Neo4j.

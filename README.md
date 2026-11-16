@@ -73,6 +73,10 @@ curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/insta
   their destination, and optionally their password, as
   `STADEUM_BACKUP_DESTINATION` and `STADEUM_BACKUP_PASSWORD`. Backups then
   run from the first night (`docs/stack-spec.md`).
+- **Answers replaced**: a re-run keeps every value `.env` has, except the
+  answers named in `STADEUM_REPLACE` (e.g. `'AUTH_GOOGLE_SECRET LIVEKIT_API_SECRET'`),
+  which the values given replace: how a host that gives every box the
+  same sign-in clients or LiveKit pair rotates them (`docs/stack-spec.md`).
 - It refuses `STADEUM_DEV_LOGIN`: on a public host the password-less login
   lets anyone sign in as anyone.
 

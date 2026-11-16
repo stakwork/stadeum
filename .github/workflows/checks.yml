@@ -1,7 +1,8 @@
 name: checks
 
 # What a change must pass: stadeum-ui's types, lint and tests, ops's types
-# and tests, and shellcheck on the scripts.
+# and tests, shellcheck on the scripts, and the install's answers on a
+# re-run.
 
 on:
   pull_request:
@@ -54,3 +55,4 @@ jobs:
       - uses: actions/checkout@v4
       # shellcheck comes with the runner image.
       - run: shellcheck --severity=warning scripts/*.sh
+      - run: scripts/install-test.sh
