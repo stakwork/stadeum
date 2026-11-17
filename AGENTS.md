@@ -16,7 +16,7 @@ work on it. Read the rules before adding anything.
 | **neo4j** | The graph strut keeps | Updated by anything but a person |
 | **bifrost** + **redis** (`ghcr.io/stakwork/stakgraph-gateway`) | Every model call: provider keys, a virtual key and a cap per person | Lets a call through without a valid delegation |
 | **voice** (`sphinxlightning/sphinx-voice`) | A person's voice call with the assistant: the LiveKit room, the agent in it, each turn run through strut as the person | Has a published port, holds the org key or the Docker socket, or keeps what was said: strut's conversation does |
-| **treasury** (`ghcr.io/stakwork/sphinx-daemon`) | The Lightning wallet strut sells through: an account of its own, its seed and the payments it took | Has a published port, answers anyone but strut, or runs beside another box on the same account |
+| **treasury** (`ghcr.io/stakwork/sphinx-daemon`) | The Lightning wallet strut sells through, and the "Support" contact workers DM: an account of its own, its seed, the payments it took and the messages | Has a published port, answers anyone but strut, or runs beside another box on the same account |
 | **stadeum-ui** (`ui/`) | Who people are (sign-in, members, roles), the org signing key's use, each person's delegation, the admin pages, the Calls page | Draws an app, or knows what a workflow or document is |
 | **ops** (`ops/`) | The box's upkeep: stadeum's releases (its image carries the stack files), strut's updates, old images, backups, restores | Has an open port, or touches an image it never named |
 | **caddy** | TLS and routing; the only published ports | Holds any credential but its certificates |
@@ -78,8 +78,10 @@ work on it. Read the rules before adding anything.
      its agents run shell commands there. It does hold the treasury's pay
      token, so an agent could spend the treasury's balance: a risk
      accepted on purpose, since the treasury holds only what paid runs
-     brought in (`plans/treasury.md` §2). The treasury's admin token and
-     seed stay in the treasury's container.
+     brought in (`plans/treasury.md` §2). It holds the message token too,
+     so an agent could read workers' DMs to Support and write as Support:
+     accepted the same way (strut `plans/support-chat.md`, ruling 3). The
+     treasury's admin token and seed stay in the treasury's container.
 
 5. **Any cloud.** One compose file is the deployment: stock images, every
    setting in `.env` with a comment in `.env.example`. Nothing depends on
