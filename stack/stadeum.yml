@@ -278,6 +278,18 @@ services:
       # before. The same shell could read it, and read every worker's DM or
       # write to one as Support: accepted too (support-chat ruling 3).
       LIGHTNING_DAEMON_MESSAGE_TOKEN: ${DAEMON_ADMIN_TOKEN:+${DAEMON_RECEIVE_TOKEN:+${DAEMON_PAY_TOKEN:+${DAEMON_MESSAGE_TOKEN:-}}}}
+      # Run logs (strut plans/retention.md): past STRUT_RETENTION a finished
+      # run's event log leaves this disk. With an archive bucket it is
+      # uploaded first and opening the run brings it back; with none it is
+      # deleted and the run's summary stays. Unset: 7 days with a bucket,
+      # else nothing leaves. All blank: as before. .env.example says more.
+      STRUT_RETENTION: ${STRUT_RETENTION:-}
+      STRUT_ARCHIVE_S3_BUCKET: ${STRUT_ARCHIVE_S3_BUCKET:-}
+      STRUT_ARCHIVE_S3_PREFIX: ${STRUT_ARCHIVE_S3_PREFIX:-}
+      STRUT_ARCHIVE_S3_REGION: ${STRUT_ARCHIVE_S3_REGION:-}
+      STRUT_ARCHIVE_S3_ENDPOINT: ${STRUT_ARCHIVE_S3_ENDPOINT:-}
+      STRUT_ARCHIVE_S3_ACCESS_KEY_ID: ${STRUT_ARCHIVE_S3_ACCESS_KEY_ID:-}
+      STRUT_ARCHIVE_S3_SECRET_ACCESS_KEY: ${STRUT_ARCHIVE_S3_SECRET_ACCESS_KEY:-}
     volumes:
       - strut-workspace:/data/workspace
       - strut-models:/data/models

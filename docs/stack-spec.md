@@ -230,6 +230,21 @@ checked".
   the box. Stadeum passes the value through and knows nothing of what is
   in it. After boot, an admin installs and uninstalls on the Packages page
   (stadeum-ui, below).
+- Run logs (strut `plans/retention.md`, `plans/run-archive.md`):
+  `STRUT_RETENTION` and `STRUT_ARCHIVE_S3_*` pass through from `.env`, blank
+  by default, which strut reads as unset: logs stay, as before. Past the
+  window (a duration, or a count of each workflow's newest runs; 7 days with
+  a bucket) a finished run's event log leaves `strut-workspace`. With a
+  bucket it is uploaded first and a read brings it back for a day; with
+  none it is deleted and the run's summary stays. Nothing else strut keeps
+  leaves without a bucket. The bucket is S3 or a store that speaks it (R2,
+  B2, MinIO), versioned, with one prefix per box. The key pair is in
+  strut's container, where its agents run shell: scope it to the box's
+  prefix (`s3:PutObject`, `GetObject`, `DeleteObject`,
+  `AbortMultipartUpload`; strut lists nothing). A host gives them at
+  install as `STADEUM_STRUT_ARCHIVE_S3_*`, never asked, each taken only
+  when given; a re-run keeps them, and `STADEUM_REPLACE` rotates the key.
+  Strut reads them from the image that carries stakwork/strut#705 on.
 - Healthcheck: `GET /health`, which answers `{ ok }` without the key.
   `start_period` 180 s: the first boot seeds the schema and ontology and
   fetches the embedding model before it listens.
@@ -772,6 +787,12 @@ STADEUM_BACKUP_DESTINATION='{"kind":"s3","bucket":"…","path":"boxes/acme","reg
 - **Where it lives.** In `.env` (so in each backup, which it can't help
   read: the password opens the backup, not the other way round) and, once
   written, encrypted in `stadeum.db`. stadeum-ui alone gets it.
+
+**Run logs in strut's archive** (strut, above, "Run logs"). A log strut's
+retention moved to its archive bucket is no longer on `strut-workspace`, so
+no backup holds it: the bucket does, and the run's summary, which is in the
+backup, says where. `.env` is in the backup with the archive's key, so a
+restored box reads those logs back as the old one did.
 
 **A restore** is the install on a new box, with the restore kit (saved as
 `/root/restore.env`): it puts the release's files in place, restores the
