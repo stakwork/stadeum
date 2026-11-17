@@ -4,10 +4,9 @@ import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 
-import { admit } from "@/lib/access";
 import { env } from "@/lib/env";
-import { ensureDelegation } from "@/lib/mothership/delegation";
 import { bounceOptions } from "@/lib/signin-bounce";
+import { checkSignIn } from "@/lib/signin-check";
 
 /**
  * Sign-in: Microsoft Entra ID and Google when configured, plus an
@@ -16,12 +15,12 @@ import { bounceOptions } from "@/lib/signin-bounce";
  * on every request (lib/session.ts), so a removal takes effect at once.
  */
 
-function providers(): Provider[] {
+export function providers(): Provider[] {
   const list: Provider[] = [];
   const entra = env.entra();
   if (entra) list.push(MicrosoftEntraID({ ...entra, ...bounceOptions() }));
   const google = env.google();
-  if (google) list.push(Google({ ...google, ...bounceOptions() }));
+  if (google) list.push(Google({ ...google, authorization: { params: { prompt: "select_account" } }, ...bounceOptions() }));
   if (env.devLogin()) {
     list.push(
       Credentials({
@@ -58,13 +57,7 @@ export const authConfig: NextAuthConfig = {
   callbacks: {
     async signIn({ user, account, profile }) {
       const email = emailFrom(user, profile as Record<string, unknown> | undefined, account?.provider);
-      if (!email) return "/signin?error=NoEmail";
-      const admitted = await admit(email, user.name);
-      if (!admitted.user) return "/signin?error=NotInvited";
-      user.email = admitted.user.email;
-      // Never blocks or fails the sign-in; the person's page shows the outcome.
-      void ensureDelegation(admitted.user).catch(() => undefined);
-      return true;
+      return checkSignIn(user, email, account?.provider);
     },
     jwt({ token, user }) {
       if (user?.email) token.email = user.email.toLowerCase();
