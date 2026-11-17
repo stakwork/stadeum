@@ -80,6 +80,9 @@
 #                             asked: a host that keeps the box's backups
 #                             gives where they go, and their password;
 #                             .env.example)
+#   STADEUM_STRUT_ARCHIVE_S3_BUCKET, _PREFIX, _REGION, _ENDPOINT,
+#   _ACCESS_KEY_ID, _SECRET_ACCESS_KEY (optional, never asked: a host that
+#                             keeps the box's run logs gives where; .env.example)
 #   STADEUM_LIVEKIT_API_KEY, STADEUM_LIVEKIT_API_SECRET (optional: calls stay
 #                             off without them; STADEUM_LIVEKIT_URL for a
 #                             LiveKit server other than the central one)
@@ -506,6 +509,14 @@ configure() {
   [ -z "$(env_get LIVEKIT_API_KEY)" ] || setting LIVEKIT_API_SECRET "LiveKit API secret" given secret
   [ -z "${STADEUM_BACKUP_DESTINATION:-}" ] || setting STADEUM_BACKUP_DESTINATION "Backup destination" check_backup_destination secret
   [ -z "${STADEUM_BACKUP_PASSWORD:-}" ] || setting STADEUM_BACKUP_PASSWORD "Backup password" check_backup_password secret
+  # Strut's run archive, from a host that keeps the box's run logs: each
+  # value taken only when given.
+  local name var secret
+  for name in BUCKET PREFIX REGION ENDPOINT ACCESS_KEY_ID SECRET_ACCESS_KEY; do
+    var=STADEUM_STRUT_ARCHIVE_S3_$name secret=""
+    [ "$name" != SECRET_ACCESS_KEY ] || secret=secret
+    [ -z "${!var:-}" ] || setting "STRUT_ARCHIVE_S3_$name" "Run archive $name" any "$secret"
+  done
   check_replaced
 }
 

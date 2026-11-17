@@ -80,13 +80,17 @@ work on it. Read the rules before adding anything.
      accepted on purpose, since the treasury holds only what paid runs
      brought in (`plans/treasury.md` §2). It holds the message token too,
      so an agent could read workers' DMs to Support and write as Support:
-     accepted the same way (strut `plans/support-chat.md`, ruling 3). The
-     treasury's admin token and seed stay in the treasury's container.
+     accepted the same way (strut `plans/support-chat.md`, ruling 3). With
+     a run archive it holds that bucket's key, so an agent could read or
+     delete the box's archived run logs: accepted, with the key scoped to
+     the box's prefix on a versioned bucket. The treasury's admin token and
+     seed stay in the treasury's container.
 
 5. **Any cloud.** One compose file is the deployment: stock images, every
    setting in `.env` with a comment in `.env.example`. Nothing depends on
    one cloud's services. Object storage is reached through restic, which
-   speaks S3, R2, Azure, GCS, B2 and SFTP. Calls go through LiveKit, a
+   speaks S3, R2, Azure, GCS, B2 and SFTP; strut's optional run archive
+   speaks S3, which R2, B2 and MinIO speak too. Calls go through LiveKit, a
    setting with a working default (`LIVEKIT_URL`, the central
    `wss://livekit.sphinx.chat`): any LiveKit server works, reached
    outbound only.
@@ -113,6 +117,8 @@ work on it. Read the rules before adding anything.
    it at install). The one volume left out is
    `strut-models`: models strut downloads, which a restored box fetches
    again. The `treasury` volume is money: its seed is in no other place.
+   A run log strut's retention moved to its archive bucket is in that
+   bucket, and the key to it in `.env`, so in the backup.
    A backup nobody has restored is not one: restoring is part of
    the feature, and it is tested.
 

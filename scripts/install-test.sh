@@ -137,3 +137,33 @@ rerun added.env "${NEW[@]}" || fail "a re-run adding Microsoft sign-in"
 grep -qxF AUTH_MICROSOFT_ENTRA_ID_ID=00000000-0000-0000-0000-000000000002 "$WORK/added.env" || fail "a re-run adds an answer .env lacks"
 grep -qxF AUTH_GOOGLE_SECRET=GOCSPX-old "$WORK/added.env" || fail "a re-run adding Microsoft kept Google's secret"
 echo "ok - an answer .env lacks is added without STADEUM_REPLACE"
+
+# 7. Strut's run archive, as a host gives it: added when .env lacks it (only
+# what was given, the secret unprinted), kept on a re-run, and its key
+# rotated by STADEUM_REPLACE alone.
+ARCHIVE=(
+  STADEUM_STRUT_ARCHIVE_S3_BUCKET=fleet-archive
+  STADEUM_STRUT_ARCHIVE_S3_PREFIX=archive/acme
+  STADEUM_STRUT_ARCHIVE_S3_REGION=us-east-1
+  STADEUM_STRUT_ARCHIVE_S3_ACCESS_KEY_ID=AKIAOLD
+  STADEUM_STRUT_ARCHIVE_S3_SECRET_ACCESS_KEY=archive-old/secret+1
+)
+rerun archive.env "${ARCHIVE[@]}" || fail "a re-run given the run archive"
+for line in STRUT_ARCHIVE_S3_BUCKET=fleet-archive STRUT_ARCHIVE_S3_PREFIX=archive/acme STRUT_ARCHIVE_S3_REGION=us-east-1 \
+  STRUT_ARCHIVE_S3_ACCESS_KEY_ID=AKIAOLD STRUT_ARCHIVE_S3_SECRET_ACCESS_KEY=archive-old/secret+1; do
+  grep -qxF "$line" "$WORK/archive.env" || fail "the run archive's ${line%%=*}: $(grep "^${line%%=*}=" "$WORK/archive.env")"
+done
+if grep -q '^STRUT_ARCHIVE_S3_ENDPOINT=' "$WORK/archive.env"; then fail "an archive answer not given was written"; fi
+if grep -q 'archive-old' "$WORK/out"; then fail "the archive's secret was printed"; fi
+cp "$WORK/archive.env" "$WORK/before.env"
+ROTATED=(STADEUM_STRUT_ARCHIVE_S3_ACCESS_KEY_ID=AKIANEW STADEUM_STRUT_ARCHIVE_S3_SECRET_ACCESS_KEY=archive-new)
+rerun archive-kept.env "${ARCHIVE[@]:0:3}" "${ROTATED[@]}" || fail "a re-run with the run archive set"
+cmp -s "$WORK/before.env" "$WORK/archive-kept.env" || fail "a re-run changed the run archive: $(diff "$WORK/before.env" "$WORK/archive-kept.env")"
+rerun archive-rotated.env "${ROTATED[@]}" "STADEUM_REPLACE=STRUT_ARCHIVE_S3_ACCESS_KEY_ID STRUT_ARCHIVE_S3_SECRET_ACCESS_KEY" ||
+  fail "a re-run rotating the run archive's key"
+grep -qxF STRUT_ARCHIVE_S3_ACCESS_KEY_ID=AKIANEW "$WORK/archive-rotated.env" || fail "the archive's key ID was not rotated"
+grep -qxF STRUT_ARCHIVE_S3_SECRET_ACCESS_KEY=archive-new "$WORK/archive-rotated.env" || fail "the archive's secret was not rotated"
+cmp -s <(without STRUT_ARCHIVE_S3_ACCESS_KEY_ID STRUT_ARCHIVE_S3_SECRET_ACCESS_KEY "$WORK/before.env") \
+  <(without STRUT_ARCHIVE_S3_ACCESS_KEY_ID STRUT_ARCHIVE_S3_SECRET_ACCESS_KEY "$WORK/archive-rotated.env") ||
+  fail "rotating the archive's key changed another value"
+echo "ok - the run archive a host gives is added, kept, and its key rotated"
