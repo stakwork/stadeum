@@ -262,15 +262,22 @@ services:
       STRUT_PACKAGES: ${STRUT_PACKAGES:-}
       # The wallet strut sells paid public runs through, and an admin
       # withdraws from: the treasury, below. Set only when .env has the
-      # treasury's three tokens (scripts/init-env.sh, which install.sh
-      # runs); unset, strut has no wallet and sells nothing. Strut keeps
-      # them in its encrypted payments.json and hides them from steps, but a
-      # shell in this container can still read the pay token and spend the
-      # treasury's balance: a risk accepted on purpose (plans/treasury.md
-      # §2).
+      # treasury's three wallet tokens (scripts/init-env.sh, which
+      # install.sh runs); unset, strut has no wallet and sells nothing.
+      # Strut keeps them in its encrypted payments.json and hides them from
+      # steps, but a shell in this container can still read the pay token
+      # and spend the treasury's balance: a risk accepted on purpose
+      # (plans/treasury.md §2).
       LIGHTNING_DAEMON_URL: ${DAEMON_ADMIN_TOKEN:+${DAEMON_RECEIVE_TOKEN:+${DAEMON_PAY_TOKEN:+http://treasury:8095}}}
       LIGHTNING_DAEMON_TOKEN: ${DAEMON_ADMIN_TOKEN:+${DAEMON_PAY_TOKEN:+${DAEMON_RECEIVE_TOKEN:-}}}
       LIGHTNING_DAEMON_PAY_TOKEN: ${DAEMON_ADMIN_TOKEN:+${DAEMON_RECEIVE_TOKEN:+${DAEMON_PAY_TOKEN:-}}}
+      # Support: workers' DMs to the treasury, read and answered from the
+      # Support tab of strut's staff app (strut plans/support-chat.md). The
+      # message token opens the daemon's DM routes only. Set only with the
+      # wallet; unset, strut shows no Support tab and the wallet is as
+      # before. The same shell could read it, and read every worker's DM or
+      # write to one as Support: accepted too (support-chat ruling 3).
+      LIGHTNING_DAEMON_MESSAGE_TOKEN: ${DAEMON_ADMIN_TOKEN:+${DAEMON_RECEIVE_TOKEN:+${DAEMON_PAY_TOKEN:+${DAEMON_MESSAGE_TOKEN:-}}}}
     volumes:
       - strut-workspace:/data/workspace
       - strut-models:/data/models
@@ -333,11 +340,13 @@ services:
 
   # The treasury (plans/treasury.md): a Sphinx daemon (stakwork/sphinx
   # wasm/daemon) on an account of its own, the Lightning wallet strut sells
-  # through. Strut alone calls it, with the receive token (invoices, the
-  # balance) and the pay token (a withdrawal). The admin token, which could
-  # post and join tribes as the account, is in this container alone. It
-  # answers nobody and joins no tribe: it connects out to its LSP only
-  # (the image's default broker), so no port and no route in the Caddyfile.
+  # through, and the "Support" contact workers DM from Peel (strut
+  # plans/support-chat.md). Strut alone calls it, with the receive token
+  # (invoices, the balance), the pay token (a withdrawal) and the message
+  # token (Support's DMs, nothing else). The admin token, which could post
+  # and join tribes as the account, is in this container alone. It answers
+  # no mention and joins no tribe: it connects out to its LSP only (the
+  # image's default broker), so no port and no route in the Caddyfile.
   # The `stable` channel stakwork/sphinx's promote-daemon.yml moves
   # (scripts/promote.sh daemon). It speaks strut's wallet contract, so ops
   # moves it in strut's group, as voice. A commit tag (`b31014c`) pins one.
@@ -358,7 +367,13 @@ services:
       DAEMON_ADMIN_TOKEN: ${DAEMON_ADMIN_TOKEN:-}
       DAEMON_RECEIVE_TOKEN: ${DAEMON_RECEIVE_TOKEN:-}
       DAEMON_PAY_TOKEN: ${DAEMON_PAY_TOKEN:-}
-      DAEMON_ALIAS: treasury
+      # Optional: Support's DM routes. Without it the wallet runs as before.
+      DAEMON_MESSAGE_TOKEN: ${DAEMON_MESSAGE_TOKEN:-}
+      # The name workers see on the contact their invite gave them
+      # (support-chat ruling 2). A daemon with Support's DM routes takes a
+      # changed alias at start; an older one keeps the alias the account
+      # was made with.
+      DAEMON_ALIAS: Support
       # No service: it answers no mention and joins no tribe.
       DAEMON_REPLY: none
       SPHINX_HOME: /data
@@ -366,9 +381,9 @@ services:
       DAEMON_PORT: "8095"
     volumes:
       - treasury:/data
-    # Without its three tokens it waits instead of making an account
+    # Without its three wallet tokens it waits instead of making an account
     # nothing uses, and the box runs without a wallet (strut has no
-    # LIGHTNING_DAEMON_URL).
+    # LIGHTNING_DAEMON_URL). The message token is not waited for.
     command:
       - sh
       - -c

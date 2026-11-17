@@ -8,6 +8,11 @@
 > `/earnings`). Read against stadeum `main` @64de7a6, strut `main` @b0863473,
 > stakwork/sphinx `master` @48d7d87b and sphinx-swarm `master` @8997ceb3,
 > whose treasury (stakwork/sphinx-swarm#787) this copies.
+>
+> **Since 2026-11-16** the treasury is also **Support**, the contact workers
+> DM from Peel and staff answer from strut's staff app (strut
+> `plans/support-chat.md`). That plan rules its alias (replacing this
+> plan's, in the table below) and its fourth token, `DAEMON_MESSAGE_TOKEN`.
 
 ## Problem
 
@@ -29,12 +34,12 @@ first boot, with nothing to set up, as a swarm can.
 | The pay token in strut | **agreed: the risk is accepted.** Strut gets the receive token and the pay token, so it can sell and an admin can withdraw from strut's Earnings tab. Strut's agents run shell commands in its container (rule 4), so an agent, or a prompt that steers one, can read the pay token and pay out the wallet. See "The risk we accepted". |
 | The volume | **agreed.** `treasury` (`/data`) is the money: the account's seed is made there on the first start, beside `wallet.jsonl`. It is in the nightly backup, stopped for the snapshot like Neo4j (`stadeum.ops.backup: stop`), and `scripts/backup-restore-e2e.sh` proves it comes back. |
 | One account, one container | **agreed.** A second daemon on the same seed knocks the first off the broker. A restore onto a new box while the old one still runs does exactly that, so the restore says so, in `scripts/install.sh` and on the Backups page's restore kit. |
-| The tokens | **agreed.** `scripts/init-env.sh` generates `DAEMON_ADMIN_TOKEN`, `DAEMON_RECEIVE_TOKEN` and `DAEMON_PAY_TOKEN`, three different values (the daemon and strut each refuse two equal ones). The admin token goes to the treasury alone; no service holds it. |
+| The tokens | **agreed.** `scripts/init-env.sh` generates `DAEMON_ADMIN_TOKEN`, `DAEMON_RECEIVE_TOKEN` and `DAEMON_PAY_TOKEN`, three different values (the daemon and strut each refuse two equal ones). The admin token goes to the treasury alone; no service holds it. Since 2026-11-16 a fourth, `DAEMON_MESSAGE_TOKEN`, opens the daemon's DM routes only, for Support (strut `plans/support-chat.md` §8); it is optional, and strut gets it only along with the wallet. |
 | The channel | **agreed.** `sphinx-daemon:${TREASURY_TAG:-stable}`. `stable` is moved by stakwork/sphinx's `promote-daemon.yml`, run with `scripts/promote.sh daemon`, never `latest` (rule 7). |
 | Its update group | **built.** `stadeum.ops.update: strut`, as voice: strut's payer and the daemon's wallet routes are one contract, so they move in one drain, one health check, one rollback. A recreate keeps the volume. |
 | Stadeum's pages | **agreed (2026-11-12).** None in this work. Later, Earnings among the org's admin pages, as a framed strut app (§6, since built). |
 | Existing boxes | **agreed (2026-11-12).** There is one box; its admin runs the installer (`scripts/install.sh`) again once after the release, which runs the release's `init-env.sh`. Ops does not write `.env`. |
-| The alias | **agreed (2026-11-12).** `treasury` on every box. |
+| The alias | **Replaced (2026-11-16)** by strut's `plans/support-chat.md`, ruling 2: plain **"Support"** on every box, the contact workers DM from Peel. Was: `treasury` on every box (agreed 2026-11-12). |
 | The LSP | **agreed (2026-11-12).** The image's default broker; no `SPHINX_LSP` setting until a box needs one (rule 10). |
 
 ## 1. The service
@@ -45,8 +50,9 @@ choices made there:
 
 - **Without its tokens it waits** (`sleep infinity`, as voice does without
   LiveKit's keys). The daemon would otherwise make its own tokens, a seed,
-  and an account on the broker that nothing uses. Strut gets its three
-  `LIGHTNING_*` only when `.env` has all three tokens, so a box that has
+  and an account on the broker that nothing uses. Strut gets its
+  `LIGHTNING_*` only when `.env` has all three wallet tokens (the optional
+  message token, for Support, is not waited for), so a box that has
   not run the installer again since the treasury came has no wallet, and
   every other service is as before.
 - **No change to ops.** It mounts the volume at `/volumes/treasury` with
