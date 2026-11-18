@@ -6,7 +6,9 @@
 > box follows pods through a strut subscription, not a `STRUT_REPOS` list
 > (stakwork/stadeum#52). The second takes the cloud keys out of strut: pods
 > run through a multi-tenant pods service that holds them, and strut holds
-> a token for its own tenant (owner, 2026-11-18). In "Decided", **agreed**
+> a token for its own tenant (owner, 2026-11-18), and the service, the
+> package and the AWS template live in a new public repository,
+> `stakwork/pods` (owner, 2026-11-18). In "Decided", **agreed**
 > rows are the owner's; **proposed** rows are mine and stand until the
 > owner rules. This plan replaces strut's `plans/pods.md` (2026-11-10),
 > which put pods on an always-on pod box per org. It keeps that plan's
@@ -56,8 +58,8 @@ What is wanted instead:
 | Who holds the cloud keys | **agreed (2026-11-18: *"we'll run a pods proxy that has an api, and is multi-tenant: the strut package tools hit that api. The AWS or other cloud keys are in that service. self-hosters would run the same service as a container in Stadeum."* And: *"Not sure if it makes sense to put AWS secrets directly on Stadeum boxes?"*)** A pods service holds them, and the package's steps call its API. Stakwork runs one for every box it hosts; a self-hosted box runs the same service as a container. Strut holds only the service's URL and a token for its own tenant, `PODS_URL` and `PODS_TOKEN` (§2). |
 | Whose AWS account | **agreed.** The account of whoever runs the pods service: Stakwork's, for the boxes it hosts; the customer's own, beside a self-hosted box. Hosted boxes share Stakwork's account, each a tenant of its service (§2.2). |
 | Rule 5 (any cloud) | **proposed.** It holds for the box. Pods are an optional package, and the cloud sits behind the service's API: another provider is a change to the service, not to the package or the box. A box with no pods service has no pods, and nothing else on it changes. |
-| How pods reach strut | **agreed (2026-11-18: "git+ refs in subscriptions is the way").** A strut package, `stadeum/pods`, that the box follows through a strut subscription to a git branch: `PUT /packages/subscriptions/pods { ref: "git+https://github.com/stakwork/pods@stable#package" }` (strut `plans/followed-repos.md` §1). It's strut content, not stadeum code (rule 1). Stadeum's part is the subscription and its sync in the upkeep window (§10), and on a self-hosted box the service's container. The repository is proposed (next row). |
-| Where the service and the package live | **proposed.** A new repository, `stakwork/pods`: the service (`service/`, its image `ghcr.io/stakwork/pods`), the package (`package/`) and the AWS template (`aws/pods.yml`). Public, so the subscription needs no token and a self-hoster can read what they run. Rule 1 keeps the box and the product apart: Stadeum runs the service only as an optional container, as it runs the treasury's image. Not created yet. |
+| How pods reach strut | **agreed (2026-11-18: "git+ refs in subscriptions is the way").** A strut package, `stadeum/pods`, that the box follows through a strut subscription to a git branch: `PUT /packages/subscriptions/pods { ref: "git+https://github.com/stakwork/pods@stable#package" }` (strut `plans/followed-repos.md` §1). It's strut content, not stadeum code (rule 1). Stadeum's part is the subscription and its sync in the upkeep window (§10), and on a self-hosted box the service's container. |
+| Where the service and the package live | **agreed (owner, 2026-11-18: "Yes, stakwork/pods").** A new repository, `stakwork/pods`: the service (`service/`, its image `ghcr.io/stakwork/pods`), the package (`package/`) and the AWS template (`aws/pods.yml`). Public, so the subscription needs no token and a self-hoster can read what they run. Rule 1 keeps the box and the product apart: Stadeum runs the service only as an optional container, as it runs the treasury's image. Not created yet. |
 | The branch boxes follow | **proposed.** `stable` of `stakwork/pods`, moved to `main`'s head with the image's `stable` tag by that repository's promote (rule 7: pinned to a channel, never latest). `scripts/promote.sh pods` runs it. A rollback is `stable` moved back. Jamie's PRs go to `main`. |
 | Who subscribes a box | **proposed.** ops, with the deployment key, at first boot. The package list rides Stadeum's release, not `.env` (§10). |
 | When the package moves | **agreed (2026-11-18: "the same schedule as updating images").** Each night in the upkeep window, after strut's image. Strut's own poll is off, and ops syncs the subscription (§10). The route is proposed. |
@@ -564,7 +566,7 @@ used four hours every workday costs about $20 a month.
 
 ## 13. What changes, by file
 
-**stakwork/pods** (new; proposed, not created)
+**stakwork/pods** (new, not created yet)
 - `service/`: the service (§2), published as `ghcr.io/stakwork/pods`.
 - `package/`: the package (§3).
 - `aws/pods.yml`: the template (§9).
