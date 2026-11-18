@@ -7,6 +7,7 @@ import { HangUpIcon, MicIcon, callStatus, useCall, useClock, type Call } from "@
 import { Waveform, type WaveMode } from "@/components/waveform";
 import { shownEntries, type CallArtifact, type Entry } from "@/lib/call-transcript";
 import { callDuration } from "@/lib/calls";
+import { STRUT_FRAME_ALLOW } from "@/lib/frame-allow";
 import { shownTheme } from "@/lib/theme";
 import { openInStrut } from "./actions";
 
@@ -469,7 +470,7 @@ function Viewer({ viewing, close }: { viewing: Viewing; close: () => void }) {
                 title={viewing.title}
                 onLoad={() => setLoaded(true)}
                 className={`absolute inset-0 size-full transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
-                allow="clipboard-write"
+                allow={STRUT_FRAME_ALLOW}
                 referrerPolicy="no-referrer"
               />
             )}

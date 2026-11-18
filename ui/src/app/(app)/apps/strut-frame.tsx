@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { preconnect } from "react-dom";
 
+import { STRUT_FRAME_ALLOW } from "@/lib/frame-allow";
 import { shownTheme } from "@/lib/theme";
 import { openApp } from "./open";
 
@@ -154,7 +155,7 @@ export function StrutFrame({
         title={title}
         onLoad={() => src && setPageLoaded(true)}
         className={`absolute inset-0 size-full transition-opacity duration-150 ease-out ${loaded ? "opacity-100" : "opacity-0"}`}
-        allow="clipboard-write; microphone"
+        allow={STRUT_FRAME_ALLOW}
         referrerPolicy="no-referrer"
       />
     </div>
