@@ -623,7 +623,10 @@ across stadeum-ui's own restart.
 **An update** of a group that follows a channel (strut's):
 
 1. `compose pull` the group, and compare the image ID each tag now names
-   with the one its container runs.
+   with the one its container runs. A pull that fails is tried twice more,
+   15 s and 30 s later: a registry slow to answer once (ghcr's "timeout
+   awaiting response headers") would otherwise cost the night's update.
+   A release's images are pulled the same way.
 2. If any differ: a group with strut in it turns on strut's drain
    (`PUT /drain {reason, minutes}`, strut `specs/API.md` §8.1) and polls
    `GET /drain` until `idle`, at most the wait. Runs still going then resume

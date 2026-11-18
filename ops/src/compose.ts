@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import type { ImageRef } from "./contract.js";
 import { CommandError, must, type Exec } from "./exec.js";
@@ -37,6 +38,13 @@ export const BACKUP_LABEL = "stadeum.ops.backup";
 export const UPGRADE_LABEL = "stadeum.ops.upgrade";
 /** The box's own compose override, beside stadeum.yml: applied when it is there, and never written by ops. */
 export const LOCAL_FILE = "local.yml";
+/**
+ * A pull is tried this often, PULL_WAIT_MS more apart each time. A registry
+ * that is slow to answer once (ghcr: "timeout awaiting response headers")
+ * would otherwise cost the night's update.
+ */
+export const PULL_TRIES = 3;
+export const PULL_WAIT_MS = 15_000;
 
 export interface ServiceDef {
   name: string;
@@ -225,6 +233,7 @@ export class ComposeStack implements Stack {
   constructor(
     private readonly project: Project,
     private readonly exec: Exec,
+    private readonly wait: (ms: number) => Promise<unknown> = sleep,
   ) {
     this.self = project.self;
     this.envFiles = project.envFiles;
@@ -305,15 +314,27 @@ export class ComposeStack implements Stack {
   }
 
   async pull(services: string[]): Promise<void> {
-    if (services.length) await this.compose(["pull", "--quiet", ...services], `pulling ${services.join(", ")}`);
+    if (services.length) await this.retried(() => this.compose(["pull", "--quiet", ...services], `pulling ${services.join(", ")}`));
   }
 
   async pullImages(refs: string[]): Promise<void> {
     for (const ref of refs) {
       try {
-        await must(this.exec, "docker", ["pull", "--quiet", ref]);
+        await this.retried(() => must(this.exec, "docker", ["pull", "--quiet", ref]));
       } catch (err) {
         throw new Error(`pulling ${ref}: ${err instanceof CommandError ? (err.result.stderr || err.result.stdout).trim().split("\n").at(-1) : String(err)}`);
+      }
+    }
+  }
+
+  /** A pull, tried again when it fails (PULL_TRIES); the last failure is the one said. */
+  private async retried<T>(pull: () => Promise<T>): Promise<T> {
+    for (let tried = 1; ; tried++) {
+      try {
+        return await pull();
+      } catch (err) {
+        if (tried >= PULL_TRIES) throw err;
+        await this.wait(PULL_WAIT_MS * tried);
       }
     }
   }
