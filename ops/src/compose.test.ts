@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { boxPath, ComposeStack, parseHashes, parseProject, parseServices } from "./compose.js";
+import { boxPath, ComposeStack, parseHashes, parseProject, parseServices, PULL_TRIES, PULL_WAIT_MS } from "./compose.js";
 import type { Exec } from "./exec.js";
 
 const labels = {
@@ -92,6 +92,39 @@ describe("driving compose", () => {
     const { s, calls } = stack();
     await s.pull(["strut-browser", "strut"]);
     expect(calls[0]).toEqual([...base, "pull", "--quiet", "strut-browser", "strut"]);
+  });
+
+  /** An exec whose first `failures` runs fail as a registry that does not answer does. */
+  function flaky(failures: number) {
+    const calls: string[][] = [];
+    const waits: number[] = [];
+    const exec: Exec = async (_cmd, args) => {
+      calls.push(args);
+      return calls.length <= failures
+        ? { code: 1, stdout: "", stderr: `Error response from daemon: failed to resolve reference: timeout awaiting response headers (${calls.length})` }
+        : { code: 0, stdout: "", stderr: "" };
+    };
+    const s = new ComposeStack(parseProject(labels), exec, async (ms) => waits.push(ms));
+    return { s, calls, waits };
+  }
+
+  it("tries a pull again when the registry does not answer, waiting longer each time", async () => {
+    const { s, calls, waits } = flaky(PULL_TRIES - 1);
+    await s.pull(["strut", "treasury"]);
+    expect(calls).toHaveLength(PULL_TRIES);
+    expect(waits).toEqual([PULL_WAIT_MS, 2 * PULL_WAIT_MS]);
+  });
+
+  it("gives up after PULL_TRIES, saying the last failure", async () => {
+    const { s, calls } = flaky(PULL_TRIES);
+    await expect(s.pull(["strut", "treasury"])).rejects.toThrow(`pulling strut, treasury: Error response from daemon: failed to resolve reference: timeout awaiting response headers (${PULL_TRIES})`);
+    expect(calls).toHaveLength(PULL_TRIES);
+  });
+
+  it("tries each image a release brings again on its own", async () => {
+    const { s, calls } = flaky(1);
+    await s.pullImages(["ghcr.io/stakwork/stadeum-ui:stable", "neo4j:5.26"]);
+    expect(calls.map((a) => a.at(-1))).toEqual(["ghcr.io/stakwork/stadeum-ui:stable", "ghcr.io/stakwork/stadeum-ui:stable", "neo4j:5.26"]);
   });
 
   it("recreates what changed and waits for health, pulling and building nothing", async () => {
