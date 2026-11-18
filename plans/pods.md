@@ -1,17 +1,21 @@
 # Pods: a machine of its own for every coding job, on Lambda MicroVMs
 
-> **Status (2026-11-17): proposed. Nothing is built.** From one design
-> conversation with the owner. In "Decided", **agreed** rows are the
-> owner's; **proposed** rows are mine and stand until the owner rules.
-> This plan replaces strut's `plans/pods.md` (2026-11-10), which put pods
-> on an always-on pod box per org. It keeps that plan's agreed parts:
-> strut's agent works in the pod through an exec service, and what a job
-> learns about running the app is kept in strut (strut `plans/pods.md` §1–§3).
-> Read against stadeum `main` @0b0196e, strut `main` @e6b5539c with
-> stakwork/strut#732 (`plans/followed-repos.md`: followed package repos, and
-> tools a package gives the job agent), stakgraph `main` @ee46d0db (the
-> lab's `pod/*` steps and its `Pod`, `Pod Config` and `Code Change` pages)
-> and staklink `main` @843c13f.
+> **Status (2026-11-18): proposed. Nothing is built.** From one design
+> conversation with the owner on 2026-11-17. Revised on 2026-11-18 to match
+> strut's revised `plans/followed-repos.md`: a box follows pods through a
+> strut subscription, not a `STRUT_REPOS` list. In "Decided", **agreed**
+> rows are the owner's; **proposed** rows are mine and stand until the
+> owner rules. This plan replaces strut's `plans/pods.md` (2026-11-10),
+> which put pods on an always-on pod box per org. It keeps that plan's
+> agreed parts: strut's agent works in the pod through an exec service,
+> and what a job learns about running the app is kept in strut (strut
+> `plans/pods.md` §1–§3). Read against stadeum `main` @0b0196e (@bbbc85c
+> for the revision), strut `main` @e6b5539c, strut's revised
+> `plans/followed-repos.md` (stakwork/strut#738, on @5b33e939: `git+`
+> subscriptions, a package that lacks a secret kept out, and tools a
+> package gives the job agent), stakgraph `main` @ee46d0db (the lab's
+> `pod/*` steps and its `Pod`, `Pod Config` and `Code Change` pages) and
+> staklink `main` @843c13f.
 
 ## Problem
 
@@ -45,16 +49,21 @@ What is wanted instead:
 | What a pod runs on | **proposed**, to meet the owner's requirements (**agreed** 2026-11-17: nothing spent while idle, VM isolation, the box's own AWS). AWS Lambda MicroVMs: AWS's Firecracker sold by API. Compute is billed per second while a MicroVM runs. A suspended one costs only snapshot storage, and a terminated one costs nothing. There's no server of ours (§1). |
 | Whose AWS account | **agreed.** The account of whoever runs the box: Stakwork's for the boxes it hosts, the customer's own beside a self-hosted box. |
 | Rule 5 (any cloud) | **proposed.** It holds for the box. Pods are an optional package that needs an AWS account. A box without one has no pods, and nothing else on it changes. Another provider can come later behind the same steps. |
-| How pods reach strut | **agreed.** A strut package, `stadeum/pods`, that strut follows (strut `plans/followed-repos.md`). It's strut content, not stadeum code (rule 1). Stadeum's part is the setting that lists the package (`STRUT_REPOS`) and the AWS template (§8). |
-| Where the package lives | **proposed.** In this repo, at `packages/pods/`, followed as `git+https://github.com/stakwork/stadeum@stable#packages/pods`. The repo is public, so following it needs no token. |
-| The branch boxes follow | **proposed.** `stable`, which `scripts/promote.sh pods` moves to main's head (rule 7: pinned to a channel, never latest; a rollback moves it back). Jamie's PRs go to `main`. |
+| How pods reach strut | **agreed (2026-11-18: "git+ refs in subscriptions is the way").** A strut package, `stadeum/pods`, that the box follows through a strut subscription to a git branch: `PUT /packages/subscriptions/pods { ref: "git+https://github.com/stakwork/stadeum@stable#packages/pods" }` (strut `plans/followed-repos.md` §1). It's strut content, not stadeum code (rule 1). Stadeum's part is the subscription, its sync in the upkeep window (§9) and the AWS template (§8). |
+| Where the package lives | **proposed.** In this repo, at `packages/pods/`. The repo is public, so the subscription needs no token. |
+| The branch boxes follow | **proposed.** `stable`, which `scripts/promote.sh pods` moves to main's head (rule 7: pinned to a channel, never latest). A rollback is `stable` moved back. Jamie's PRs go to `main`. |
+| Who subscribes a box | **proposed.** ops, with the deployment key, at first boot. The package list rides Stadeum's release, not `.env` (§9). |
+| When the package moves | **agreed (2026-11-18: "the same schedule as updating images").** Each night in the upkeep window, after strut's image. Strut's own poll is off, and ops syncs the subscription (§9). The route is proposed. |
+| A box without the AWS secrets | **agreed (2026-11-18: "disable the package completely (tools and concepts)").** Nothing of pods is installed until every secret the package requires is set: no tools, no Concept pages (§9). |
+| Which boxes first | **agreed (2026-11-18).** The boxes Stakwork hosts. Stakwork sets their AWS secrets at provisioning. Self-hosted boxes come later (§9). |
+| Where pods are developed | **proposed.** On a box that opens this repo on `main` instead of subscribing (§9). |
 | npm dependencies in its steps | **agreed (2026-11-17: "Vendor for now").** A step imports `strut` and its own helper files. The steps sign their AWS requests themselves: SigV4 with `node:crypto` in `steps/_aws.ts`, sent through `ctx.services.http`. |
 | Where the agent's loop runs | **agreed (strut `plans/pods.md`, 2026-11-10).** In strut. Only its tools run in the pod, through an exec service. A pod holds no strut credential. |
 | The exec service | **settled (same plan).** staklink's, with the MicroVM hooks added (§6). It's in every workspace image already: `FROM ghcr.io/stakwork/staklink-js`. |
 | A pod's life | **proposed.** A pod is the job's until the job lets it go. A MicroVM lives at most 8 hours, suspended time included, and AWS won't raise that. So a pod is a chain of MicroVMs, and its changes are saved to S3 between one and the next (§4). |
 | A workspace's template | **proposed.** One MicroVM image per workspace, built from its Dockerfile with its repositories inside. The services are started during the build and snapshotted running (§3). |
 | A workspace's devcontainer files | **proposed.** The main repository's `.devcontainer/` (`Dockerfile`, `docker-compose.yml`, `pm2.config.js`), or the defaults when it has none. A fix reaches every pod through a PR to the repository. This replaces Hive's per-workspace store (`Pod Config`). |
-| The AWS key in strut | **proposed: the risk is accepted**, as the run archive's key is (rule 4). It's scoped to MicroVMs, the pods bucket and the two roles (§9). |
+| The AWS key in strut | **proposed: the risk is accepted**, as the run archive's key is (rule 4). It's scoped to MicroVMs, the pods bucket and the two roles (§10). |
 | Backups | **proposed.** Pods aren't in the box's backup (rule 8). A pod holds work in progress. Pushed work is in GitHub, what the agent learned is in strut's graph (backed up), and images are rebuilt from the repositories. |
 | A person's browser opening a pod | **open** (§7). |
 
@@ -63,7 +72,7 @@ What is wanted instead:
 From AWS's developer guide (`microvms-how-it-works`, `-images`,
 `-images-snapshots`, `-launching`, `-networking`, and the quotas page),
 read 2026-11-17. Numbers marked *third-party* come from one early test and
-need the trial to confirm them (§12 step 1).
+need the trial to confirm them (§13 step 1).
 
 | What | Fact |
 | --- | --- |
@@ -112,7 +121,8 @@ requires:
 ```
 
 The fence (strut `src/packages/fence.ts`) lets only this package's steps
-read those secrets.
+read those secrets. Until all six are set, strut installs nothing of the
+package (§9).
 
 | Step | Does |
 | --- | --- |
@@ -217,7 +227,7 @@ next use. A step that finds the pod's MicroVM older than 7 hours, or gone:
 
 A rollover loses the running processes (the image's entrypoint and
 `<workspace>/boot` start them again) and anything outside the save. If a
-MicroVM expires without its `terminate` hook (§13 item 3), the last
+MicroVM expires without its `terminate` hook (§14 item 3), the last
 `suspend` save has the code. Database changes since the last rollover are
 lost; `boot` seeds the database again.
 
@@ -274,7 +284,7 @@ and most dev servers assume they're served at `/`.
 | **A proxy in AWS** beside the pods (CloudFront and a function that swaps a strut-signed link for the header) | Nothing on the box changes | Another service in the customer's account; WebSockets through it are harder |
 | **An outbound tunnel** from the pod | No inbound path | A third party in the path; a credential in the pod |
 
-My lean is the strut route. The trial (§12 step 1) shows what a dev server
+My lean is the strut route. The trial (§13 step 1) shows what a dev server
 needs through each option.
 
 ## 8. The AWS template
@@ -290,12 +300,61 @@ region by an admin, or by fleet for each box it hosts (fleet's own work):
 | The execution role | Reads and writes `saves/` |
 | A budget alarm | Mail to the admin when a month's MicroVM spend passes a set amount |
 
-Its outputs are the package's secrets, set on stadeum's Packages page,
-which already sets a package's missing secrets. `.env.example` gains
-`STRUT_REPOS`, commented out, with the pods line. The box itself depends
-on no AWS service (rule 5).
+Its outputs are the package's secrets (§9 says who sets them). The box
+itself depends on no AWS service (rule 5).
 
-## 9. The risk we accepted
+## 9. How a box follows pods
+
+Through a strut subscription to a git branch, not a `STRUT_REPOS` list
+(strut `plans/followed-repos.md` §1 and §4):
+
+```
+PUT /packages/subscriptions/pods
+{ "ref": "git+https://github.com/stakwork/stadeum@stable#packages/pods" }
+```
+
+**Who subscribes.** ops, with the deployment key (strut's
+`STRUT_API_KEY`), at first boot. The packages a box follows are listed in
+ops's image, so the list rides Stadeum's release, not `.env`: a release
+can add a package to every box.
+
+**When it moves.** Only in the upkeep window. Strut runs with
+`STRUT_DISTRO_POLL_MINUTES=0`, so it reads its subscriptions once at boot
+and never moves one by itself. Each night, inside the drain ops takes for
+strut's image and after that image moved, ops calls
+`POST /packages/subscriptions/pods/sync`. It records the commits from and
+to, as it records an image's. A package that needs the newer strut goes in
+the same night. On a night strut's image doesn't move, ops syncs without a
+drain, as a person's install from the Packages page goes in without one.
+A sync that fails keeps what's installed, and ops records why.
+
+**A rollback** is `stable` moved back, applied at the next window or on
+Update now.
+
+**Secrets.** A package that lacks any secret it requires isn't installed
+at all: no tools for the job agent, and no Concept pages (owner,
+2026-11-18). So a box without the template's outputs has no pods, and no
+`Code Change` page telling Jamie it can change code. The subscription says
+`waiting` and names the secrets. A secret removed later takes the package
+out at the next sync.
+- **Hosted boxes first.** Stakwork runs the template for each box it hosts
+  and sets the outputs at provisioning: in strut's environment, which
+  strut's secrets fall back to, or with `PUT /secrets/:name`.
+- **Self-hosted boxes (later).** The admin runs the template and sets its
+  outputs. stadeum's Packages page sets only an installed package's missing
+  secrets today, and nothing of a waiting package is installed. So the page
+  must show a waiting subscription and the secrets it needs.
+
+**The box where pods are developed.** Jamie develops pods on a box that
+opens this repo on `main` (strut's Packages → Repos) instead of
+subscribing. `package/commit` there opens PRs against `main`. A box can't
+do both. Strut has a known gap here: a Commit takes every Concept page
+made under the package's pages. Each workspace's `<workspace> pod` page
+hangs under `Pod`, so a Commit would put what jobs learned about the org's
+repositories in a PR on this public repo. Strut fixes that before pods are
+developed this way (strut `plans/followed-repos.md` §5).
+
+## 10. The risk we accepted
 
 Strut's agents run shell commands in strut's container (rule 4), so an
 agent, or a prompt that steers one, can read the AWS key. With it, someone
@@ -310,7 +369,7 @@ actions, one bucket and two roles. Code running in a pod (a repository's
 own code) holds the execution role and can read or write any pod's saves
 in the bucket. It's the same org's code, so that's accepted too.
 
-## 10. Cost
+## 11. Cost
 
 An idle box costs the images' snapshot storage, about $0.08 per GB-month
 for each workspace's image, plus the saves (small). A pod costs about
@@ -318,25 +377,33 @@ $0.25 an hour while it runs (2 vCPU / 4 GB), and a few cents for each
 suspend and resume. A pod used four hours every workday costs about $20 a
 month. All of it is in the account that runs the box.
 
-## 11. What changes, by file
+## 12. What changes, by file
 
 **stadeum**
 - `packages/pods/**`: the package (§2).
 - `stack/aws/pods.yml`: the template (§8).
-- `.env.example`: `STRUT_REPOS`, commented out.
-- `stack/stadeum.yml`: `STRUT_REPOS` passed to strut.
+- `ops/src/`: the list of packages a box follows, the subscription at
+  first boot, and its sync in the upkeep window, recorded with the commits
+  from and to (§9).
+- `stack/stadeum.yml`: `STRUT_DISTRO_POLL_MINUTES=0` on strut.
 - `scripts/promote.sh pods`: moves the `stable` branch to `main`'s head.
 - `AGENTS.md`: the risk in rule 4, the layout, a roadmap step.
+- Later, for self-hosted boxes: the Packages page shows a waiting
+  subscription and the secrets it needs (§9).
 
 **Other repositories** (each its own work)
-- **strut**: stakwork/strut#732, followed repos and a package's job tools.
-  Then `plans/pods.md` marked replaced by this plan, and possibly the
-  proxy route (§7).
+- **strut**: the three work items in its revised `plans/followed-repos.md`
+  (stakwork/strut#738), each its own PR: `git+` subscriptions with
+  `POST /packages/subscriptions/:id/sync`; the secrets gate, so a package
+  that lacks a required secret stays out; and the `job` grant from a
+  package's `strut.yaml`. Later, before pods are developed from a box, the
+  Commit gap (§9). Then `plans/pods.md` marked replaced by this plan, and
+  possibly the proxy route (§7).
 - **staklink**: §6.
 - **stakgraph**: the lab keeps its `pod/*` while Hive's pods run.
 - **fleet**: the template for each hosted box.
 
-## 12. Steps
+## 13. Steps
 
 1. **The trial**, by hand in one AWS account, before any code here:
    - an image from hive's `.devcontainer/` with Docker, compose and pm2
@@ -349,23 +416,27 @@ month. All of it is in the account that runs the box.
    - whether `terminate` runs for a suspended MicroVM that expires.
 
    The numbers go into §1.
-2. **The template, `STRUT_REPOS` and `promote.sh pods`.**
+2. **The template, the subscription in ops and `promote.sh pods`.** Needs
+   strut's `git+` subscriptions (its work item 1).
 3. **The package's core**: `_aws.ts`, `claim`, `release`, `workspace`,
-   `template`, `pod-template`. Needs strut#732 and staklink's hooks.
+   `template`, `pod-template`. Needs strut's secrets gate and `job` grant
+   (its work items 2 and 3) and staklink's hooks.
 4. **The agent's tools** and `latest`, `push`, `fetch`. Needs staklink's
    exec routes.
 5. **Saves and the chain** (§4).
 6. **The pages and the `code-change-*` workflows**, with `Pod` and
    `Pod Config` rewritten.
 7. **A browser into a pod**, once §7 is decided.
-8. **A live run.** A Stadeum box with pods for the `hive` workspace:
+8. **A live run.** A hosted Stadeum box with pods for the `hive`
+   workspace:
+   - a push to `stable` goes in at the next upkeep window, and not before;
    - a job claims a pod, runs the tests, and leaves its changes
      uncommitted;
    - the pod sleeps, and a turn hours later finds it as it was;
    - after 8 hours, a turn finds it rolled over, with its changes;
    - the job opens a PR.
 
-## 13. Open
+## 14. Open
 
 1. A person's browser and strut's browser steps opening a pod (§7).
 2. Whether compose's services come up during the image build and survive
