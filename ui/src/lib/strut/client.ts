@@ -793,19 +793,25 @@ export async function startVoiceCall(actor: string, body: { key: string; voice?:
 
 // ── the frame ───────────────────────────────────────────────────────────
 
+/** Who a frame signs in: the person's actor, stadeum role and name, if they have one. */
+export type FramedPerson = { actor: string; role: string; name?: string | null };
+
 /**
- * One strut app for one person, to frame: `POST /auth/ticket { actor, role }`
- * mints a sign-in ticket (good once, for a minute), and strut's UI loaded
- * with `?ticket=` trades it for its own session cookie as that actor
+ * One strut app for one person, to frame: `POST /auth/ticket { actor, role,
+ * name? }` mints a sign-in ticket (good once, for a minute), and strut's UI
+ * loaded with `?ticket=` trades it for its own session cookie as that actor
  * (strut `specs/API.md` §13.1), then shows the app's page alone (`solo=1`,
  * §14.3). `role` is the person's stadeum role: strut gives an admin's
  * session the operator console and a member's their apps alone (strut
- * `plans/member-rights.md`); anything but `admin` is sent as `member`. `input` is the app's own query, the deep link it reports back
+ * `plans/member-rights.md`); anything but `admin` is sent as `member`.
+ * `name` is the person's name, which strut keeps as the host's and shows
+ * in place of the actor (§13.3; a strut from before names ignores it).
+ * `input` is the app's own query, the deep link it reports back
  * (`strut:location`). Mint one per page load. The cookie reaches the frame
  * only because STRUT_PUBLIC_URL is a subdomain of stadeum-ui's site.
  */
-export async function embedUrl(actor: string, role: string, app: string, input?: string): Promise<string> {
-  return framed(actor, role, input ? { app, input } : { app });
+export async function embedUrl(person: FramedPerson, app: string, input?: string): Promise<string> {
+  return framed(person, input ? { app, input } : { app });
 }
 
 /**
@@ -814,12 +820,16 @@ export async function embedUrl(actor: string, role: string, app: string, input?:
  * alone"), signed in as `embedUrl` signs in. `path` is a file strut serves
  * (`/jobs/<job>/files/…`, `/artifacts/<runId>/…`, behind any `/peers/<id>`).
  */
-export async function embedArtifactUrl(actor: string, role: string, path: string): Promise<string> {
-  return framed(actor, role, { artifact: path });
+export async function embedArtifactUrl(person: FramedPerson, path: string): Promise<string> {
+  return framed(person, { artifact: path });
 }
 
-async function framed(actor: string, role: string, open: Record<string, string>): Promise<string> {
-  const res = await strutFetch("POST", "/auth/ticket", { actor, role: isAdmin(role) ? "admin" : "member" });
+async function framed({ actor, role, name }: FramedPerson, open: Record<string, string>): Promise<string> {
+  const res = await strutFetch("POST", "/auth/ticket", {
+    actor,
+    role: isAdmin(role) ? "admin" : "member",
+    ...(name?.trim() ? { name } : {}),
+  });
   if (!res.ok) await fail("POST", "/auth/ticket", res);
   const { ticket } = (await res.json()) as { ticket?: unknown };
   if (typeof ticket !== "string" || !ticket) throw new Error("POST /auth/ticket returned no ticket");

@@ -15,8 +15,8 @@ export async function openInStrut(target: { artifact?: unknown; app?: unknown })
   const user = await requireUser();
   const origin = new URL(env.strutPublicUrl()).origin;
   try {
-    if (isServedPath(target.artifact)) return { src: await embedArtifactUrl(user.actor, user.role, target.artifact), origin };
-    if (isAppKey(target.app)) return { src: await embedUrl(user.actor, user.role, target.app), origin };
+    if (isServedPath(target.artifact)) return { src: await embedArtifactUrl(user, target.artifact), origin };
+    if (isAppKey(target.app)) return { src: await embedUrl(user, target.app), origin };
   } catch (err) {
     console.warn(`[calls] could not open an artifact for ${user.actor}: ${err instanceof Error ? err.message : String(err)}`);
     return { error: "Strut isn’t answering, so this can’t open right now." };

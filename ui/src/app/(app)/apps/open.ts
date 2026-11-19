@@ -23,7 +23,7 @@ export async function openApp(app: string, input?: string): Promise<{ src: strin
   // Renews past half-life, as Hive does on every embed. Never throws.
   await ensureDelegation(user);
   try {
-    return { src: await embedUrl(user.actor, user.role, app, typeof input === "string" && input ? input.slice(0, 2000) : undefined) };
+    return { src: await embedUrl(user, app, typeof input === "string" && input ? input.slice(0, 2000) : undefined) };
   } catch (err) {
     console.warn(`[apps] no frame for ${app}: ${err instanceof Error ? err.message : String(err)}`);
     return { error: true };

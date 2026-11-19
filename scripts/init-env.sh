@@ -42,6 +42,8 @@ set_if_empty DAEMON_ADMIN_TOKEN "$(openssl rand -hex 32)"
 set_if_empty DAEMON_RECEIVE_TOKEN "$(openssl rand -hex 32)"
 set_if_empty DAEMON_PAY_TOKEN "$(openssl rand -hex 32)"
 set_if_empty DAEMON_MESSAGE_TOKEN "$(openssl rand -hex 32)"
+# The treasury's key to strut (strut's `sphinx` host).
+set_if_empty STRUT_HOST_KEY "$(openssl rand -hex 32)"
 set_if_empty AUTH_SECRET "$(openssl rand -base64 32)"
 chmod 600 "$ENV_FILE"
 

@@ -253,8 +253,8 @@ export interface FakeState {
   installs: FakeInstall[];
   /** Set to answer an install as a strut from before `wait` (stakwork/strut#588): 201 once done, whatever `wait` says. */
   installWaits: boolean;
-  /** Sign-in tickets strut minted: who each signs in, as what, until when, whether spent. */
-  tickets: Map<string, { actor: string; role: "admin" | "member"; exp: number; used: boolean }>;
+  /** Sign-in tickets strut minted: who each signs in, as what, by what name, until when, whether spent. */
+  tickets: Map<string, { actor: string; role: "admin" | "member"; name?: string; exp: number; used: boolean }>;
   /** Set to make strut's /health report a drain. */
   drain: { since: string; reason: string; idle: boolean } | null;
   requests: string[];
@@ -615,9 +615,11 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       // No role is a member; a role that is neither is refused (strut plans/member-rights.md).
       const role = body?.role ?? "member";
       if (role !== "admin" && role !== "member") return send(res, 400, { error: 'role must be "admin" or "member"' });
+      // The name strut keeps as the host's (§13.3): a string, or none.
+      if (body?.name != null && typeof body.name !== "string") return send(res, 400, { error: "name must be a string" });
       const ticket = `strut-ticket.${randomBytes(16).toString("base64url")}`;
       const exp = Date.now() + 60_000;
-      state.tickets.set(ticket, { actor, role, exp, used: false });
+      state.tickets.set(ticket, { actor, role, ...(typeof body?.name === "string" ? { name: body.name } : {}), exp, used: false });
       return send(res, 200, { ticket, expiresAt: exp });
     }
     if (path === "/voice/calls" && m === "POST") return voiceCall(req, res, body);

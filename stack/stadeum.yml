@@ -273,11 +273,17 @@ services:
       LIGHTNING_DAEMON_PAY_TOKEN: ${DAEMON_ADMIN_TOKEN:+${DAEMON_RECEIVE_TOKEN:+${DAEMON_PAY_TOKEN:-}}}
       # Support: workers' DMs to the treasury, read and answered from the
       # Support tab of strut's staff app (strut plans/support-chat.md). The
-      # message token opens the daemon's DM routes only. Set only with the
+      # message token opens the daemon's DM routes only: strut sends with
+      # it, and the DMs come in by the host key below. Set only with the
       # wallet; unset, strut shows no Support tab and the wallet is as
       # before. The same shell could read it, and read every worker's DM or
       # write to one as Support: accepted too (support-chat ruling 3).
       LIGHTNING_DAEMON_MESSAGE_TOKEN: ${DAEMON_ADMIN_TOKEN:+${DAEMON_RECEIVE_TOKEN:+${DAEMON_PAY_TOKEN:+${DAEMON_MESSAGE_TOKEN:-}}}}
+      # The treasury as a host (strut specs/API.md §13.4, §13.5): it hands
+      # strut each DM to Support with this key, as the worker who sent it
+      # (strut plans/people-and-hosts.md §5). Unset without STRUT_HOST_KEY in
+      # .env; a strut from before hosts ignores it.
+      STRUT_HOST_KEYS: ${STRUT_HOST_KEY:+sphinx:${STRUT_HOST_KEY}}
       # Run logs (strut plans/retention.md): past STRUT_RETENTION a finished
       # run's event log leaves this disk. With an archive bucket it is
       # uploaded first and opening the run brings it back; with none it is
@@ -355,10 +361,12 @@ services:
   # through, and the "Support" contact workers DM from Peel (strut
   # plans/support-chat.md). Strut alone calls it, with the receive token
   # (invoices, the balance), the pay token (a withdrawal) and the message
-  # token (Support's DMs, nothing else). The admin token, which could post
+  # token (Support's sends, nothing else); it calls strut alone, handing
+  # over each DM with the host key. The admin token, which could post
   # and join tribes as the account, is in this container alone. It answers
-  # no mention and joins no tribe: it connects out to its LSP only (the
-  # image's default broker), so no port and no route in the Caddyfile.
+  # no mention and joins no tribe: it connects out only, to its LSP (the
+  # image's default broker) and to strut, so no port and no route in the
+  # Caddyfile.
   # The `stable` channel stakwork/sphinx's promote-daemon.yml moves
   # (scripts/promote.sh daemon). It speaks strut's wallet contract, so ops
   # moves it in strut's group, as voice. A commit tag (`b31014c`) pins one.
@@ -388,6 +396,12 @@ services:
       DAEMON_ALIAS: Support
       # No service: it answers no mention and joins no tribe.
       DAEMON_REPLY: none
+      # Strut's Support: every DM goes to strut, with strut's `sphinx` host
+      # key (STRUT_HOST_KEYS above). Both or neither: unset without
+      # STRUT_HOST_KEY in .env, and a daemon from before the push ignores
+      # them.
+      DAEMON_STRUT_URL: ${STRUT_HOST_KEY:+http://strut:3000}
+      DAEMON_STRUT_KEY: ${STRUT_HOST_KEY:-}
       SPHINX_HOME: /data
       DAEMON_HOST: 0.0.0.0
       DAEMON_PORT: "8095"
