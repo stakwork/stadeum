@@ -73,6 +73,8 @@ curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/insta
   their destination, and optionally their password, as
   `STADEUM_BACKUP_DESTINATION` and `STADEUM_BACKUP_PASSWORD`. Backups then
   run from the first night (`docs/stack-spec.md`).
+- **Pods given at install**: a host that runs a pods service gives the box
+  its tenant as `STADEUM_PODS_URL` and `STADEUM_PODS_TOKEN` (Pods, below).
 - **Answers replaced**: a re-run keeps every value `.env` has, except the
   answers named in `STADEUM_REPLACE` (e.g. `'AUTH_GOOGLE_SECRET LIVEKIT_API_SECRET'`),
   which the values given replace: how a host that gives every box the
@@ -112,6 +114,16 @@ docker compose --env-file .env -f stack/stadeum.yml -f stack/dev.yml up -d --wai
 - An admin sets each provider's key on the Models page, which writes it to bifrost only, and picks the models people may use and the default (`docs/models.md`). strut has no key: it calls a model only through bifrost, on each person's delegation.
 - `scripts/mothership-e2e.sh` proves it end to end (a fake provider is used unless bifrost holds an Anthropic key).
 - **Calls.** A person talks to the assistant by voice on the Calls page, with a live transcript of both sides and the artifacts it hands over (opened through strut), end-to-end encrypted with a key their browser makes for each call, through a LiveKit server that carries audio it cannot read (`LIVEKIT_URL`, default `wss://livekit.sphinx.chat`; any LiveKit server works). The box reaches it outbound only. Calls are off until `.env` has `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` (and `STRUT_VOICE_TOKEN`, from `scripts/init-env.sh`).
+- **Pods.** Strut's job agent can work in a machine of the job's own, with the app running and served over HTTPS (stakwork/pods). Pods are off until `.env` has `PODS_URL` and `PODS_TOKEN`: the box's tenant of a pods service (`plans/pods.md`). To give any box pods, a new one, one made before, or your own:
+  1. **Get a tenant.** Stakwork's service gives the boxes Stakwork hosts theirs at claim. For any other box, ask whoever runs the service you use, or run your own: stakwork/pods's `aws/deploy.sh <name> <domain>` deploys one to your AWS account, and its `service/README.md` ("Giving a box pods") makes a tenant.
+  2. **Give it to the box**, with the installer run again. It adds the answers `.env` lacks and keeps every other value:
+
+     ```bash
+     curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo STADEUM_PODS_URL=https://<pods domain> STADEUM_PODS_TOKEN=<tenant token> bash
+     ```
+
+     To replace a box's token later, add `STADEUM_REPLACE='PODS_TOKEN'`.
+  3. **Install the package** on strut, until ops subscribes every box to it: `POST /packages/install { "ref": "git+https://github.com/stakwork/pods@main#package" }` with the deployment key.
 
 ## Updates and backups
 
