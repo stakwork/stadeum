@@ -83,8 +83,11 @@ work on it. Read the rules before adding anything.
      accepted the same way (strut `plans/support-chat.md`, ruling 3). With
      a run archive it holds that bucket's key, so an agent could read or
      delete the box's archived run logs: accepted, with the key scoped to
-     the box's prefix on a versioned bucket. The treasury's admin token and
-     seed stay in the treasury's container.
+     the box's prefix on a versioned bucket. With pods it holds
+     `PODS_TOKEN`, so an agent could launch, use and destroy the box's own
+     pods, within its tenant's limit: accepted, as it reaches no other
+     box's. The treasury's admin token and seed stay in the treasury's
+     container.
 
 5. **Any cloud.** One compose file is the deployment: stock images, every
    setting in `.env` with a comment in `.env.example`. Nothing depends on

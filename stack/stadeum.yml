@@ -260,6 +260,11 @@ services:
       # Packages strut installs at first boot, when they are not installed
       # yet (strut's STRUT_PACKAGES). Empty: none.
       STRUT_PACKAGES: ${STRUT_PACKAGES:-}
+      # Pods (plans/pods.md): the box's tenant of a pods service, which the
+      # pods package's steps read as secrets. A host that runs the service
+      # gives both; without them the package waits.
+      PODS_URL: ${PODS_URL:-}
+      PODS_TOKEN: ${PODS_TOKEN:-}
       # The wallet strut sells paid public runs through, and an admin
       # withdraws from: the treasury, below. Set only when .env has the
       # treasury's three wallet tokens (scripts/init-env.sh, which
