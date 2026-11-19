@@ -16,9 +16,11 @@ no pod (rule 1). Its part is the subscription and, later, a container.
 
 - **The subscription.** ops subscribes the box at first boot, with the
   deployment key:
-  `PUT /packages/subscriptions/pods { "ref": "git+https://github.com/stakwork/pods@stable#package" }`.
+  `PUT /packages/subscriptions/pods { "ref": "git+https://github.com/stakwork/pods-package@stable" }`.
   The packages a box follows are listed in ops's image, so a release can
-  add one to every box. This starts once `stakwork/pods` is public.
+  add one to every box. The package is public (`stakwork/pods-package`,
+  published from `stakwork/pods`), so it needs no token. This starts once
+  pods-package has a `stable`.
 - **When it moves.** Strut runs with `STRUT_DISTRO_POLL_MINUTES=0`. Each
   night in the upkeep window, after strut's image, ops calls
   `POST /packages/subscriptions/pods/sync` and records the commits from

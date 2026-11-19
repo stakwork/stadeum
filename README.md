@@ -123,7 +123,7 @@ docker compose --env-file .env -f stack/stadeum.yml -f stack/dev.yml up -d --wai
      ```
 
      To replace a box's token later, add `STADEUM_REPLACE='PODS_TOKEN'`.
-  3. **Install the package** on strut, until ops subscribes every box to it: `POST /packages/install { "ref": "git+https://github.com/stakwork/pods@main#package" }` with the deployment key.
+  3. **Install the package** on strut, until ops subscribes every box to it: `POST /packages/install { "ref": "git+https://github.com/stakwork/pods-package@main" }` with the deployment key. stakwork/pods-package is public, so no GitHub token is needed.
 
 ## Updates and backups
 
