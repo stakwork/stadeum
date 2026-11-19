@@ -26,7 +26,10 @@ no pod (rule 1). Its part is the subscription and, later, a container.
   installed, and ops records why.
 - **The secrets.** Strut installs nothing of the package until
   `PODS_URL` and `PODS_TOKEN` are set. Stakwork sets them on the boxes it
-  hosts, each a tenant of Stakwork's pods service. Rule 4 names
+  hosts, each a tenant of Stakwork's pods service: fleet makes the tenant
+  and gives them at claim as the answers `STADEUM_PODS_URL` and
+  `STADEUM_PODS_TOKEN`, which `install.sh` writes to `.env` and compose
+  hands strut. Rule 4 names
   `PODS_TOKEN` among what strut holds once pods ship: it reaches only the
   box's own pods, and it's accepted as the treasury's pay token is.
 - **`scripts/promote.sh pods`** runs the pods repository's promote.

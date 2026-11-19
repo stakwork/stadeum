@@ -83,6 +83,9 @@
 #   STADEUM_STRUT_ARCHIVE_S3_BUCKET, _PREFIX, _REGION, _ENDPOINT,
 #   _ACCESS_KEY_ID, _SECRET_ACCESS_KEY (optional, never asked: a host that
 #                             keeps the box's run logs gives where; .env.example)
+#   STADEUM_PODS_URL, STADEUM_PODS_TOKEN (optional, never asked: a host that
+#                             runs a pods service gives the box its tenant;
+#                             plans/pods.md)
 #   STADEUM_LIVEKIT_API_KEY, STADEUM_LIVEKIT_API_SECRET (optional: calls stay
 #                             off without them; STADEUM_LIVEKIT_URL for a
 #                             LiveKit server other than the central one)
@@ -408,6 +411,12 @@ check_microsoft_id() {
 
 # The Backups page's fields as a JSON object; stadeum-ui checks the rest,
 # and logs what it can't use.
+check_pods_url() {
+  [[ $ANSWER =~ ^https://[a-z0-9.-]+$ ]] && return 0
+  note "an https origin, e.g. https://pods.example.com"
+  return 1
+}
+
 check_backup_destination() {
   [[ $ANSWER == \{*\} ]] && return 0
   note 'a JSON object, e.g. {"kind":"s3","bucket":"…","accessKeyId":"…","secretAccessKey":"…"}'
@@ -517,6 +526,10 @@ configure() {
     [ "$name" != SECRET_ACCESS_KEY ] || secret=secret
     [ -z "${!var:-}" ] || setting "STRUT_ARCHIVE_S3_$name" "Run archive $name" any "$secret"
   done
+  # Pods: the box's tenant of a pods service, from a host that runs one
+  # (plans/pods.md). Each taken only when given.
+  [ -z "${STADEUM_PODS_URL:-}" ] || setting PODS_URL "Pods service" check_pods_url
+  [ -z "${STADEUM_PODS_TOKEN:-}" ] || setting PODS_TOKEN "Pods token" any secret
   check_replaced
 }
 

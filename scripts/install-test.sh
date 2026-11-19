@@ -167,3 +167,13 @@ cmp -s <(without STRUT_ARCHIVE_S3_ACCESS_KEY_ID STRUT_ARCHIVE_S3_SECRET_ACCESS_K
   <(without STRUT_ARCHIVE_S3_ACCESS_KEY_ID STRUT_ARCHIVE_S3_SECRET_ACCESS_KEY "$WORK/archive-rotated.env") ||
   fail "rotating the archive's key changed another value"
 echo "ok - the run archive a host gives is added, kept, and its key rotated"
+
+# 8. Pods, as a host gives them: added when .env lacks them (the token
+# unprinted), a URL that isn't an https origin refused.
+PODS=(STADEUM_PODS_URL=https://pods.example.com STADEUM_PODS_TOKEN=pods_tenant-token-1)
+rerun pods.env "${PODS[@]}" || fail "a re-run given pods"
+grep -qxF PODS_URL=https://pods.example.com "$WORK/pods.env" || fail "PODS_URL: $(grep '^PODS_URL=' "$WORK/pods.env")"
+grep -qxF PODS_TOKEN=pods_tenant-token-1 "$WORK/pods.env" || fail "PODS_TOKEN was not written"
+if grep -q 'tenant-token-1' "$WORK/out"; then fail "the pods token was printed"; fi
+if rerun pods-bad.env STADEUM_PODS_URL=http://pods.example.com; then fail "a pods URL that isn't https was taken"; fi
+echo "ok - pods a host gives are added, the token unprinted"
