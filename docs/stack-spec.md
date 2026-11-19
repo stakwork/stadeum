@@ -325,9 +325,10 @@ checked".
   `specs/LIGHTNING.md`) and an admin withdraws from in strut's Earnings
   (`strut/earnings`, framed for an admin on stadeum's `/earnings`). Copied
   from sphinx-swarm's treasury. Why and what is open: `plans/treasury.md`.
-- **Support.** Its alias is `Support` (`DAEMON_ALIAS`): the contact an
-  invite gives every new worker, who DMs it from Peel; staff answer from
-  the Support tab of strut's staff app, every reply from "Support" (strut
+- **Support.** Its alias is the org's name and `Support` ("Stakwork
+  Support"; plain `Support` with no `STADEUM_ORG_NAME`; `DAEMON_ALIAS`):
+  the contact an invite gives every new worker, who DMs it from Peel; staff
+  answer from the Support tab of strut's staff app, every reply from it (strut
   `plans/support-chat.md`). A daemon with the DM routes takes a changed
   alias at start, so an account made as `treasury` is renamed, and a
   worker's contact follows with the next message they get.

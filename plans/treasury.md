@@ -39,7 +39,7 @@ first boot, with nothing to set up, as a swarm can.
 | Its update group | **built.** `stadeum.ops.update: strut`, as voice: strut's payer and the daemon's wallet routes are one contract, so they move in one drain, one health check, one rollback. A recreate keeps the volume. |
 | Stadeum's pages | **agreed (2026-11-12).** None in this work. Later, Earnings among the org's admin pages, as a framed strut app (§6, since built). |
 | Existing boxes | **agreed (2026-11-12).** There is one box; its admin runs the installer (`scripts/install.sh`) again once after the release, which runs the release's `init-env.sh`. Ops does not write `.env`. |
-| The alias | **Replaced (2026-11-16)** by strut's `plans/support-chat.md`, ruling 2: plain **"Support"** on every box, the contact workers DM from Peel. Was: `treasury` on every box (agreed 2026-11-12). |
+| The alias | **Replaced (2026-11-16)** by strut's `plans/support-chat.md`, ruling 2: plain **"Support"** on every box, the contact workers DM from Peel. **Then (2026-11-19)** the org's name and "Support" (`STADEUM_ORG_NAME`, e.g. "Stakwork Support"; plain "Support" without one), so a worker in two boxes tells them apart. Was: `treasury` on every box (agreed 2026-11-12). |
 | The LSP | **agreed (2026-11-12).** The image's default broker; no `SPHINX_LSP` setting until a box needs one (rule 10). |
 
 ## 1. The service
