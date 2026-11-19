@@ -389,11 +389,12 @@ services:
       DAEMON_PAY_TOKEN: ${DAEMON_PAY_TOKEN:-}
       # Optional: Support's DM routes. Without it the wallet runs as before.
       DAEMON_MESSAGE_TOKEN: ${DAEMON_MESSAGE_TOKEN:-}
-      # The name workers see on the contact their invite gave them
-      # (support-chat ruling 2). A daemon with Support's DM routes takes a
-      # changed alias at start; an older one keeps the alias the account
-      # was made with.
-      DAEMON_ALIAS: Support
+      # The name workers see on the contact their invite gave them: the
+      # org's name and "Support" ("Stakwork Support"), plain "Support"
+      # with no STADEUM_ORG_NAME. A worker in two boxes tells them apart.
+      # A daemon with Support's DM routes takes a changed alias at start;
+      # an older one keeps the alias the account was made with.
+      DAEMON_ALIAS: ${STADEUM_ORG_NAME:+${STADEUM_ORG_NAME} }Support
       # No service: it answers no mention and joins no tribe.
       DAEMON_REPLY: none
       # Strut's Support: every DM goes to strut, with strut's `sphinx` host
