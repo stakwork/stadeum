@@ -6,7 +6,9 @@
 > step 7 (`AGENTS.md`, "Where it is going"). Read against stadeum `main`
 > @9b84d5c, hive `master` @c692b96bf and strut `main` @7b821eaf. It
 > supersedes strut's `plans/org-home-swarm.md` §1.1 and §1.2 for GitHub
-> (§10).
+> (§10). Changed 2026-11-19 (owner): every GitHub callback goes through
+> the sign-in bounce, as Google's and Microsoft's do, in place of GitHub's
+> wildcard matching (§2, §3).
 
 ## Problem
 
@@ -30,10 +32,10 @@ has its own host. That is the hard part, and §3 is the answer.
 | The App | **agreed.** One central GitHub App, "Stadeum", that Stakwork owns. An org installs it and picks which repos to link on GitHub's own install page (the installation has an installation id). No org admin ever creates an app. This is what Hive does today. |
 | Token life | **agreed.** Tokens don't expire, as in Hive today: the App's "Expire user authorization tokens" is off. |
 | Your own App | **agreed.** Optional: an org that wants more control uses its own GitHub App instead. A self-hosted box can always do this. |
-| Callbacks | **agreed (2026-11-05).** Start with GitHub's subdomain matching on the App's callback URLs, so each box under Stakwork's domain gets its own codes directly (§3). Custom domains and self-hosted boxes on the central App come later (§8). |
+| Callbacks | **agreed (2026-11-19).** Every GitHub callback goes through the sign-in bounce (`STADEUM_SIGNIN_BOUNCE`), as Google's and Microsoft's do: the App registers the bounce's URLs once, matched exactly, and the bounce sends each callback on to the box its state names (§3). One bounce serves every provider, and nothing rests on GitHub's wildcard matching, which this replaces (agreed 2026-11-05). Custom domains and self-hosted boxes on the central App come later (§8). |
 | Token kind | *proposed.* User-to-server tokens only, as Hive. Nobody holds the App's private key and nobody mints installation tokens (§3). |
 | Whose token | *proposed.* One token per person, pushed to strut as their `GITHUB_TOKEN` actor secret. No org-wide token (§5). |
-| What is central | *proposed.* The App's registration, plus a bounce at one fixed address that sends an installer back to their box. It holds no secret and stores nothing (§3). |
+| What is central | *proposed.* The App's registration, plus the sign-in bounce the boxes Stakwork runs already use, which sends each callback on to its box. It holds no secret and stores nothing (§3). |
 | App webhooks | *proposed.* Off at first. A box reads what it needs from GitHub when it needs it (§4.5). |
 | Sign-in | *proposed.* The same App signs people in, through Auth.js, so signing in also connects (§6). |
 | Own App setup | *proposed.* The App Manifest flow, from the box's GitHub page: two clicks on GitHub, then one setting to turn off (§7). |
@@ -109,15 +111,18 @@ Stadeum keeps the idea and drops the rest:
 
 Stakwork registers "Stadeum" under its GitHub org. *Proposed* settings:
 
-- **Callback URLs**, each with wildcard matching on:
-  1. `https://<domain>/api/github/callback`. It is first because GitHub
-     sends the install-time return to the first callback URL. Each box's
-     `https://<label>.<domain>/api/github/callback` matches it.
-  2. `https://<domain>/api/auth/callback/github`, for Auth.js sign-in on
-     each box (§6).
+- **Callback URLs**, at the sign-in bounce, registered once and never per
+  box:
+  1. `https://auth.<domain>/api/github/callback`, for installs and
+     connecting (§4). It is first because GitHub sends the install-time
+     return to the first callback URL.
+  2. `https://auth.<domain>/api/auth/callback/github`, for Auth.js sign-in
+     on each box (§6).
 
-  `<domain>` is the domain Stakwork runs boxes under, and `<label>` is a
-  box's name under it: `HOST=<label>.<domain>`.
+  `<domain>` is the domain Stakwork runs boxes under (`stakwork.ai`), and
+  `<label>` is a box's name under it: `HOST=<label>.<domain>`. Wildcard
+  matching stays off: each URL matches exactly, and the bounce sends the
+  callback on to its box (§3).
 - **Expire user authorization tokens: off** (agreed).
 - **Request user authorization (OAuth) during installation: on**, as Hive.
   Installing then also authorizes the installer. GitHub then allows no
@@ -142,25 +147,28 @@ tokens don't carry over. They go with Hive's data (strut
 Hive is not part of this. Two things are central, and Stakwork runs both:
 
 - **The App's registration on GitHub:** its settings and its client secret.
-- **The bounce:** a redirect at `https://<domain>/api/github/callback`, the
-  one fixed address an install returns to. It reads the box's label from
-  the front of `state`, checks that it is a DNS label, and redirects the
-  browser to `https://<label>.<domain>/api/github/callback` with the query
-  unchanged. It holds no secret, verifies nothing and stores nothing. A
-  Caddy rule does it. The sign-in bounce (`STADEUM_SIGNIN_BOUNCE`,
-  `docs/stack-spec.md`) is built the same way and its rule keeps the
-  path, so one bounce serves both.
+- **The bounce:** the sign-in bounce (`STADEUM_SIGNIN_BOUNCE`,
+  `docs/stack-spec.md`, "Sign-in through a bounce") at
+  `https://auth.<domain>`, which Google's and Microsoft's sign-in on these
+  boxes already pass through. stadeum-fleet runs it, as a CloudFront
+  function (its `aws/main.yml`). It reads the box's label from the front of
+  `state`, checks that it is a DNS label, and redirects the browser to
+  `https://<label>.<domain>` with the path and query unchanged, so
+  `/api/github/callback` lands on the box's own route. It holds no secret,
+  verifies nothing and stores nothing. GitHub adds nothing to it.
 
 Nothing else is central:
 
 - **No directory.** The state names the box, so nothing maps GitHub
   accounts to hosts. Strut's §1.2 directory is not needed for GitHub.
-- **No token kept centrally.** Codes go to the box (one passes through the
-  bounce at install), and the box exchanges them.
+- **No token kept centrally.** Codes pass through the bounce to the box,
+  and the box exchanges them.
 - **No runtime call.** A box never calls the bounce. Browsers pass through
-  it once, at install. If it is down, the install still completes on
-  GitHub, and the admin links it from the box with "Already installed"
-  (§4.1). That respects rule 9.
+  it on each GitHub authorization, as on each Google sign-in. While it is
+  down nobody can connect or sign in with GitHub, but tokens already held
+  keep working, and an install still completes on GitHub: the admin links
+  it from the box with "Already installed" (§4.1), which needs no
+  callback. That respects rule 9.
 
 **The private key is the line.** Whoever holds an App's private key can
 mint an installation token for every org that installed the App. That
@@ -177,10 +185,11 @@ they already hold. The plain consequence:
 - **The risk.** Anyone who has the secret, and can get a person to click a
   link, can get that person's token for every org of theirs that
   installed the App. GitHub skips the consent page for someone who already
-  authorized the App, and a link can name any `<label>.<domain>`. GitHub
-  warns that wildcard matching can carry this kind of risk.
+  authorized the App, and a link's `state` can name any `<label>`, so the
+  bounce sends the code to whichever box the link chose.
 - **What limits it:**
-  - `<domain>` serves only boxes Stakwork runs, and has no open redirect;
+  - `<domain>` serves only boxes Stakwork runs, the bounce redirects only
+    under it, and nothing under it is an open redirect;
   - the secret goes only on boxes where Stakwork, and nobody else, has
     root (strut's plan already accepts that Stakwork has root on the boxes
     it hosts);
@@ -201,7 +210,9 @@ people's tokens to reach only its own repos uses its own App (§7).
 
 `state` is `<label>.<body>.<sig>`:
 
-- `<label>` is the box's first DNS label, in clear for the bounce;
+- `<label>` is the box's first DNS label, in clear for the bounce. The box
+  puts it on only when it has a bounce, and takes it off when the callback
+  comes back, as sign-in's state does (`ui/src/lib/signin-bounce.ts`);
 - `<body>` is base64url JSON `{ purpose, userId, nonce, iat }`;
 - `<sig>` is HMAC-SHA256 under a key derived from `AUTH_SECRET`.
 
@@ -242,9 +253,9 @@ A box may link several GitHub orgs.
 ### 4.2 A person connects
 
 On their own page a person clicks **Connect GitHub**. The box sends them to
-`https://github.com/login/oauth/authorize?client_id=…&redirect_uri=https://<label>.<domain>/api/github/callback&state=…`.
-GitHub matches that redirect by subdomain and returns straight to the box.
-The bounce is not involved.
+`https://github.com/login/oauth/authorize?client_id=…&redirect_uri=https://auth.<domain>/api/github/callback&state=…`.
+GitHub returns there, and the bounce sends it on to the box, as at
+install.
 
 The box then:
 
@@ -334,9 +345,11 @@ pushes none (rules 1 and 3).
 ## 6. Sign in with GitHub (proposed)
 
 Auth.js's GitHub provider takes the same App's client id and secret; a
-GitHub App signs people in through the same web flow. Its callback,
-`https://<label>.<domain>/api/auth/callback/github`, matches the second
-registered callback URL by subdomain.
+GitHub App signs people in through the same web flow. Its callback goes
+through the bounce, as Google's and Microsoft's do (`bounceOptions`,
+`ui/src/lib/signin-bounce.ts`): it is
+`https://auth.<domain>/api/auth/callback/github`, the second registered
+callback URL.
 
 - **Email.** Stadeum admits people by a verified email (`admit` and
   `emailFrom`, `ui/src/auth.ts`). The App needs the Email addresses
@@ -359,8 +372,10 @@ The GitHub page offers **Use your own GitHub App**. Here is how it works:
    `https://github.com/organizations/<org>/settings/apps/new?state=…`.
    The manifest sets:
    - `url` and `redirect_url` (`https://<host>/api/github/manifest`);
-   - `callback_urls`: `https://<host>/api/github/callback` and
-     `https://<host>/api/auth/callback/github`;
+   - `callback_urls`: `<base>/api/github/callback` and
+     `<base>/api/auth/callback/github`, where `<base>` is the box's
+     callback base: its bounce when it has one, else `https://<host>`,
+     the same base its Google and Microsoft sign-in use;
    - `public: false` and `request_oauth_on_install: true`;
    - the permissions of §2;
    - `hook_attributes` with `active: false`.
@@ -378,11 +393,12 @@ The GitHub page offers **Use your own GitHub App**. Here is how it works:
 
 Everything then runs as §4, against the org's own App:
 
-- The callbacks name the box's host exactly, with no wildcard and no
-  bounce: the install-time return comes straight back.
-- A self-hosted box needs nothing central at all.
-- When the box's host changes, the App's callback URLs must be edited on
-  GitHub. The page says so, as it does for Google and Microsoft.
+- The callbacks are at the box's callback base, so one rule serves every
+  provider and both Apps.
+- A self-hosted box has no bounce, and needs nothing central at all.
+- When the host of a box with no bounce changes, the App's callback URLs
+  must be edited on GitHub. The page says so, as it does for Google and
+  Microsoft.
 
 **Switching.** The GitHub page has one choice: **Stadeum's App** (offered
 only when `GITHUB_APP_CLIENT_ID` is set) or **Your own App**. Switching:
@@ -397,17 +413,20 @@ GitHub for the admin to delete.
 
 ## 8. Later: custom domains, self-hosted boxes, App events
 
-The central App's callbacks match only `<label>.<domain>`. A box at a
-custom domain (roadmap step 6), or a self-hosted box, cannot receive its
-codes. This is needed, but not first.
+The bounce sends a callback only to `<label>.<domain>`. A box at a custom
+domain (roadmap step 6), or a self-hosted box, cannot receive the central
+App's codes. This is needed, but not first.
 
-- **A custom domain on a box Stakwork runs.** The box keeps its
-  `<label>.<domain>` name beside the custom one, and the GitHub flows run
-  on that name. The box signs a short-lived ticket for the person and
-  sends them to `https://<label>.<domain>/api/github/start?ticket=…`,
-  which starts the flow there. The callback lands there, stores the token
-  and returns to the custom domain. Nothing central changes. Sign-in with
-  GitHub on a custom domain needs the same hop for Auth.js, which is the
+- **A custom domain on a box Stakwork runs.** Its Google and Microsoft
+  sign-in come back through the same bounce, so this is one problem for
+  every provider, not GitHub's alone. The box keeps its
+  `<label>.<domain>` name beside the custom one, and its callbacks land on
+  that name. For GitHub's own flows the box signs a short-lived ticket for
+  the person and sends them to
+  `https://<label>.<domain>/api/github/start?ticket=…`, which starts the
+  flow there. The callback lands there, stores the token and returns to
+  the custom domain. Nothing central changes. Sign-in on a custom domain
+  needs the same hop for Auth.js, for every provider at once, which is the
   harder half (open question 7).
 - **A self-hosted box** uses its own App (§7). That always works.
   Stakwork's App on a self-hosted box would need what strut's §1.1
@@ -434,7 +453,8 @@ file don't change.
 - **`ui/src/lib/github/`** holds every GitHub call:
   - `app.ts`: which App (the own App from the database, else Stadeum's
     from env);
-  - `state.ts`;
+  - `state.ts`: signs and checks it, with the label put on and taken off
+    by `lib/signin-bounce.ts`;
   - `oauth.ts`: authorize URL, exchange, check, revoke;
   - `installations.ts`: verify, list repos;
   - `tokens.ts`: store, replace, push to strut, drop;
@@ -470,15 +490,16 @@ file don't change.
   check (§4.4) drops any that were revoked meanwhile.
 - **`.env.example`** gains one block, blank by default. Blank works: there
   is no Stadeum App, and an admin can still set up the org's own (rule 10).
-  `init-env.sh` generates none of these values. No setting names the
-  domain: the redirect is `AUTH_URL` plus the path, and the label is
-  `HOST`'s first label.
+  `init-env.sh` generates none of these values. No new setting names the
+  domain: the redirect is the box's callback base (`STADEUM_SIGNIN_BOUNCE`
+  when set, else `AUTH_URL`) plus the path, and the label is `HOST`'s
+  first label, as for sign-in.
 
   ```
   # --- GitHub (plans/github-app.md) ---
-  # Stadeum's GitHub App, set by Stakwork on the boxes it runs under its
-  # domain. Blank: no Stadeum App; an admin can still use the org's own
-  # App on the GitHub page.
+  # Stadeum's GitHub App, set by Stakwork on the boxes it runs behind its
+  # sign-in bounce. Blank: no Stadeum App; an admin can still use the
+  # org's own App on the GitHub page.
   GITHUB_APP_SLUG=
   GITHUB_APP_CLIENT_ID=
   GITHUB_APP_CLIENT_SECRET=
@@ -492,8 +513,8 @@ file don't change.
 
 | Strut's §1.1–1.2 said | Now |
 | --- | --- |
-| GitHub takes up to ten callback URLs, with no wildcards, so per-box hosts can't be registered | GitHub matches subdomains for a callback URL that has wildcard matching on. A box under `<domain>` gets its own codes (§3). |
-| Callbacks go through a relay, which checks the host in `state` against the directory | Only the install return passes through the bounce, which reads the box's label from `state`. There is no directory. A person's authorization returns straight to the box (§4.2). |
+| GitHub takes up to ten callback URLs, with no wildcards, so per-box hosts can't be registered | No box registers its own. Every box shares the sign-in bounce's two URLs, registered once, as for Google and Microsoft (§2, §3). |
+| Callbacks go through a relay, which checks the host in `state` against the directory | Every callback goes through the bounce, which reads the box's label from `state`. There is no directory (§3). |
 | The App's webhook is forwarded to the right box | Off at first; a box reads GitHub (§4.5). Relaying is §8, if ever. |
 | Repo webhooks point at the box directly | Stands. They are strut's, when it wants them (§4.6). |
 | Boxes Stakwork runs hold the client secret | Stands, with the limits of §3. |
@@ -506,10 +527,11 @@ file don't change.
 Each is its own PR unless it says otherwise.
 
 0. This plan.
-1. **The App and the bounce** (Stakwork, outside this repo). Register
-   "Stadeum" with §2's settings, and serve the bounce at
-   `https://<domain>/api/github/callback`. Both are written down in
-   `docs/github.md` in step 2.
+1. **The App** (Stakwork, outside this repo). Register "Stadeum" with
+   §2's settings, its callbacks at the sign-in bounce, in stadeum-fleet's
+   one-time setup (its `PLAN.md` §14, step 2). The bounce is already
+   there. The App's settings are written down in `docs/github.md` in
+   step 2.
 2. **Connect GitHub on Stadeum's App**:
    - `ui/src/lib/github/`, the callback route, the GitHub page and the
      person's page;
@@ -531,18 +553,20 @@ Each is its own PR unless it says otherwise.
 
 ## Open questions
 
-1. **The domain.** Which domain do Stakwork's boxes live under, and is
-   every box's `HOST` exactly one label below it? Strut's `strut.$HOST` is
-   two labels below, but it takes no callbacks.
+1. ~~**The domain.**~~ Answered (stadeum-fleet, 2026-11-17): `stakwork.ai`.
+   A box is `<name>.stakwork.ai`, its strut `strut.<name>.stakwork.ai`,
+   which takes no callbacks, and the bounce is `auth.stakwork.ai`.
 2. **Root on Stakwork's boxes.** Does an org ever get root, or a shell on
    the host, of a box Stakwork runs? If so, the client secret can't sit
    there (§3), and the exchange moves to a small central service. That
    service needs GitHub to tie each code to the `redirect_uri` it was
    issued for, so a box can exchange only its own codes. GitHub's docs
-   don't say that the exchange enforces this.
-3. **Wildcard details.** GitHub's docs don't say whether wildcard matching
-   covers nested subdomains, or what its default is for an App registered
-   now. Check both when registering.
+   don't say that the exchange enforces this. Google's and Microsoft's
+   client secrets already sit on every stadeum-fleet box on the same
+   terms (its `PLAN.md` §6), and fleet proposes that only staff reach a
+   box, over SSM.
+3. ~~**Wildcard details.**~~ Gone (2026-11-19): the callbacks are the
+   bounce's, matched exactly, with wildcard matching off (§2).
 4. **What the install return carries.** GitHub's docs don't say that
    `state` and `setup_action` come back on the install-time return. Hive
    relies on `state` there (`callback/route.ts:76-103`), so they do in
@@ -554,15 +578,16 @@ Each is its own PR unless it says otherwise.
 6. **Permissions.** Copy the Hive App's permissions, or the narrower list
    of §2? Does strut push changes under `.github/workflows`? That needs
    the Workflows permission.
-7. **Sign-in on a custom domain.** How does Auth.js's GitHub sign-in hop
-   through the box's `<label>.<domain>` name (§8)?
+7. **Sign-in on a custom domain.** How does Auth.js's sign-in, GitHub's,
+   Google's and Microsoft's alike, hop through the box's `<label>.<domain>`
+   name (§8)?
 8. **An own App with expiry left on.** Refuse its tokens (proposed), or
    support refresh? Refresh means 8-hour tokens, a refresh loop, and a
    push to strut after each refresh.
 9. **Reach.** Should strut be told which installations the box linked, so
    a person's work stays in the org's own repos (§3, reach of one App)?
-10. **The bounce.** Where does its config live, beside what else that
-    Stakwork runs on `<domain>`?
+10. ~~**The bounce.**~~ Answered: stadeum-fleet runs it, a CloudFront
+    function in its `aws/main.yml`, beside the DNS zone.
 11. **Two boxes, one GitHub org.** An installation is per App per account,
     so two boxes on one GitHub org share one installation and its choice
     of repos. Is that fine, or is it a reason for an own App?
