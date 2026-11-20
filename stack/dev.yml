@@ -18,6 +18,10 @@ services:
     environment:
       STRUT_PUBLIC_URL: http://strut.${HOST}
 
+  treasury:
+    environment:
+      DAEMON_JAMIE_URL: http://${HOST}/
+
   # Built from this checkout. ops never pulls a service that has a build,
   # so locally it moves strut and strut-browser only, and an ops built here
   # has no releases: it never writes the stack files, which are the

@@ -371,15 +371,17 @@ services:
 
   # The treasury (plans/treasury.md): a Sphinx daemon (stakwork/sphinx
   # wasm/daemon) on an account of its own, the Lightning wallet strut sells
-  # through, and the "Support" contact workers DM from Peel (strut
-  # plans/support-chat.md). Strut alone calls it, with the receive token
-  # (invoices, the balance), the pay token (a withdrawal) and the message
-  # token (Support's sends, nothing else); it calls strut alone, handing
-  # over each DM with the host key. The admin token, which could post
-  # and join tribes as the account, is in this container alone. It answers
-  # no mention and joins no tribe: it connects out only, to its LSP (the
-  # image's default broker) and to strut, so no port and no route in the
-  # Caddyfile.
+  # through, the "Support" contact workers DM from Peel (strut
+  # plans/support-chat.md), and "Jamie" in the tribes people link from
+  # Peel (strut plans/jamie-in-tribes.md). Strut alone calls it, with the
+  # receive token (invoices, the balance), the pay token (a withdrawal),
+  # the message token (Support's sends, nothing else) and the callback
+  # token (a turn's end, a nudge that the linked tribes changed); it calls
+  # strut alone, handing over each DM and each @jamie with the host key.
+  # The admin token, which could post and join tribes as the account, is
+  # in this container alone. It connects out only, to its LSP (the image's
+  # default broker), the servers of the tribes it joins, and strut, so no
+  # port and no route in the Caddyfile.
   # The `stable` channel stakwork/sphinx's promote-daemon.yml moves
   # (scripts/promote.sh daemon). It speaks strut's wallet contract, so ops
   # moves it in strut's group, as voice. A commit tag (`b31014c`) pins one.
@@ -408,14 +410,27 @@ services:
       # A daemon with Support's DM routes takes a changed alias at start;
       # an older one keeps the alias the account was made with.
       DAEMON_ALIAS: ${STADEUM_ORG_NAME:+${STADEUM_ORG_NAME} }Support
-      # No service: it answers no mention and joins no tribe.
-      DAEMON_REPLY: none
       # Strut's Support: every DM goes to strut, with strut's `sphinx` host
       # key (STRUT_HOST_KEYS above). Both or neither: unset without
       # STRUT_HOST_KEY in .env, and a daemon from before the push ignores
       # them.
       DAEMON_STRUT_URL: ${STRUT_HOST_KEY:+http://strut:3000}
       DAEMON_STRUT_KEY: ${STRUT_HOST_KEY:-}
+      # Jamie in tribes (strut plans/jamie-in-tribes.md): with the host
+      # key, each @jamie in a tribe linked from Peel is a turn of strut's,
+      # and strut posts its end back here, on the stack's network. Without
+      # the key it answers no mention and joins no tribe: the command below
+      # makes an empty DAEMON_REPLY `none`, as the daemon's own default is
+      # `echo`. A daemon from before its strut mode (stakwork/sphinx#440)
+      # refuses `strut` and does not start: a TREASURY_TAG pin older than
+      # that must move first.
+      DAEMON_REPLY: ${STRUT_HOST_KEY:+strut}
+      DAEMON_CALLBACK_URL: http://treasury:8095
+      # "Jamie" in tribes, mentioned as @jamie; DMs keep DAEMON_ALIAS.
+      DAEMON_TRIBE_ALIAS: Jamie
+      # The Jamie app's page, the box's home: a reply's files are linked
+      # there, at its conversation (`?input=session=…`).
+      DAEMON_JAMIE_URL: https://${HOST}/
       SPHINX_HOME: /data
       DAEMON_HOST: 0.0.0.0
       DAEMON_PORT: "8095"
@@ -431,6 +446,7 @@ services:
         if [ -z "$$DAEMON_ADMIN_TOKEN" ] || [ -z "$$DAEMON_RECEIVE_TOKEN" ] || [ -z "$$DAEMON_PAY_TOKEN" ]; then
         echo "[treasury] no wallet: run the installer again (scripts/install.sh), which adds the DAEMON_*_TOKENs to .env and starts it";
         exec sleep infinity; fi;
+        export DAEMON_REPLY="$${DAEMON_REPLY:-none}";
         exec node build/daemon/src/index.js
     healthcheck:
       # Healthy once it listens (GET /health, no token), or at once while it

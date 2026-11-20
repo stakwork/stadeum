@@ -20,7 +20,7 @@ but maple (`ui/src/lib/status.ts`, `SERVICES`).
 | `strut-browser` | `ghcr.io/stakwork/strut-browser:stable` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
 | `strut` | `ghcr.io/stakwork/strut:stable` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
 | `voice` | `sphinxlightning/sphinx-voice:stable` | A person's voice call with the assistant (sphinx-voice's 1:1 mode): the LiveKit room and the agent in it | None (stadeum-ui never calls it) |
-| `treasury` | `ghcr.io/stakwork/sphinx-daemon:stable` | The Lightning wallet strut sells paid public runs through: a Sphinx daemon on an account of its own | None (stadeum-ui never calls it) |
+| `treasury` | `ghcr.io/stakwork/sphinx-daemon:stable` | The Lightning wallet strut sells paid public runs through, Support in DMs and Jamie in linked tribes: a Sphinx daemon on an account of its own | None (stadeum-ui never calls it) |
 | `bootstrap` | `node:22.20.0-alpine` | One shot: org signing key + trust registration | Org key registered with bifrost, same key as stadeum-ui's |
 | `stadeum-ui` | `ghcr.io/stakwork/stadeum-ui:stable` (built from `ui/`) | Sign-in, the person, Calls, Members, Packages, Status, Updates, Backups; Earnings is strut's app (`strut/earnings`) framed among them for an admin | Running (it serves the page) |
 | `ops` | `ghcr.io/stakwork/stadeum-ops:stable` (built from `ops/`, carrying `stack/`) | stadeum's releases, strut's updates, backups; the Docker socket | Reported in the last 3 minutes |
@@ -238,7 +238,9 @@ checked".
   to Support with it, as the worker who sent it (strut `specs/API.md`
   §13.4, §13.5; `plans/people-and-hosts.md` §5): a strut with hosts reads
   no DM itself. A strut from before hosts ignores the setting and reads
-  the DMs with the message token.
+  the DMs with the message token. With it the treasury also runs each
+  `@jamie` in a linked tribe as a turn, and follows the tribes people link
+  from Peel (below, "treasury").
 - `STRUT_PACKAGES` (`.env`, empty by default): packages strut installs at
   first boot, a JSON list of `{ ref, url?, digest? }`, what `POST
   /packages/install` takes (`specs/API.md` §16). A listed package not
@@ -344,11 +346,36 @@ checked".
   `plans/support-chat.md`). A daemon with the DM routes takes a changed
   alias at start, so an account made as `treasury` is renamed, and a
   worker's contact follows with the next message they get.
+- **Jamie in tribes.** In tribes it is `Jamie` (`DAEMON_TRIBE_ALIAS`),
+  mentioned as `@jamie`; DMs keep Support's alias. A person linked to the
+  box turns Jamie on in a tribe's details in Peel, which tells strut (a
+  linked place, `POST /people/places`); strut nudges the treasury, which
+  joins (strut `plans/jamie-in-tribes.md` §4). Each `@jamie` there is a
+  turn of strut's orchestrator, launched with the host key as the person
+  who spoke, or as the tribe's linker when strut doesn't know them, and
+  strut posts the turn's end back to the treasury, which posts the reply
+  in the tribe, threaded under the mention (`DAEMON_REPLY=strut`;
+  stakwork/sphinx `wasm/daemon/README.md`, "Answering in tribes as strut's
+  host"). A reply's files are linked to the Jamie app on the box's home
+  (`DAEMON_JAMIE_URL=https://${HOST}/`, `?input=session=…`). Set only when
+  `.env` has `STRUT_HOST_KEY`; without it `DAEMON_REPLY` is `none` (the
+  command fills an empty one in, as the daemon's own default is `echo`),
+  and it answers no mention and joins no tribe. A daemon from before its
+  strut mode (stakwork/sphinx#440) refuses `strut` and does not start, and
+  a strut from before linked places (stakwork/strut#787) has none, so
+  Peel finds no host ready.
+- **Money.** Every tribe charges its join price and its price per message,
+  and every reply costs at least 1 sat, from the treasury's balance, the
+  money paid runs earned. No cap (strut `plans/jamie-in-tribes.md` §9,
+  decision 6).
 - **Who calls it.** strut alone, at `http://treasury:8095`, on the stack's
-  network: no published port, no route in the Caddyfile. It connects out to
-  its LSP (the image's default, `broker.v2.sphinx.chat`) and to strut.
-  `DAEMON_REPLY=none` and no service URL: it answers no mention and joins
-  no tribe.
+  network: no published port, no route in the Caddyfile. Besides the
+  wallet and Support's sends, strut posts each turn's end there
+  (`/strut/end`) and nudges it when the linked tribes change
+  (`/strut/places`), both opened by the callback token alone
+  (`DAEMON_CALLBACK_URL=http://treasury:8095`; the daemon makes the token
+  once and keeps it in `/data`). It connects out to its LSP (the image's
+  default, `broker.v2.sphinx.chat`), the tribes it joins, and strut.
 - **What it calls.** strut, at `http://strut:3000` (`DAEMON_STRUT_URL`),
   with `STRUT_HOST_KEY` as `DAEMON_STRUT_KEY`, strut's `sphinx` host key:
   it hands strut's `support/receive` every DM, in order, a worker's file
@@ -357,7 +384,10 @@ checked".
   when `.env` has the key. A strut that refuses the call (one from before
   hosts, or with no key) is tried again each minute and logged
   (`strut.push_failed`); nothing is lost, and once strut takes the calls
-  the backlog goes from the first DM.
+  the backlog goes from the first DM. With the same key it launches each
+  `@jamie`'s turn, says at start who and where it is (`PUT /hosts/me`, its
+  account and the nudge's address), and reads its linked tribes (`GET
+  /hosts/places`) at start, on each nudge and every ten minutes.
 - **Four tokens**, generated by `scripts/init-env.sh`, all different (the
   daemon and strut each refuse two equal ones): `DAEMON_RECEIVE_TOKEN`
   (invoices, lookups, payments in, the balance), `DAEMON_PAY_TOKEN` (those
@@ -384,9 +414,15 @@ checked".
   as Support (strut `plans/support-chat.md`, ruling 3 and §9). The host
   key is in strut's container too (`STRUT_HOST_KEYS`): with it a shell
   could hand strut a DM as any worker. That adds nothing: the same shell
-  holds the deployment key, which signs anyone in.
+  holds the deployment key, which signs anyone in. So is the callback
+  token, in the address strut posts each turn's end to: with it a shell
+  could make Jamie post in a linked tribe. That adds nothing either: what
+  Jamie posts there is already an agent's words, and every post's price
+  is the balance the pay token spends.
 - **`treasury` (`/data`) is the money**: the account's seed, made on the
   first start (never passed in), and `wallet.jsonl`, the payments it took.
+  Beside them, `strut.json`: the linked tribes it follows and Jamie's
+  conversations in them.
   In the backup, stopped for the snapshot (`stadeum.ops.backup: stop`):
   `wallet.jsonl` is appended as payments settle. Lose the volume and every
   snapshot of it, and the sats are gone. `scripts/backup-restore-e2e.sh`
