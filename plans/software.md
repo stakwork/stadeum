@@ -35,6 +35,9 @@
 > with GitHub's entry and a fake GitHub in `npm run fake-stack`
 > (`docs/stack-spec.md`, "The connect seam"). Everything else here is
 > still a plan.
+>
+> **2026-11-20:** the owner decided that a workspace is a node of its
+> own, so a repository can be in several (row 20, §14.4).
 
 ## Problem
 
@@ -74,6 +77,7 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 17 | The parsed code graph | **Not at first.** Pages and files. It comes back later, perhaps as a CLI, set up for each repository in the Code app and run in `ingest` (§14.6). | **owner** (2026-11-20: it comes back, and each repository is configurable for it); the rest is proposed |
 | 18 | Where a repository is set up | **In one app, Code.** Each other package's part of a repository is a link to its own app at first, and a section drawn in place once strut has panels (§14.4; §5, item 14). | proposed |
 | 19 | What a package's repository is called | **`stakwork/strut-<name>`:** `strut-github`, `strut-pods`, `strut-code`, and so on. The package's own name stays `stadeum/<name>`. Pods' package moves from `stakwork/pods-package` to `stakwork/strut-pods` (§11). | **owner** (2026-11-20) |
+| 20 | What a workspace is | **A node of its own,** linked to each of its repositories, so a repository can be in several workspaces (§14.4). | **owner** (2026-11-20); the node's fields are proposed |
 
 ## 1. What Hive does
 
@@ -507,8 +511,8 @@ itself. §14.4 proposes a third package in the bundle, `stadeum/code`.
   webhooks use one of strut's schemes (item 7).
 
 Pods reads the nodes and requires neither package, so §3.3's pin never
-applies. The contract is the node's fields, written on `stadeum/code`'s
-Concept page.
+applies. The contract is the two nodes' fields and the link between
+them, written on `stadeum/code`'s Concept page.
 
 ## 4. What Stadeum still does
 
@@ -789,7 +793,8 @@ Each is its own PR.
 
    Secrets that refresh themselves (item 8) wait for the first provider
    whose tokens expire.
-4. **`stadeum/code`, the list** (§14.4): the `Repository` type, the Code
+4. **`stadeum/code`, the list** (§14.4): the `Repository` and
+   `Workspace` types, the Code
    app (add by address, workspaces), `check`, an empty `ingest` and the
    `repositories` tool.
 
@@ -1081,14 +1086,19 @@ one app shows it.
 **What it keeps:**
 
 - **The box's repositories,** as graph nodes: `url`, `name`, default
-  `branch`, `workspace`, `main` (the workspace's main repository) and
-  `checked` (the head last seen). The graph is in the backup. A
-  repository's own settings, the code graph's later, are fields on its
-  node. When the parser comes back, its own `Repository` type wins and
-  these fields go on it.
-- **A workspace is a name on repositories.** By default each repository
-  is its own workspace, named after it. An admin can group several:
-  `hive` holds `hive` (main), `stakgraph` and `mcp`.
+  `branch` and `checked` (the head last seen). The graph is in the
+  backup. A repository's own settings, the code graph's later, are
+  fields on its node. When the parser comes back, its own `Repository`
+  type wins and these fields go on it.
+- **Its workspaces,** as nodes of their own (owner, 2026-11-20). A
+  workspace has a `name`, a link to each of its repositories, and
+  `main`, which says which of them is its main one. The fields are
+  proposed.
+  - A repository can be in several workspaces: `stakgraph` is in
+    `hive`'s, with `hive` (main) and `mcp`, and can be in a larger
+    test's as well.
+  - By default a repository added to the list gets a workspace of its
+    own, named after it.
 
 **Its app, Code,** is every person's. It lists the repositories by
 workspace:
@@ -1105,7 +1115,8 @@ For an admin it also has:
 - **Add a repository** by its address. That works for any forge, since
   git finds its token by host (§5, item 9). Where the GitHub package is
   installed, **Pick from GitHub** opens its picker (§3.1).
-- **Workspaces:** group repositories, and name each group's main one.
+- **Workspaces:** put a repository in one workspace or several, and
+  name each workspace's main one.
 - **A repository's settings,** with a section for each package:
 
 ```text
@@ -1146,7 +1157,7 @@ hive ▸ settings
 | --- | --- |
 | Pages | `Codebase` (a root); `Repository Changes` (under `Dream`); `Code Change` and `Explore` (under `Job`) |
 | An app | Code |
-| A graph type | `Repository` |
+| Graph types | `Repository` and `Workspace` |
 | Workflows | `check` and `ingest`; `explore`, open to peers as in the lab; `bootstrap` |
 | Steps | `repositories`, a job tool, which also tells `explore` what the box holds; `changes`; the app's own |
 | In its manifest | `job:` for `repositories`; `dream:` for the Codebase tree (§14.2); the schedule for `check` |
@@ -1289,12 +1300,11 @@ Where it runs then becomes a placement decision for the pods service.
    which ingestion puts in the graph. Given a diff, Jamie finds the
    screens it touches and opens them in the right state. This memory is
    in strut, so it outlives every pod.
-4. **A workspace is its own node, many-to-many with repositories.** In
-   §14.4, `workspace` is one field on a repository node, so a repository
-   is in only one workspace. stakgraph couldn't be in hive's workspace
-   and in a 30-system test as well. **This is the one note that touches
-   what's planned now.** Changing the nodes after `stadeum/code`
-   writes them means migrating them, so decide before step 4 of §12.
+4. **A workspace is its own node, many-to-many with repositories.**
+   Decided (owner, 2026-11-20), and now in §14.4: stakgraph can be in
+   hive's workspace and in a 30-system test as well. It was the one note
+   that touched what's planned now, since changing the nodes after
+   `stadeum/code` writes them would mean migrating them.
 5. **Composition.**
    - Each repository's `.pod/` describes that repository alone: the
      services it needs, the apps it runs, its ports.
@@ -1333,8 +1343,9 @@ Where it runs then becomes a placement decision for the pods service.
    contract that changed.
 
 **The order, when it's time:**
-1. Journeys, states and screens (1-3), with the workspace node (4). The
-   biggest gain for the least, and no infrastructure.
+1. Journeys, states and screens (1-3). The biggest gain for the least,
+   and no infrastructure. The workspace node (4) comes with step 4 of
+   §12.
 2. Composition (5).
 3. Worlds on Lambda (6).
 4. The metal backend (7).
