@@ -932,6 +932,22 @@ Sizes are the lab's, tests included (`stakgraph/mcp/src/lab/`).
 | `pods/`: Hive's pool manager as steps. `pod-setup/`: eleven pages on configuring it | 3,150 lines | **Done:** `stadeum/pods`, 580 lines of steps and one page, with `.pod/` in the repository in place of those pages | `claim` cloning the workspace (§3.2) |
 | `code/` and `job/`: the `Code Change` and `Explore` pages | Pages | **Pages the package ships under `Job`,** as pods ships `Pod`. The job agent, `git/*` and `github/*` are strut's already | Pages |
 
+**A code change, with a pod or without one** (owner, 2026-11-20: small
+things *"dont need a pod or tests... thats how hive works now"*). A
+job's `kind` names a page under `Job`, and its turn opens with that page
+(strut `src/workflows/job.yaml`). `Code Change` is that page for code,
+and it says which way to work:
+
+- **A small change** (a colour, a size, a label) needs no pod and no
+  tests. The job checks the repository out with strut's `git/checkout`,
+  edits, and opens a pull request.
+- **A deeper change** claims a pod (`stadeum/pods`), runs the app and
+  its tests there, and then opens the pull request.
+
+Either way the `repositories` tool tells the agent which repositories
+and workspaces the box holds. The rule is the owner's; the page's
+wording is proposed.
+
 ### 14.2 The Codebase tree is the dream's
 
 **What the lab does** (`concepts/workflows/`):
