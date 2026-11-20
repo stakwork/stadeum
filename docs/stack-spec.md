@@ -428,6 +428,9 @@ checked".
   `GET /packages/search`, `GET/PUT/DELETE /packages/indexes[/:id]`,
   `POST /packages/install` and `DELETE /packages/:publisher/:name` with
   the admin as `x-strut-actor`, `GET /packages/installs[/:id]`,
+  `GET /packages/subscriptions`, `PUT /packages/subscriptions/:id` with
+  the admin as `x-strut-actor`, `POST /packages/subscriptions/:id/sync`,
+  `DELETE /packages/subscriptions/:id?uninstall=1`,
   `GET /secrets` (names) and `PUT /secrets/:name`.
 - **Sign-in comes back.** A signed-out visitor is sent to
   `/signin?next=<the page, query and all>` and lands there after signing
@@ -565,6 +568,44 @@ checked".
   `package_conflict`, `package_distro_owned`, `catalog_*`). Indexes: the
   ones strut follows, a form to follow one by its key and card address
   (filed under its host, as strut's own UI does), and Remove.
+- **From a repository** (the Packages page, admins; `plans/software.md`
+  §4). A package's repository by its address, `git+https://host/owner/
+  repo[@<branch>][#<folder>]` (`git+` may be left off), checked as strut
+  checks it before anything is sent (`parseRepositoryRef`: http(s), no
+  name or password in it, an owner and a name, a branch and a folder
+  that can be one). **Keep it up to date**, on by default, follows the
+  branch: `PUT /packages/subscriptions/:id { ref }` with the admin as
+  `x-strut-actor`, never a person in the body. That admin is then the
+  subscription's person (strut `specs/API.md` §16, "Whose a subscription
+  is"): what it installs is theirs, its schedules run as them, and a
+  private repository is read with their own token alone. The id is the
+  repository's name and a hash of where the package is (host, path,
+  folder), and a subscription already following that package (on any
+  branch, made by anyone) is reused, so following it again moves it to
+  this branch and makes it this admin's. Strut answers at once and reads
+  the branch behind the answer; the row under **Followed** reads `GET
+  /packages/subscriptions` and the install strut files under
+  `subscription:<id>` every second until the read is done. Off, it is one
+  install, `POST /packages/install { ref, wait: false }` as the admin,
+  followed as any install is (a tag or a commit after @ is fine there; a
+  commit is refused for following, as strut refuses it). Followed lists
+  every subscription strut has: where it comes from, whose it is, when it
+  was last checked, the commit and the packages it is at, the keys a
+  package waits for (each settable there; setting one reads it again at
+  once) and the last error. A followed repository's install shows in its
+  row, not under Installing, and Installed says "Kept up to date from"
+  it. **Check now** is `POST /packages/subscriptions/:id/sync`, which
+  strut answers once the read is done: the action starts it and the row
+  follows it, so the page never waits on it. **Stop following** is
+  `DELETE /packages/subscriptions/:id?uninstall=1`, which uninstalls what
+  it brought (what people edited here is kept), and the page says so
+  first: strut installed it through the distro's door, which alone
+  updates and removes it, so left behind it would be a package nothing
+  updates and no admin can uninstall here. When strut can't read a
+  private repository (`package_repo_denied`), the row shows strut's
+  words, and for the admin whose subscription it is, **Connect** for the
+  connect seam's provider whose secret strut named (`connectOffers`,
+  `ui/src/lib/connect.ts`): the Packages page names no forge.
 - **The store's Install link.** The store (`https://index.stakwork.ai/?store=1`)
   opens `<the address a visitor saved>/?install=<publisher/name>&index=<z-base-32 key>&index_url=<its card>`,
   keeping the saved path: an admin who saves `https://<HOST>/packages`

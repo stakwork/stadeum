@@ -257,7 +257,10 @@ export interface InstalledPackage {
   package: string;
   version?: string;
   digest?: string;
+  /** Where it came from: `pk:…`, `git+…`, or `subscription:<id>` when something the box follows installed it. */
   source?: { ref: string; url?: string };
+  /** A `git+` source's commit. */
+  commit?: string;
   /** The secret names its steps read: the only ones they may. */
   secrets: string[];
   /** `distro`: the box's distro wrote it, and only the distro updates or removes it. */
@@ -337,6 +340,7 @@ export async function listPackages(): Promise<InstalledPackage[]> {
         ...(str(p.version) ? { version: p.version as string } : {}),
         ...(str(p.digest) ? { digest: p.digest as string } : {}),
         ...(source && typeof source.ref === "string" ? { source: { ref: source.ref, ...(str(source.url) ? { url: source.url as string } : {}) } } : {}),
+        ...(str(p.commit) ? { commit: p.commit as string } : {}),
         secrets: strings(p.secrets),
         ...(p.door === "install" || p.door === "distro" ? { door: p.door } : {}),
         items: (Array.isArray(p.items) ? p.items : [])
@@ -578,6 +582,139 @@ export async function uninstallPackage(pkg: string, actor: string): Promise<Unin
     removed: list(d.removed).map((r) => ({ kind: String(r.kind ?? ""), name: String(r.name ?? "") })),
     kept: list(d.kept).map((r) => ({ kind: String(r.kind ?? ""), name: String(r.name ?? ""), reason: String(r.reason ?? "") })),
   };
+}
+
+/**
+ * What the box follows (strut `src/packages/subscriptions.ts`,
+ * `SubscriptionInfo`): a git branch (`ref`) or a publisher's catalog
+ * (`url`), whose it is, what strut last read and applied, and what it
+ * installed. Never a token: a branch shows the NAME of the secret it is
+ * read with.
+ */
+export interface PackageSubscription {
+  id: string;
+  /** A git branch's package: `git+https://host/org/repo[@<branch>][#<folder>]`. */
+  ref?: string;
+  /** The secret's name the branch is read with (strut's default when the PUT named none). */
+  tokenSecret?: string;
+  /** A publisher's catalog: the strut that serves it, and the channel. */
+  url?: string;
+  channel?: string;
+  /** The person who made it: what it installs is theirs, and a private branch is read with their own secret. None: nobody's. */
+  actor?: string;
+  /** The release last applied: a branch's commit (or a catalog's seq), and what of it went in. */
+  applied?: { commit?: string; seq?: number; digest: string; at: string; packages: Array<{ package: string; version?: string; digest?: string }> };
+  /** The last read, and what stopped it. */
+  checkedAt?: string;
+  error?: string;
+  /** The secrets a package of it waits for: nothing of it is installed until they are set. */
+  waiting?: { secrets: string[] };
+  warnings: string[];
+  /** Each package it installed, as the box has it now, and its items edited here. */
+  packages: Array<{ package: string; version?: string; diverged: string[] }>;
+}
+
+/** One read of a subscription (`SyncOutcome`): `applied`, `current`, `waiting` or `error`. */
+export interface SubscriptionSync {
+  id: string;
+  status: "applied" | "current" | "waiting" | "error";
+  /** A branch's: the commit applied before, and the one it is at. */
+  from?: string;
+  to?: string;
+  error?: string;
+  waiting?: { secrets: string[] };
+}
+
+const records = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === "object") : []);
+
+function readSubscription(s: Record<string, unknown>): PackageSubscription {
+  const applied = s.applied as Record<string, unknown> | undefined;
+  const waiting = s.waiting as { secrets?: unknown } | undefined;
+  return {
+    id: String(s.id),
+    ...(str(s.ref) ? { ref: s.ref as string } : {}),
+    ...(str(s.tokenSecret) ? { tokenSecret: s.tokenSecret as string } : {}),
+    ...(str(s.url) ? { url: s.url as string } : {}),
+    ...(str(s.channel) ? { channel: s.channel as string } : {}),
+    ...(str(s.actor) ? { actor: s.actor as string } : {}),
+    ...(applied && typeof applied === "object"
+      ? {
+          applied: {
+            ...(str(applied.commit) ? { commit: applied.commit as string } : {}),
+            ...(typeof applied.seq === "number" ? { seq: applied.seq } : {}),
+            digest: String(applied.digest ?? ""),
+            at: String(applied.at ?? ""),
+            packages: records(applied.packages)
+              .filter((p) => typeof p.package === "string")
+              .map((p) => ({ package: p.package as string, ...(str(p.version) ? { version: p.version as string } : {}), ...(str(p.digest) ? { digest: p.digest as string } : {}) })),
+          },
+        }
+      : {}),
+    ...(str(s.checkedAt) ? { checkedAt: s.checkedAt as string } : {}),
+    ...(str(s.error) ? { error: s.error as string } : {}),
+    ...(waiting && typeof waiting === "object" && strings(waiting.secrets).length ? { waiting: { secrets: strings(waiting.secrets) } } : {}),
+    warnings: strings(s.warnings),
+    packages: records(s.packages)
+      .filter((p) => typeof p.package === "string")
+      .map((p) => ({ package: p.package as string, ...(str(p.version) ? { version: p.version as string } : {}), diverged: strings(p.diverged) })),
+  };
+}
+
+const subscriptionPath = (id: string) => `/packages/subscriptions/${encodeURIComponent(id)}`;
+
+/** `GET /packages/subscriptions`: everything the box follows. */
+export async function listPackageSubscriptions(): Promise<PackageSubscription[]> {
+  const res = await strutFetch("GET", "/packages/subscriptions");
+  if (!res.ok) await fail("GET", "/packages/subscriptions", res);
+  const { subscriptions } = (await res.json()) as { subscriptions?: unknown };
+  if (!Array.isArray(subscriptions)) throw new Error("GET /packages/subscriptions returned no subscriptions list");
+  return records(subscriptions).filter((s) => typeof s.id === "string").map(readSubscription);
+}
+
+/**
+ * `PUT /packages/subscriptions/:id { ref }` as `actor`: follow a git
+ * branch's package. The request's actor is its person, never a field of
+ * the body: what it installs is theirs, and a private repository is read
+ * with their own secret alone. A later PUT by another person hands it to
+ * them. Strut answers at once and starts the first read behind it.
+ */
+export async function followPackageRef(id: string, ref: string, actor: string): Promise<PackageSubscription> {
+  const path = subscriptionPath(id);
+  const res = await strutFetch("PUT", path, { ref }, PACKAGE_READ_TIMEOUT_MS, actor);
+  if (!res.ok) await fail("PUT", path, res);
+  return readSubscription({ id, ref, ...((await res.json().catch(() => ({}))) as Record<string, unknown>) });
+}
+
+/** `POST /packages/subscriptions/:id/sync`: one read now, answered when it is done (an install it makes included). `null`: strut follows no such thing. */
+export async function syncPackageSubscription(id: string): Promise<SubscriptionSync | null> {
+  const path = `${subscriptionPath(id)}/sync`;
+  const res = await strutFetch("POST", path, undefined, PACKAGE_WRITE_TIMEOUT_MS);
+  if (res.status === 404) return null;
+  if (!res.ok) await fail("POST", path, res);
+  const d = (await res.json()) as Record<string, unknown>;
+  const waiting = d.waiting as { secrets?: unknown } | undefined;
+  return {
+    id,
+    status: d.status === "applied" || d.status === "current" || d.status === "waiting" ? d.status : "error",
+    ...(str(d.from) ? { from: d.from as string } : {}),
+    ...(str(d.to) ? { to: d.to as string } : {}),
+    ...(str(d.error) ? { error: d.error as string } : {}),
+    ...(waiting && strings(waiting.secrets).length ? { waiting: { secrets: strings(waiting.secrets) } } : {}),
+  };
+}
+
+/**
+ * `DELETE /packages/subscriptions/:id?uninstall=1`: stop following, and
+ * uninstall what it installed through the distro's door (what people
+ * edited here is kept). `null`: strut follows no such thing.
+ */
+export async function unfollowPackageSubscription(id: string): Promise<{ uninstalled: string[] } | null> {
+  const path = `${subscriptionPath(id)}?uninstall=1`;
+  const res = await strutFetch("DELETE", path, undefined, PACKAGE_WRITE_TIMEOUT_MS);
+  if (res.status === 404) return null;
+  if (!res.ok) await fail("DELETE", path, res);
+  const d = (await res.json()) as { uninstalled?: unknown };
+  return { uninstalled: strings(d.uninstalled) };
 }
 
 // ── apps (strut specs/API.md §14) ───────────────────────────────────────

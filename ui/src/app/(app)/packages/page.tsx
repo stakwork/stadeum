@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 
 import { PageHeader } from "@/components/page-header";
-import { installWatch, parseInstallLink, secretsNeeded } from "@/lib/packages";
+import { connectOffers } from "@/lib/connect";
+import { namesOf } from "@/lib/members";
+import { followedIdOf, followedOf, installWatch, parseInstallLink, secretsNeeded } from "@/lib/packages";
 import { requireAdmin } from "@/lib/session";
-import { listDeploymentSecretNames, listPackageIndexes, listPackageInstalls, listPackages, searchPackages } from "@/lib/strut/client";
+import { listDeploymentSecretNames, listPackageIndexes, listPackageInstalls, listPackages, listPackageSubscriptions, searchPackages } from "@/lib/strut/client";
 import { PackagesView } from "./view";
 
 export const metadata: Metadata = { title: "Packages" };
@@ -17,23 +19,29 @@ const warn = (what: string) => (err: unknown) => {
 /**
  * Strut's packages on this box, for an admin: the installs going on (any
  * door's: this page, a proposal someone accepted, the boot list, the
- * distro), what is installed and the keys it still needs, a search over the
+ * distro), what is installed and the keys it still needs, a package from a
+ * repository and the repositories the box follows, a search over the
  * indexes the box follows, and those indexes. The store's Install link lands here
  * (`?install=<publisher/name>&index=<key>&index_url=<url>`): it opens the
  * package's confirmation, after following its index when the box does not
  * yet, and nothing installs until the admin says so. Strut keeps all of it.
  */
 export default async function PackagesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireAdmin();
+  const me = await requireAdmin();
   const link = parseInstallLink(await searchParams);
-  const [installs, installed, indexes, secretNames, found] = await Promise.all([
+  const [installs, installed, indexes, secretNames, found, subscriptions] = await Promise.all([
     listPackageInstalls().catch(warn("GET /packages/installs")),
     listPackages().catch(warn("GET /packages")),
     listPackageIndexes().catch(warn("GET /packages/indexes")),
     listDeploymentSecretNames().catch(warn("GET /secrets")),
     searchPackages(link?.pkg ?? "").catch(warn("GET /packages/search")),
+    listPackageSubscriptions().catch(warn("GET /packages/subscriptions")),
   ]);
   const set = secretNames ? new Set(secretNames) : null;
+  const followed = subscriptions ? followedOf(subscriptions, await namesOf(subscriptions.map((s) => s.actor)), me.actor) : null;
+  // A followed repository's install shows in its own row under Followed, not under Installing.
+  const running = (installs ?? []).filter((i) => i.finishedAt === undefined);
+  const reading = running.map((i) => followedIdOf(i.ref)).filter((id): id is string => !!id);
 
   return (
     <>
@@ -45,9 +53,12 @@ export default async function PackagesPage({ searchParams }: { searchParams: Pro
       ) : (
         <PackagesView
           link={link}
-          installing={(installs ?? []).filter((i) => i.finishedAt === undefined).map(installWatch)}
+          installing={running.filter((i) => !followedIdOf(i.ref)).map(installWatch)}
           installed={installed.map((p) => ({ ...p, needs: secretsNeeded(p, set) }))}
           secretsKnown={set !== null}
+          followed={followed}
+          reading={reading}
+          connect={connectOffers()}
           indexes={indexes}
           initial={found}
         />

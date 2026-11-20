@@ -2,17 +2,19 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 import { admit } from "@/lib/access";
 import { db } from "@/lib/db";
-import { installProgressText, installWatch, linkIndexState, parseInstallLink, secretsNeeded } from "@/lib/packages";
+import { connectOffers } from "@/lib/connect";
+import { connectFor, installProgressText, installWatch, linkIndexState, parseInstallLink, parseRepositoryRef, refusalCode, secretsNeeded, subscriptionIdOf } from "@/lib/packages";
 import { listApps, listDeploymentSecretNames, listPackageIndexes, listPackageInstalls, listPackages, startPackageInstall } from "@/lib/strut/client";
 import { startFakeStack, type FakeStack } from "@/test/fake-stack";
-import { DOCS_DIGEST, LEGAL_DESK, STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL } from "@/test/strut-packages";
+import { ACME_TOOLS_REPO, DOCS_DIGEST, fakeRepos, LEGAL_DESK, STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL, STRUT_CODE_REPO } from "@/test/strut-packages";
 
 // Who is signed in: the real role check runs (lib/session.ts) on the person this email names.
 const who = vi.hoisted(() => ({ email: null as string | null }));
 vi.mock("@/auth", () => ({ auth: async () => (who.email ? { user: { email: who.email } } : null) }));
 vi.mock("next/cache", () => ({ revalidatePath: () => undefined }));
 
-const { findPackages, followIndex, install, installProgress, setSecret, uninstall, unfollowIndex } = await import("./actions");
+const { checkFollowed, findPackages, followedProgress, followIndex, followRepository, install, installFromRepository, installProgress, setSecret, uninstall, unfollow, unfollowIndex } =
+  await import("./actions");
 
 let fake: FakeStack;
 const saved = { ...process.env };
@@ -34,7 +36,9 @@ beforeEach(async () => {
   await admit("ben@acme.test"); // a member
   who.email = "ada@acme.test";
   Object.assign(fake.state, { followed: [], installed: [], refusePackage: null, installMs: 0, installs: [], installWaits: false, requests: [] });
+  Object.assign(fake.state, { repos: fakeRepos(), subscriptions: [], subscriptionPuts: [] });
   fake.state.deploymentSecrets.clear();
+  fake.state.secrets.clear();
   fake.state.apps = fake.state.apps.filter((a) => a.name.startsWith("strut/"));
 });
 afterEach(() => {
@@ -292,7 +296,7 @@ describe("uninstall", () => {
     expect(await listPackages()).toHaveLength(1);
 
     fake.state.installed[0]!.door = "distro";
-    expect((await uninstall("openlaw/legal-desk")).error).toMatch(/only the distro updates or removes it/);
+    expect((await uninstall("openlaw/legal-desk")).error).toMatch(/only that updates or removes it/);
     expect((await uninstall("acme/nothing")).error).toMatch(/^That package isn’t installed\./);
   });
 });
@@ -330,8 +334,14 @@ describe("who may", () => {
     await expect(followIndex(STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL)).rejects.toEqual(home);
     await expect(unfollowIndex("index-stakwork-ai")).rejects.toEqual(home);
     await expect(setSecret("COURTLISTENER_API_KEY", "x")).rejects.toEqual(home);
+    await expect(followRepository(`git+${STRUT_CODE_REPO}`)).rejects.toEqual(home);
+    await expect(installFromRepository(`git+${STRUT_CODE_REPO}`)).rejects.toEqual(home);
+    await expect(checkFollowed("strut-code-00000000")).rejects.toEqual(home);
+    await expect(followedProgress("strut-code-00000000")).rejects.toEqual(home);
+    await expect(unfollow("strut-code-00000000")).rejects.toEqual(home);
     expect(packageCalls()).toEqual([]);
     expect(fake.state.installed).toEqual([]);
+    expect(fake.state.subscriptionPuts).toEqual([]);
   });
 
   it("sends someone signed out to sign in", async () => {
@@ -343,5 +353,162 @@ describe("who may", () => {
     await followStakwork();
     expect(await unfollowIndex("index-stakwork-ai")).toEqual({});
     expect(fake.state.followed).toEqual([]);
+  });
+});
+
+/** Wait for a read of something the box follows to end, as the page does: its last read newer than `before`, nothing installing. */
+async function readEnds(id: string, before?: string) {
+  for (let looks = 0; looks < 100; looks++) {
+    const r = await followedProgress(id, before);
+    if (r.error !== undefined) throw new Error(r.error);
+    if (!r.followed) throw new Error(`${id} isn't followed`);
+    if (r.followed.checkedAt && r.followed.checkedAt !== before && !r.install) return r.followed;
+    await new Promise((done) => setTimeout(done, 10));
+  }
+  throw new Error("the read never ended");
+}
+
+describe("from a repository", () => {
+  const CODE = `git+${STRUT_CODE_REPO}@main`;
+  const idOf = (ref: string) => {
+    const r = parseRepositoryRef(ref);
+    if ("error" in r) throw new Error(r.error);
+    return subscriptionIdOf(r);
+  };
+
+  it("says what is wrong with a ref that isn't a repository's address, and sends strut nothing", async () => {
+    for (const [ref, why] of [
+      ["", /Give the repository’s address/],
+      ["stakwork/strut-code", /isn’t a repository’s address/],
+      ["git+ftp://example.test/a/b", /starts with https/],
+      ["git@github.com:stakwork/strut-code.git", /SSH address/],
+      ["git+https://bob:hunter2@example.test/acme/tools", /Leave the name and password out/],
+      ["git+https://example.test/tools", /needs an owner and a name/],
+      ["git+https://example.test/acme/tools@", /Nothing follows @/],
+      ["git+https://example.test/acme/tools@bad..name", /isn’t a branch’s name/],
+      ["git+https://example.test/acme/tools#", /Nothing follows #/],
+      ["git+https://example.test/acme/tools#../etc", /isn’t a folder/],
+      ["https://example.test/acme/tools?tab=readme", /no \?/],
+    ] as const) {
+      expect((await followRepository(ref)).error).toMatch(why);
+      expect((await installFromRepository(ref)).error).toMatch(why);
+    }
+    // A commit never moves: it installs once, and isn't followed.
+    expect((await followRepository(`${CODE.replace("@main", "")}@${"a1".repeat(20)}`)).error).toMatch(/A commit never moves/);
+    expect(packageCalls()).toEqual([]);
+    // The address alone is taken as the ref strut wants.
+    expect(parseRepositoryRef(" https://example.test/acme/tools/ ")).toMatchObject({ ref: "git+https://example.test/acme/tools", source: "example.test/acme/tools" });
+  });
+
+  it("follows a repository as this admin: the actor beside the key, never a person in the body, and the package is theirs", async () => {
+    const r = await followRepository(CODE);
+    if (r.error !== undefined) throw new Error(r.error);
+    const id = idOf(CODE);
+    expect(r.followed).toMatchObject({ id, ref: CODE, actor: adminActor, whose: "ada@acme.test", mine: true });
+    expect(fake.state.subscriptionPuts).toEqual([{ id, actor: adminActor, body: { ref: CODE } }]);
+
+    // Strut reads it behind the answer; the page follows the read.
+    const done = await readEnds(id, r.before);
+    expect(done).toMatchObject({ applied: { commit: "a1".repeat(20) }, packages: [{ package: "stadeum/code", version: "0.1.0", diverged: [] }], mine: true });
+    expect(done.error).toBeUndefined();
+    expect(fake.state.installed.map((p) => [p.release.package, p.door, p.actor, p.source?.ref])).toEqual([["stadeum/code", "distro", adminActor, `subscription:${id}`]]);
+    expect((await listPackages())[0]).toMatchObject({ package: "stadeum/code", door: "distro", source: { ref: `subscription:${id}` }, commit: "a1".repeat(20) });
+    expect((await listApps()).map((a) => a.name)).toContain("stadeum/code/code");
+  });
+
+  it("follows the same repository again as the same subscription: on another branch, or as another admin, whose it then is", async () => {
+    const first = await followRepository(`${STRUT_CODE_REPO}.git`);
+    if (first.error !== undefined) throw new Error(first.error);
+    await readEnds(first.followed.id);
+    const cy = (await admit("cy@acme.test")).user!;
+    await db.user.update({ where: { id: cy.id }, data: { role: "admin" } });
+    who.email = "cy@acme.test";
+    const again = await followRepository(CODE);
+    if (again.error !== undefined) throw new Error(again.error);
+    expect(again.followed.id).toBe(first.followed.id);
+    expect(fake.state.subscriptions).toHaveLength(1);
+    expect(fake.state.subscriptions[0]).toMatchObject({ ref: CODE, actor: cy.actor });
+    expect(again.followed).toMatchObject({ actor: cy.actor, whose: "cy@acme.test", mine: true });
+  });
+
+  it("installs one once: a person's install of the ref, as this admin, followed as any install is, and the box follows nothing", async () => {
+    const started = await installFromRepository(`${STRUT_CODE_REPO}@v0.1.0`);
+    if (started.status === undefined) throw new Error(started.error);
+    expect(started).toMatchObject({ ref: `git+${STRUT_CODE_REPO}@v0.1.0`, door: "install" });
+    const w = await installProgress(started.id);
+    expect(w).toMatchObject({ status: "done", result: { package: "stadeum/code", version: "0.1.0", already: false } });
+    expect(fake.state.installed.map((p) => [p.release.package, p.door, p.actor, p.source?.ref])).toEqual([["stadeum/code", "install", adminActor, `git+${STRUT_CODE_REPO}@v0.1.0`]]);
+    expect(fake.state.subscriptionPuts).toEqual([]);
+    // Installed by a person, it is theirs to uninstall; a followed one is the distro's.
+    expect((await uninstall("stadeum/code")).error).toBeUndefined();
+  });
+
+  it("says why a private repository can't be read, and which account to connect; once it can, waits for its key, then installs", async () => {
+    Object.assign(process.env, { CONNECT_GITHUB_CLIENT_ID: "Iv23.test", CONNECT_GITHUB_CLIENT_SECRET: "test-secret" });
+    const offers = connectOffers();
+    expect(offers).toEqual([{ id: "github", name: "GitHub", secrets: ["GITHUB_TOKEN"] }]);
+
+    const ref = `git+${ACME_TOOLS_REPO}#package`;
+    const r = await followRepository(ref);
+    if (r.error !== undefined) throw new Error(r.error);
+    const denied = await readEnds(r.followed.id);
+    expect(denied.error).toMatch(/^package_repo_denied: .* this subscription is .*'s, and is read with their own GITHUB_TOKEN alone/);
+    expect(connectFor(refusalCode(denied.error), denied.error!, offers, denied.tokenSecret)).toEqual(offers[0]);
+    expect(fake.state.installed).toEqual([]);
+    // Once to install: the same refusal, the same account.
+    const once = await installFromRepository(ref);
+    if (once.status === undefined) throw new Error(once.error);
+    const failed = await installProgress(once.id);
+    if (failed.status !== "failed") throw new Error("it installed");
+    expect(failed.error).toMatch(/^The repository can’t be read/);
+    expect(connectFor(failed.code, failed.error, offers)).toEqual(offers[0]);
+
+    // The admin connects their own account (the seam writes their GITHUB_TOKEN); a deployment's value is never read for it.
+    fake.state.deploymentSecrets.set("GITHUB_TOKEN", "the-box-token");
+    let c = await checkFollowed(r.followed.id);
+    if (c.error !== undefined) throw new Error(c.error);
+    expect((await readEnds(r.followed.id, c.before)).error).toMatch(/^package_repo_denied/);
+    fake.state.secrets.set(`${adminActor}/GITHUB_TOKEN`, "ghu_ada");
+    c = await checkFollowed(r.followed.id);
+    if (c.error !== undefined) throw new Error(c.error);
+    const waiting = await readEnds(r.followed.id, c.before);
+    expect(waiting).toMatchObject({ waiting: { secrets: ["ACME_API_KEY"] }, packages: [] });
+    expect(waiting.error).toBeUndefined();
+
+    // The key it waits for may be set here, and it is read again at once.
+    expect(await setSecret("ACME_API_KEY", "acme-key")).toEqual({});
+    const installed = await readEnds(r.followed.id, waiting.checkedAt);
+    expect(installed).toMatchObject({ packages: [{ package: "acme/tools", version: "1.2.0" }] });
+    expect(installed.waiting).toBeUndefined();
+  });
+
+  it("checks it now, and stops following it: what it installed is uninstalled with it", async () => {
+    fake.state.installMs = 30;
+    const r = await followRepository(CODE);
+    if (r.error !== undefined) throw new Error(r.error);
+    const read = await readEnds(r.followed.id);
+
+    // The branch moves: Check now reads it again, and the page sees its install going.
+    const main = fake.state.repos.get(STRUT_CODE_REPO)!.refs.main!;
+    Object.assign(main, { commit: "c3".repeat(20), release: { ...main.release, version: "0.2.0", digest: `sha256:${"5e".repeat(32)}` } });
+    const c = await checkFollowed(r.followed.id);
+    expect(c).toEqual({ before: read.checkedAt });
+    let sawInstall = false;
+    for (let looks = 0; looks < 100 && !sawInstall; looks++) {
+      const p = await followedProgress(r.followed.id, read.checkedAt);
+      sawInstall = !!(p.error === undefined && p.install?.door === "distro");
+    }
+    expect(sawInstall).toBe(true);
+    expect(await readEnds(r.followed.id, read.checkedAt)).toMatchObject({ applied: { commit: "c3".repeat(20) }, packages: [{ package: "stadeum/code", version: "0.2.0" }] });
+
+    // A person's uninstall can't take what the box follows; stopping does.
+    expect((await uninstall("stadeum/code")).error).toMatch(/only that updates or removes it/);
+    expect(await unfollow(r.followed.id)).toEqual({ uninstalled: ["stadeum/code"] });
+    expect(fake.state.subscriptions).toEqual([]);
+    expect(await listPackages()).toEqual([]);
+    expect((await listApps()).map((a) => a.name)).not.toContain("stadeum/code/code");
+    expect(await followedProgress(r.followed.id)).toEqual({ followed: null });
+    expect((await checkFollowed(r.followed.id)).error).toMatch(/doesn’t follow that any more/);
+    expect((await unfollow("../../secrets")).error).toBe("That isn’t something the box follows.");
   });
 });

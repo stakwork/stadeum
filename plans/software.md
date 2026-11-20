@@ -542,17 +542,20 @@ GitHub:
 - **The connect seam** (§2.1): two routes, a third once a provider's
   tokens expire, and the provider table. It
   keeps no state, so `stadeum.db` gains nothing and rule 6 is unchanged.
-- **Install from a repository.** The Packages page installs only
-  `publisher/name` from an index today
-  (`ui/src/app/(app)/packages/actions.ts:75-78`). It gains **From a
-  repository**: a `git+https://…[@branch][#folder]` ref, with **Keep it up
-  to date** on by default.
-  - On, it's a subscription (`PUT /packages/subscriptions/:id { ref }`).
+- **Install from a repository** (built 2026-11-20). The Packages page
+  has **From a repository**: a `git+https://…[@branch][#folder]` ref,
+  with **Keep it up to date** on by default.
+  - On, it's a subscription (`PUT /packages/subscriptions/:id { ref }`),
+    made as the admin, who is then its person.
   - Off, it's one install (`POST /packages/install { ref }`).
 
   A private repo is read with the admin's own `GITHUB_TOKEN`, for an
   install and for a subscription, which syncs as whoever made it (§5,
-  item 15). Like every install, this is for admins only.
+  item 15). Like every install, this is for admins only. **Followed**
+  lists what the box follows, whose each is and what strut last read;
+  **Check now** syncs one, and **Stop following** uninstalls what it
+  brought, since strut lets only the distro's door remove it
+  (`docs/stack-spec.md`, "From a repository").
 - **The Software button.** A card on the Packages page, "Your
   repositories, known to the box and in its graph, and a machine of its
   own for every coding job." It makes one subscription to the bundle
@@ -828,8 +831,8 @@ Each is its own PR.
    - webhooks and `on-event`;
    - `forget` and `retire`.
 5. **Stadeum:**
-   - From a repository, and the Software button as a subscription for
-     each package;
+   - From a repository (built 2026-11-20);
+   - the Software button as a subscription for each package;
    - `DELETE /actors/:actor` on a member's removal;
    - ops syncing every subscription;
    - strut's poll off.

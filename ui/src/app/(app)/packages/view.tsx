@@ -7,23 +7,48 @@ import { buttonClass } from "@/components/button";
 import { fieldClass } from "@/components/form";
 import { SectionLabel } from "@/components/page-header";
 import { Dot } from "@/components/state";
+import { relativeTime } from "@/lib/format";
 import {
   bringsWords,
   canWords,
+  connectFor,
+  connectHref,
+  explainRefusal,
+  followedFrom,
+  followedIdOf,
+  followedState,
   hitSecrets,
   hostOf,
   itemsByKind,
   linkIndexState,
+  parseRepositoryRef,
+  refusalCode,
   shortKey,
   shortName,
+  type ConnectOffer,
+  type Followed,
   type InstallLink,
   type InstallWatch,
 } from "@/lib/packages";
 import type { InstalledPackage, PackageHit, PackageIndex, UninstallResult } from "@/lib/strut/client";
-import { findPackages, followIndex, install, setSecret, uninstall, unfollowIndex } from "./actions";
+import {
+  checkFollowed,
+  findPackages,
+  followedProgress,
+  followIndex,
+  followRepository,
+  install,
+  installFromRepository,
+  setSecret,
+  uninstall,
+  unfollow,
+  unfollowIndex,
+} from "./actions";
 import { InstallBar, Installing, useInstallWatch } from "./install-progress";
 
 type Installed = InstalledPackage & { needs: string[] };
+/** Followed from this page: what strut answered, and the read it started (`n`: which follow it was). */
+type Started = { f: Followed; n: number; before?: string };
 type Found = { hits: PackageHit[]; errors: Array<{ index: string; error: string }> };
 
 const card = "rounded-xl border border-rule bg-surface";
@@ -33,19 +58,27 @@ const empty = "rounded-xl border border-dashed border-dash px-5 py-6 text-[14px]
 
 /**
  * The page: the store's link when it brought the admin here, the installs
- * going on, what is installed, a search over the indexes, and the indexes.
- * Install and Uninstall each ask first; the link only ever opens the
- * question.
+ * going on, what is installed, a search over the indexes, a package from a
+ * repository and what the box follows, and the indexes. Install and
+ * Uninstall each ask first; the link only ever opens the question.
  */
 export function PackagesView(props: {
   link: InstallLink | null;
   installing: InstallWatch[];
   installed: Installed[];
   secretsKnown: boolean;
+  /** What the box follows; null when strut couldn't say. */
+  followed: Followed[] | null;
+  /** The ones strut is installing a release of now. */
+  reading: string[];
+  /** The accounts a person can connect here, for a repository strut couldn't read. */
+  connect: ConnectOffer[];
   indexes: PackageIndex[];
   initial: Found | null;
 }) {
   const { link, installed, indexes } = props;
+  // Followed here and not yet in the page's reading of strut, each with the read it started.
+  const [followedNow, setFollowedNow] = useState<Started[]>([]);
   const byName = useMemo(() => new Map(installed.map((p) => [p.package, p])), [installed]);
   const indexLabel = (id: string) => indexes.find((i) => i.id === id)?.label ?? id;
 
@@ -96,7 +129,14 @@ export function PackagesView(props: {
         onDismiss={(id) => setDismissed((now) => new Set(now).add(id))}
       />
 
-      <InstalledList installed={installed} secretsKnown={props.secretsKnown} />
+      <InstalledList installed={installed} secretsKnown={props.secretsKnown} followed={props.followed ?? []} />
+
+      <FromRepository
+        connect={props.connect}
+        onFollowed={(f, before) => setFollowedNow((now) => [...now.filter((x) => x.f.id !== f.id), { f, n: now.length + 1, ...(before ? { before } : {}) }])}
+      />
+
+      <FollowedList followed={props.followed} reading={props.reading} started={followedNow} connect={props.connect} />
 
       <Find
         initialQuery={link?.pkg ?? ""}
@@ -252,7 +292,18 @@ function KeyBlock({ value, label = "Its key" }: { value: string; label?: string 
 
 // ── installed ───────────────────────────────────────────────────────────
 
-function InstalledList({ installed, secretsKnown }: { installed: Installed[]; secretsKnown: boolean }) {
+/** Where an installed package came from, in a few words: what the box follows, a repository, a publisher's catalog. */
+function cameFrom(p: Installed, followed: Map<string, Followed>): string {
+  const id = followedIdOf(p.source?.ref);
+  const sub = id ? followed.get(id) : undefined;
+  if (sub) return `Kept up to date from ${followedFrom(sub)}${sub.actor ? `, ${sub.mine ? "yours" : `${sub.whose}’s`}` : ""}. Stop following it below to remove it`;
+  if (p.door === "distro") return "Installed by the box’s distro, which updates and removes it";
+  if (p.source?.ref.startsWith("git+")) return `From ${p.source.ref}${p.commit ? ` at ${p.commit.slice(0, 7)}` : ""}`;
+  return p.source?.url ? `From ${hostOf(p.source.url)}` : "Installed";
+}
+
+function InstalledList({ installed, secretsKnown, followed }: { installed: Installed[]; secretsKnown: boolean; followed: Followed[] }) {
+  const byId = useMemo(() => new Map(followed.map((f) => [f.id, f])), [followed]);
   const [removing, setRemoving] = useState<Installed | null>(null);
   const [notice, setNotice] = useState<{ pkg: string; kept: UninstallResult["kept"] } | null>(null);
   return (
@@ -267,7 +318,7 @@ function InstalledList({ installed, secretsKnown }: { installed: Installed[]; se
         </p>
       )}
       {installed.length === 0 ? (
-        <p className={empty}>No packages yet. Find one below, or follow the store’s Install link.</p>
+        <p className={empty}>No packages yet. Install one from a repository or find one below, or follow the store’s Install link.</p>
       ) : (
         <ul className="flex flex-col gap-3">
           {installed.map((p) => (
@@ -278,9 +329,7 @@ function InstalledList({ installed, secretsKnown }: { installed: Installed[]; se
                     {p.package}
                     {p.version && <span className="ml-2 font-sans text-[13px] font-normal text-ink-3">{p.version}</span>}
                   </span>
-                  <span className="text-[13px] text-ink-3">
-                    {p.door === "distro" ? "Installed by the box’s distro, which updates and removes it" : p.source?.url ? `From ${hostOf(p.source.url)}` : "Installed"}
-                  </span>
+                  <span className="text-[13px] break-words text-ink-3">{cameFrom(p, byId)}</span>
                 </div>
                 {p.door !== "distro" && (
                   <button type="button" onClick={() => setRemoving(p)} className={small}>
@@ -365,7 +414,7 @@ function Counted({ items, pkg }: { items: InstalledPackage["items"]; pkg: string
 }
 
 /** One key a package reads: write-only, it goes to strut's store and is never shown again. */
-function SecretField({ name }: { name: string }) {
+function SecretField({ name, onSaved }: { name: string; onSaved?: () => void }) {
   const [value, setValue] = useState("");
   const [state, setState] = useState<{ ok?: boolean; error?: string }>({});
   const [pending, start] = useTransition();
@@ -376,6 +425,7 @@ function SecretField({ name }: { name: string }) {
       if (r.error) return setState({ error: r.error });
       setValue("");
       setState({ ok: true });
+      onSaved?.();
     });
   return (
     <form
@@ -413,6 +463,371 @@ function SecretField({ name }: { name: string }) {
       </div>
       {state.error && <p className="text-[13px] text-warn">{state.error}</p>}
     </form>
+  );
+}
+
+// ── from a repository ───────────────────────────────────────────────────
+
+/**
+ * A package's repository, given by its address: followed (Keep it up to
+ * date, on by default), strut installs the branch's package and each new
+ * commit's after it, as this admin's; off, it is one install. What is
+ * wrong with the address is said before anything is sent.
+ */
+function FromRepository({ connect, onFollowed }: { connect: ConnectOffer[]; onFollowed: (f: Followed, before?: string) => void }) {
+  const [ref, setRef] = useState("");
+  const [keep, setKeep] = useState(true);
+  const [error, setError] = useState<string>();
+  const [followed, setFollowed] = useState<string>();
+  const [pending, start] = useTransition();
+  const { watch, follow, note } = useInstallWatch(null);
+  const going = !!watch && (watch.status === "queued" || watch.status === "running") && !note?.final;
+
+  const submit = () => {
+    const r = parseRepositoryRef(ref);
+    if ("error" in r) return setError(r.error);
+    start(async () => {
+      setError(undefined);
+      setFollowed(undefined);
+      if (keep) {
+        const out = await followRepository(ref);
+        if (out.error !== undefined) return setError(out.error);
+        onFollowed(out.followed, out.before);
+        setRef("");
+        setFollowed(out.followed.ref);
+        return;
+      }
+      const out = await installFromRepository(ref);
+      if (out.status === undefined) return setError(out.error);
+      follow(out);
+    });
+  };
+  // The address goes once its package is in.
+  const landed = watch?.status === "done";
+  useEffect(() => {
+    if (landed) setRef("");
+  }, [landed]);
+
+  const done = watch?.status === "done" ? watch.result : null;
+  const failed = watch?.status === "failed" ? watch : null;
+  const offer = failed ? connectFor(failed.code, failed.error, connect) : undefined;
+
+  return (
+    <section aria-labelledby="from-repository" className="flex flex-col gap-3">
+      <SectionLabel id="from-repository">From a repository</SectionLabel>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+        className={`${card} flex flex-col gap-3 p-5`}
+      >
+        <label htmlFor="repository" className="text-[14px] text-ink-2">
+          A package in a git repository, by its address: a branch after @, the folder that holds it after #.
+        </label>
+        <input
+          id="repository"
+          placeholder="git+https://host/owner/repo@branch#folder"
+          value={ref}
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => {
+            setRef(e.target.value);
+            setError(undefined);
+          }}
+          className={`${fieldClass} font-mono text-[14px]`}
+        />
+        <label className="flex items-start gap-2.5 text-[14px] text-ink">
+          <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} className="mt-[3px] size-4 accent-accent" />
+          <span className="flex flex-col gap-0.5">
+            Keep it up to date
+            <span className="text-[13px] text-ink-3">
+              {keep
+                ? "The box follows the branch and installs each new commit’s package. It’s yours: what it brings runs as you, and a private repository is read with your own account."
+                : "Installed once, at the commit the branch is at now. A tag or a commit after @ works too."}
+            </span>
+          </span>
+        </label>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p aria-live="polite" className="min-w-0 text-[13px] break-words">
+            {error ? (
+              <span role="alert" className="text-warn">
+                {error}
+              </span>
+            ) : followed ? (
+              <span className="text-ink-2">
+                Now following <code className="font-mono break-all">{followed}</code>.
+              </span>
+            ) : null}
+          </p>
+          <button type="submit" disabled={pending || going || !ref.trim()} className={`${buttonClass.secondary} h-10 px-4 text-[14px]`}>
+            {pending ? (keep ? "Following…" : "Installing…") : keep ? "Follow" : "Install"}
+          </button>
+        </div>
+        {watch && (
+          <div className="flex flex-col gap-3 border-t border-rule-soft pt-3">
+            {going && <InstallBar watch={watch} label={`Installing ${watch.ref}`} />}
+            {note && <p className={`text-[13px] ${note.final ? "text-warn" : "text-ink-3"}`}>{note.text}</p>}
+            {done && (
+              <p className="text-[14px] text-ink-2">
+                {done.already ? "Already installed: " : "Installed "}
+                <code className="font-mono text-ink">{done.package}</code>
+                {done.version && !done.already ? `, version ${done.version}` : ""}.
+              </p>
+            )}
+            {done && done.missingSecrets.length > 0 && (
+              <div className="flex flex-col gap-3 rounded-[12px] bg-warn-soft px-4 py-3.5">
+                <p className="text-[13.5px] text-ink-2">Its steps need these keys before they can run. Each goes to strut and is never shown again.</p>
+                {done.missingSecrets.map((name) => (
+                  <SecretField key={name} name={name} />
+                ))}
+              </div>
+            )}
+            {failed && (
+              <p role="alert" className="text-[13.5px] break-words text-warn">
+                {failed.error}
+              </p>
+            )}
+            {offer && <ConnectLine offer={offer} then="install it again" />}
+          </div>
+        )}
+      </form>
+    </section>
+  );
+}
+
+/** What to do when strut could not read a private repository with this admin's own account: connect it, through the box's seam. */
+function ConnectLine({ offer, then }: { offer: ConnectOffer; then: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13.5px] text-ink-2">
+      <a href={connectHref(offer)} className={`${buttonClass.secondary} h-9 px-4 text-[14px]`}>
+        Connect {offer.name}
+      </a>
+      <span>
+        It’s read with your own {offer.name} account. Connect it, then {then}.
+      </span>
+    </div>
+  );
+}
+
+/** How often a read of something the box follows is looked at again. */
+const READ_POLL_MS = 1000;
+
+/**
+ * What the box follows (strut's subscriptions), each with what strut last
+ * read and installed, whose it is, and Check now and Stop following.
+ * `started`: followed from this page, and the read each started;
+ * `reading`: those strut was installing a release of when the page loaded.
+ */
+function FollowedList(props: { followed: Followed[] | null; reading: string[]; started: Started[]; connect: ConnectOffer[] }) {
+  const { followed, started, connect } = props;
+  const [gone, setGone] = useState<ReadonlySet<string>>(new Set());
+  const [notice, setNotice] = useState<string>();
+  const known = new Set((followed ?? []).map((f) => f.id));
+  const list = [...(followed ?? []), ...started.filter((s) => !known.has(s.f.id)).map((s) => s.f)].filter((f) => !gone.has(f.id));
+  const reads = new Map(started.map((s) => [s.f.id, s]));
+  if (followed === null) return <p className={empty}>Strut isn’t answering, so what the box follows can’t be read right now.</p>;
+  if (list.length === 0 && !notice) return null;
+
+  return (
+    <section aria-labelledby="followed" className="flex flex-col gap-3">
+      <SectionLabel id="followed">Followed</SectionLabel>
+      {notice && (
+        <p aria-live="polite" className="rounded-xl bg-ok-soft px-4 py-3 text-[13.5px] text-ink-2">
+          {notice}
+        </p>
+      )}
+      {list.length > 0 && (
+        <ul className={`${card} divide-y divide-rule-soft`}>
+          {list.map((f) => (
+            <FollowedRow
+              key={`${f.id}:${reads.get(f.id)?.n ?? 0}`}
+              first={f}
+              read={reads.get(f.id) ?? (props.reading.includes(f.id) ? { ...(f.checkedAt ? { before: f.checkedAt } : {}) } : undefined)}
+              connect={connect}
+              onGone={(uninstalled) => {
+                setGone((now) => new Set(now).add(f.id));
+                setNotice(
+                  `Stopped following ${followedFrom(f)}.${uninstalled.length ? ` Uninstalled ${uninstalled.join(", ")}; what people edited here is kept.` : ""}`,
+                );
+              }}
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** Whose it is, in a word or two. */
+const whoseWords = (f: Followed) => (!f.actor ? "Nobody’s" : f.mine ? "Yours" : `${f.whose}’s`);
+
+function FollowedRow(props: { first: Followed; read?: { before?: string }; connect: ConnectOffer[]; onGone: (uninstalled: string[]) => void }) {
+  const { first, connect } = props;
+  // While a read goes on: strut's record as the page last looked, and its install.
+  const [live, setLive] = useState<Followed | null>(null);
+  const [read, setRead] = useState<{ before?: string } | null>(props.read ?? null);
+  const [install, setInstall] = useState<InstallWatch>();
+  const [note, setNote] = useState<string>();
+  const [asking, setAsking] = useState(false);
+  const [error, setError] = useState<string>();
+  const [pending, start] = useTransition();
+  // A newer reading of the page wins over the last look, once no read is going on.
+  const [seen, setSeen] = useState(first);
+  if (seen !== first) {
+    setSeen(first);
+    if (!read) setLive(null);
+  }
+  const f = live ?? first;
+
+  useEffect(() => {
+    if (!read) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const again = () => {
+      if (!stopped) timer = setTimeout(look, READ_POLL_MS);
+    };
+    async function look() {
+      if (stopped) return;
+      if (document.visibilityState === "hidden") return again();
+      const r = await followedProgress(first.id, read!.before).catch(() => ({ error: "Strut isn’t answering just now. Still trying.", retry: true }));
+      if (stopped) return;
+      if (r.error !== undefined) {
+        setNote(r.error);
+        return r.retry ? again() : setRead(null);
+      }
+      setNote(undefined);
+      if (!r.followed) return setRead(null);
+      setLive(r.followed);
+      setInstall(r.install);
+      if (r.followed.checkedAt && r.followed.checkedAt !== read!.before && !r.install) return setRead(null);
+      again();
+    }
+    timer = setTimeout(look, 300);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [read, first.id]);
+
+  const check = () =>
+    start(async () => {
+      setError(undefined);
+      const r = await checkFollowed(f.id);
+      if (r.error !== undefined) return setError(r.error);
+      setRead({ ...(r.before ? { before: r.before } : {}) });
+    });
+  const stop = () =>
+    start(async () => {
+      setError(undefined);
+      const r = await unfollow(f.id);
+      if (r.error !== undefined) return setError(r.error);
+      props.onGone(r.uninstalled);
+    });
+
+  const state = followedState(f);
+  const offer = f.error ? connectFor(refusalCode(f.error), f.error, connect, f.tokenSecret) : undefined;
+  const at = f.applied?.commit?.slice(0, 7);
+
+  return (
+    <li className="flex flex-col gap-3 px-5 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <code className="font-mono text-[14px] break-all text-ink">{followedFrom(f)}</code>
+          <span className="text-[13px] text-ink-3">
+            {whoseWords(f)}
+            {f.checkedAt ? ` · checked ${relativeTime(f.checkedAt)}` : ""}
+          </span>
+        </div>
+        <span className="text-[13px]">{read ? <Dot tone="pending" label="Reading…" /> : <Dot tone={state.tone} label={state.label} />}</span>
+      </div>
+
+      {read && (install ? <InstallBar watch={install} label={`Installing ${followedFrom(f)}`} /> : <p className="text-[13px] text-ink-3">Strut is reading it now.</p>)}
+      {note && <p className="text-[13px] text-ink-3">{note}</p>}
+
+      {f.packages.length > 0 && (
+        <p className="text-[13.5px] text-ink-2">
+          {at ? `At ${at}: ` : ""}
+          {f.packages.map((p, i) => (
+            <span key={p.package}>
+              {i > 0 && ", "}
+              <code className="font-mono text-[13px] text-ink">{p.package}</code>
+              {p.version && <span className="text-ink-3"> {p.version}</span>}
+              {p.diverged.length > 0 && <span className="text-[12px] text-warn"> · {p.diverged.length} edited here</span>}
+            </span>
+          ))}
+        </p>
+      )}
+      {f.packages.length === 0 && at && !f.waiting && !f.error && !read && <p className="text-[13.5px] text-ink-3">At {at}: nothing of it is installed.</p>}
+
+      {f.waiting && (
+        <div className="flex flex-col gap-3 rounded-[12px] bg-warn-soft px-4 py-3.5">
+          <p className="text-[13.5px] text-ink-2">
+            Its package waits for {f.waiting.secrets.length === 1 ? "a key" : "keys"} before it installs. Each goes to strut and is never shown again; the box
+            installs it once they’re set.
+          </p>
+          {f.waiting.secrets.map((name) => (
+            <SecretField key={name} name={name} onSaved={() => setRead({ ...(f.checkedAt ? { before: f.checkedAt } : {}) })} />
+          ))}
+        </div>
+      )}
+
+      {f.error && !read && (
+        <div className="flex flex-col gap-2">
+          <p className="text-[13.5px] break-words text-warn">{explainRefusal(f.error, 500)}</p>
+          {offer &&
+            (f.mine ? (
+              <ConnectLine offer={offer} then="check it now" />
+            ) : (
+              <p className="text-[13.5px] text-ink-2">
+                {f.actor
+                  ? `It’s read with ${f.whose}’s own account alone: they connect theirs, or you follow it again above and it’s yours.`
+                  : "Follow it again above, and it’s yours: read with your own account."}
+              </p>
+            ))}
+        </div>
+      )}
+      {f.warnings.length > 0 && (
+        <ul className="flex flex-col gap-1 text-[13px] text-ink-3">
+          {f.warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      )}
+
+      {asking && (
+        <p className="text-[13.5px] text-ink-2">
+          Stop following it? What it installed is uninstalled too, for everyone: its apps, workflows, steps and Concepts leave the box. Their runs stay in
+          the history, and anything people edited here is kept.
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="text-[13.5px] break-words text-warn">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {asking ? (
+          <>
+            <button type="button" disabled={pending} onClick={() => setAsking(false)} className={buttonClass.quiet}>
+              Cancel
+            </button>
+            <button type="button" disabled={pending} onClick={stop} className={small}>
+              {pending ? "Stopping…" : "Stop following"}
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" disabled={pending || !!read} onClick={check} className={small}>
+              {read ? "Checking…" : "Check now"}
+            </button>
+            <button type="button" disabled={pending || !!read} onClick={() => setAsking(true)} className={small}>
+              Stop following
+            </button>
+          </>
+        )}
+      </div>
+    </li>
   );
 }
 

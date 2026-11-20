@@ -4,15 +4,23 @@ import { STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL } from "@/test/strut-packages";
 import {
   bringsWords,
   canWords,
+  connectFor,
+  connectHref,
   explainRefusal,
+  followedFrom,
+  followedOf,
+  followedState,
   indexIdOf,
   installProgressText,
   installWatch,
   itemsByKind,
   linkIndexState,
   parseInstallLink,
+  parseRepositoryRef,
+  refusalCode,
   secretsNeeded,
   settableSecret,
+  subscriptionIdOf,
   type InstallWatch,
 } from "./packages";
 import type { InstalledPackage, PackageInstall } from "./strut/client";
@@ -110,7 +118,7 @@ describe("explainRefusal", () => {
       "Another version of this package is installed here. Uninstall it first, then install this one. Strut says: acme/x is installed here at sha256:aa",
     );
     expect(explainRefusal("package_busy: acme/x/sync has a run in flight", 409)).toMatch(/^One of its workflows is running\./);
-    expect(explainRefusal("package_distro_owned: acme/x", 409)).toMatch(/only the distro updates or removes it/);
+    expect(explainRefusal("package_distro_owned: acme/x", 409)).toMatch(/only that updates or removes it/);
     expect(explainRefusal("package_conflict: a local workflow acme/x/sync", 409)).toMatch(/^Something on this box already uses a name/);
     expect(explainRefusal("catalog_seal: the signature does not verify", 409)).toMatch(/^The publisher’s catalog didn’t pass its checks.*Strut says: the signature does not verify$/);
   });
@@ -173,6 +181,7 @@ describe("an install as it goes", () => {
       door: "install",
       status: "failed",
       error: "No index this box follows lists that publisher. Strut says: no index lists acme",
+      code: "package_not_listed",
     });
     expect(installWatch({ ...base, status: "running", phase: "concepts", done: 3, total: 9, package: "openlaw/legal-desk" })).toEqual({
       id: base.id,
@@ -184,5 +193,97 @@ describe("an install as it goes", () => {
       done: 3,
       total: 9,
     });
+  });
+});
+
+describe("parseRepositoryRef", () => {
+  it("reads a repository's ref as strut does: the address, a branch after @, a folder after #", () => {
+    expect(parseRepositoryRef("git+https://github.com/stakwork/strut-code@stable#package")).toEqual({
+      ref: "git+https://github.com/stakwork/strut-code@stable#package",
+      address: "https://github.com/stakwork/strut-code",
+      rev: "stable",
+      folder: "package",
+      source: "github.com/stakwork/strut-code#package",
+      commit: false,
+    });
+    // Without git+, with a trailing slash or .git: the same package, the ref strut wants.
+    expect(parseRepositoryRef("  https://GitHub.com/Stakwork/strut-code.git/ ")).toMatchObject({ ref: "git+https://github.com/Stakwork/strut-code.git", source: "github.com/stakwork/strut-code" });
+    expect(parseRepositoryRef("git+https://git.acme.test/group/sub/tools@feature/x")).toMatchObject({ rev: "feature/x", source: "git.acme.test/group/sub/tools" });
+    expect(parseRepositoryRef(`git+https://example.test/a/b@${"0f".repeat(20)}`)).toMatchObject({ commit: true });
+    expect(parseRepositoryRef("git+http://localhost:3000/a/b")).toMatchObject({ ref: "git+http://localhost:3000/a/b" });
+  });
+
+  it("says plainly what is wrong with what isn't a repository's address", () => {
+    const why = (raw: string) => {
+      const r = parseRepositoryRef(raw);
+      return "error" in r ? r.error : null;
+    };
+    expect(why("openlaw/legal-desk")).toMatch(/isn’t a repository’s address/);
+    expect(why("file:///srv/repo")).toMatch(/starts with https/);
+    expect(why("ssh://git@example.test/a/b")).toMatch(/SSH address/);
+    expect(why("git+https://user@example.test/a/b")).toMatch(/Leave the name and password out/);
+    expect(why("git+https://user:tok@example.test/a/b@main")).toMatch(/Leave the name and password out/);
+    expect(why("https://example.test/")).toMatch(/needs an owner and a name/);
+    expect(why("https://example.test/a/-b")).toMatch(/“-b” can’t be part/);
+    expect(why("https://example.test/a/b@x.lock")).toMatch(/isn’t a branch’s name/);
+    expect(why("https://example.test/a/b#a/../b")).toMatch(/isn’t a folder/);
+  });
+});
+
+describe("what the box follows", () => {
+  it("files a repository's package under one id, whatever the branch or spelling", () => {
+    const id = (raw: string) => {
+      const r = parseRepositoryRef(raw);
+      if ("error" in r) throw new Error(r.error);
+      return subscriptionIdOf(r);
+    };
+    expect(id("git+https://github.com/stakwork/strut-code@main")).toMatch(/^strut-code-[0-9a-f]{8}$/);
+    expect(id("https://GitHub.com/stakwork/strut-code.git")).toBe(id("git+https://github.com/stakwork/strut-code@main"));
+    expect(id("git+https://github.com/stakwork/strut-code#package")).not.toBe(id("git+https://github.com/stakwork/strut-code"));
+    expect(id("git+https://elsewhere.test/stakwork/strut-code")).not.toBe(id("git+https://github.com/stakwork/strut-code"));
+    expect(id(`git+https://example.test/a/${"x".repeat(80)}`)).toMatch(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+  });
+
+  it("says where it comes from, whose it is and how it stands", () => {
+    const sub = { id: "code", ref: "git+https://example.test/a/b", warnings: [], packages: [] };
+    expect(followedFrom(sub)).toBe("git+https://example.test/a/b");
+    expect(followedFrom({ id: "acme", url: "https://central.example/lab", channel: "stable" })).toBe("central.example, channel stable");
+    const [mine, theirs, nobodys] = followedOf(
+      [
+        { ...sub, actor: "ada-1" },
+        { ...sub, actor: "bob-2" },
+        { ...sub, actor: undefined },
+      ],
+      new Map([["ada-1", "Ada"]]),
+      "ada-1",
+    );
+    expect(mine).toMatchObject({ whose: "Ada", mine: true });
+    expect(theirs).toMatchObject({ whose: "bob-2", mine: false });
+    expect(nobodys).toMatchObject({ mine: false });
+    expect(nobodys!.whose).toBeUndefined();
+    expect(followedState({})).toEqual({ tone: "pending", label: "Not read yet" });
+    expect(followedState({ checkedAt: "2026-11-20T00:00:00Z" })).toEqual({ tone: "ok", label: "Up to date" });
+    expect(followedState({ checkedAt: "x", waiting: { secrets: ["K"] } })).toEqual({ tone: "attention", label: "Waiting for keys" });
+    expect(followedState({ checkedAt: "x", error: "package_repo_denied: …" })).toEqual({ tone: "attention", label: "Last check failed" });
+  });
+
+  it("offers the account to connect only when strut couldn't read a repository, by the secret strut names", () => {
+    const offers = [
+      { id: "github", name: "GitHub", secrets: ["GITHUB_TOKEN"] },
+      { id: "forge", name: "Forge", secrets: ["FORGE_TOKEN"] },
+    ];
+    const denied = "package_repo_denied: git+https://example.test/a/b: https://example.test/a/b asked for credentials — set the secret FORGE_TOKEN to a token that can read it";
+    expect(refusalCode(denied)).toBe("package_repo_denied");
+    expect(connectFor(refusalCode(denied), denied, offers)?.id).toBe("forge");
+    expect(connectFor("package_repo_denied", "no name here", offers, "GITHUB_TOKEN")?.id).toBe("github");
+    expect(connectFor("package_repo_denied", "no name here", offers)).toBeUndefined();
+    expect(connectFor("package_repo_unreachable", denied, offers)).toBeUndefined();
+    expect(connectHref(offers[0]!)).toBe("/api/connect/github?return=%2Fpackages");
+  });
+
+  it("lets a key a followed package waits for be set, as an installed package's is", () => {
+    expect(settableSecret("ACME_API_KEY", [], [{ waiting: { secrets: ["ACME_API_KEY"] } }])).toBe(true);
+    expect(settableSecret("ACME_API_KEY", [], [{}])).toBe(false);
+    expect(settableSecret("STRUT_MODELS", [], [{ waiting: { secrets: ["STRUT_MODELS"] } }])).toBe(false);
   });
 });

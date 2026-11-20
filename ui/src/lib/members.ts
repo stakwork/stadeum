@@ -39,3 +39,11 @@ export async function removeUser(me: Pick<User, "id">, id: string): Promise<Memb
     return { ok: true, user: target } as const;
   });
 }
+
+/** Each actor strut names, as a person here reads it: their name, else their email. An actor nobody here has is left out. */
+export async function namesOf(actors: Iterable<string | undefined>): Promise<Map<string, string>> {
+  const wanted = [...new Set([...actors].filter((a): a is string => !!a))];
+  if (!wanted.length) return new Map();
+  const people = await db.user.findMany({ where: { actor: { in: wanted } }, select: { actor: true, name: true, email: true } });
+  return new Map(people.map((p) => [p.actor, p.name || p.email]));
+}
