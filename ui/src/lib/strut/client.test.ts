@@ -37,6 +37,7 @@ describe("embedUrl", () => {
     expect(u.origin).toBe("https://strut.acme.example");
     expect(u.pathname).toBe("/");
     expect([...u.searchParams.keys()]).toEqual(["ticket", "app", "solo", "embed_origin", "input"]);
+    expect(u.searchParams.has("embed_page")).toBe(false);
     expect(u.searchParams.get("app")).toBe("strut/jamie");
     expect(u.search).toContain("app=strut%2Fjamie");
     expect(u.searchParams.get("solo")).toBe("1");
@@ -48,6 +49,15 @@ describe("embedUrl", () => {
     expect(fake.state.tickets.get(ticket)?.role).toBe("member");
     expect(u.toString()).not.toContain(fake.token);
     expect(fake.state.requests).toContain("POST /strut/auth/ticket");
+  });
+
+  it("names stadeum's page for the app, on our origin, when given one: what strut builds its links to paste on", async () => {
+    configure();
+    const home = new URL(await embedUrl(ada, "strut/jamie", "session=ada-0f3c/s1", "/"));
+    expect([...home.searchParams.keys()]).toEqual(["ticket", "app", "solo", "embed_origin", "embed_page", "input"]);
+    expect(home.searchParams.get("embed_page")).toBe("https://acme.example/");
+    const legal = new URL(await embedUrl(ada, "acme/legal", undefined, "/apps/acme%2Flegal"));
+    expect(legal.searchParams.get("embed_page")).toBe("https://acme.example/apps/acme%2Flegal");
   });
 
   it("signs an admin in as an admin, and anyone else as a member", async () => {

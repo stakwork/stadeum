@@ -204,7 +204,10 @@ admins only) and strut's apps.
   home lists the apps.
 - The app's own deep link, `input`, rides in stadeum's URL:
   `/?input=session%3D<id>` opens that conversation, and the app's
-  `strut:location` reports update it.
+  `strut:location` reports update it. The frame also names the app's page
+  here (`&embed_page=https://<box>/`, or `/apps/<name>`), which strut hands
+  the app as where a person opens it: Jamie's Share copies that page with
+  the conversation's `input`, the same address the bar shows.
 - Organisation → Apps (`/apps`, admins only) manages what strut serves: per
   app, what is live (every publish, or a held version), its drafts, its
   pin and its usage warnings. An app's versions
