@@ -807,11 +807,15 @@ export type FramedPerson = { actor: string; role: string; name?: string | null }
  * `name` is the person's name, which strut keeps as the host's and shows
  * in place of the actor (§13.3; a strut from before names ignores it).
  * `input` is the app's own query, the deep link it reports back
- * (`strut:location`). Mint one per page load. The cookie reaches the frame
- * only because STRUT_PUBLIC_URL is a subdomain of stadeum-ui's site.
+ * (`strut:location`). `page` is stadeum's page for the app (`/`, or
+ * `/apps/<name>`): strut hands it to the app as where a person opens it
+ * (`embed_page`, strut `specs/API.md` §14.3), so its Copy link gives
+ * stadeum's address, the one the address bar shows. Mint one per page
+ * load. The cookie reaches the frame only because STRUT_PUBLIC_URL is a
+ * subdomain of stadeum-ui's site.
  */
-export async function embedUrl(person: FramedPerson, app: string, input?: string): Promise<string> {
-  return framed(person, input ? { app, input } : { app });
+export async function embedUrl(person: FramedPerson, app: string, input?: string, page?: string): Promise<string> {
+  return framed(person, { app, ...(input ? { input } : {}), ...(page ? { page } : {}) });
 }
 
 /**
@@ -838,7 +842,9 @@ async function framed({ actor, role, name }: FramedPerson, open: Record<string, 
   url.searchParams.set("ticket", ticket);
   for (const k of ["app", "artifact"]) if (open[k]) url.searchParams.set(k, open[k]);
   url.searchParams.set("solo", "1");
-  url.searchParams.set("embed_origin", new URL(env.publicUrl()).origin);
+  const origin = new URL(env.publicUrl()).origin;
+  url.searchParams.set("embed_origin", origin);
+  if (open.page) url.searchParams.set("embed_page", new URL(open.page, origin).href);
   if (open.input) url.searchParams.set("input", open.input);
   return url.toString();
 }

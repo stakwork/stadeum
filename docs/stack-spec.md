@@ -461,7 +461,10 @@ checked".
   once for 60 s; `role` is the person's stadeum role, `admin` or `member`:
   strut gives an admin the operator console and a member their apps alone,
   strut `plans/member-rights.md`) and frames
-  `{STRUT_PUBLIC_URL}/?ticket=<ticket>&embed_origin=<stadeum origin>[&wf=&run=]`.
+  `{STRUT_PUBLIC_URL}/?ticket=<ticket>&embed_origin=<stadeum origin>[&wf=&run=]`,
+  with `&embed_page=<stadeum's page for the app>` for an app: strut hands it
+  to the app, whose links to paste are built on it (strut `specs/API.md`
+  §14.3).
   strut's UI trades the ticket for its own session cookie as that person and
   takes it off the URL (strut `specs/API.md` §13.1).
 - **Packages** (admins; `ui/src/app/(app)/packages/`, strut `specs/API.md`
