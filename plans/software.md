@@ -33,8 +33,10 @@
 >
 > **Built (2026-11-20):** step 2 (§12), the connect seam in stadeum-ui,
 > with GitHub's entry and a fake GitHub in `npm run fake-stack`
-> (`docs/stack-spec.md`, "The connect seam"). Everything else here is
-> still a plan.
+> (`docs/stack-spec.md`, "The connect seam"). In strut, of step 3: the
+> secrets a package provides and an admin's call from its own app (§5,
+> items 1-2; stakwork/strut#789, #790), and schedules a package ships
+> (item 3; stakwork/strut#791). Everything else here is still a plan.
 >
 > **2026-11-20:** the owner decided that a workspace is a node of its
 > own, so a repository can be in several (row 20, §14.4).
@@ -44,6 +46,15 @@
 > person: by default whoever set up GitHub on the box, with changing who
 > for later (row 6, §3.1, §14.4; §5, item 15). The seam's `for=box`
 > came out the same day.
+>
+> **2026-11-20:** the App is registered (step 1 of §12): "Stadeum AI",
+> `github.com/apps/stadeum-ai`, owned by `stakwork`, with §13's seven
+> repository permissions and no events.
+>
+> **2026-11-20:** who unattended work runs as is now strut's workflow
+> owner, not a person recorded on each repository (row 6; §5, item 15).
+> Strut already has owners and lets an admin change one, so a package
+> never names a person.
 
 ## Problem
 
@@ -69,7 +80,7 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 3 | The model for GitHub tokens | **Hive's:** GitHub App user tokens that never expire, with no refresh and no private key (§1, §10). | **owner** (Hive's "works great") |
 | 4 | How a person connects | **The web flow, through a connect seam in stadeum:** two routes, and a third to refresh tokens that expire, that any OAuth provider's package can use. The client secret stays in stadeum-ui. The token goes to strut as the person's secret. Everything else is the package's (§2). | **owner** (2026-11-19: web flow over device flow); the seam's shape is proposed |
 | 5 | Which repositories the box works on | **`stadeum/code` keeps the list,** with its workspaces, in one app, Code. A repository is added by its address, or picked in the GitHub package from what the App's installations grant. `stadeum/code` checks them for new commits and is where the parser plugs in (§3.1, §14.4). | proposed (revised 2026-11-20: the list was the GitHub package's) |
-| 6 | Unattended work: ingestion, subscriptions to private packages, a job with no person | **It runs as a person. There is no box token.** By default the person is whoever set up GitHub on the box, and changing who is for later. Each repository records the person who added it, and its unattended work runs as them (§3.1, §14.4; §5, item 15). | **owner** (2026-11-20: no box token, everything is a person, and the default); how it is recorded is proposed |
+| 6 | Unattended work: ingestion, subscriptions to private packages, a job with no person | **It runs as a person. There is no box token.** By default the person is whoever set up GitHub on the box, and changing who is for later. A run nobody launched acts as the owner of the workflow it runs: whoever installed the package or subscribed to it. An admin changes who by giving the workflow another owner, which strut has today (§3.1, §14.4; §5, item 15). | **owner** (2026-11-20: no box token, everything is a person, and the default); that the person is the workflow's owner is proposed (revised 2026-11-20: it was a person on each repository) |
 | 7 | A `software` package that requires the others | **No.** Strut pins a required package by digest, and a `git+` subscription doesn't gate a required package on its own secrets (§3.3). Software is a **bundle**, a strut capability to add (§5). Until then, the button makes two subscriptions. | proposed |
 | 8 | Repositories and pods: one package or two? | **Two:** `stadeum/github` and `stadeum/pods`. Pods reads the repositories through the graph, not by requiring the package (§3.4). | proposed |
 | 9 | Fleet boots a box with Software | **First-boot subscriptions** (`STRUT_SUBSCRIPTIONS`), a strut capability to add, not `STRUT_PACKAGES`, which never moves (§6). | proposed |
@@ -394,13 +405,14 @@ For an admin, the same app also shows:
   - **Change repositories**, which opens
     `github.com/apps/<slug>/installations/<id>`. The slug comes from the
     installation itself (`app_slug`).
-- **Unattended work:** "Checks and ingestion for these repositories act
-  on GitHub as **@login**." There is no box token (Decided, row 6).
-  - Each repository runs as the admin who checked it (§14.4). On a new
-    box that is whoever set up GitHub.
-  - When that person disconnects or leaves, the repository shows that
-    it has nobody to act as, until an admin checks it again and so takes
-    it over. Choosing another person outright is for later (owner).
+- **Unattended work:** "Checks and ingestion act on GitHub as
+  **@login**." There is no box token (Decided, row 6).
+  - That person is the owner of the workflows that do the work: whoever
+    installed Software on the box (§5, item 15). They connect GitHub
+    like anyone else.
+  - When they haven't connected, have disconnected or have left, the app
+    says the work has nobody to act as. An admin gives it to someone
+    else by changing the workflows' owner, which strut has today.
   - On a box with no App, each person pastes a fine-grained token of
     their own instead (§8).
 - **Pick repositories,** where `stadeum/code` is installed (§14.4):
@@ -408,8 +420,7 @@ For an admin, the same app also shows:
   - a checkbox for each, meaning "this box works on it".
 
   Checking one adds it to the box's list, which `stadeum/code` keeps,
-  with the admin as the person it runs as, and creates its webhook with
-  the admin's token (§7). Unchecking
+  and creates its webhook with the admin's token (§7). Unchecking
   deletes the webhook and takes the repository off the list. A
   repository newly granted on GitHub appears at once, unchecked:
   granting reach is not choosing to work on it.
@@ -596,7 +607,7 @@ manifest, and gains no new kind of thing.
 | --- | --- | --- | --- |
 | 1 | **A package's steps manage the secrets it `provides`:** read the person's own value apart from the deployment's; set and delete the person's own; set and delete the deployment's from an admin's call | Disconnect, a person's pasted token (GitHub's on a box with no App, an IMAP password), a secret that is the box's and nobody's (a webhook's signing secret, a Telegram bot's token), and "Connected as @login" that never shows a deployment value as the person's | Steps only read, through one merged lookup (`src/capabilities.ts:59-67`). Writes take the full scope (`src/createStrut.ts:7549`) |
 | 2 | **An admin's call from a package's app:** a package's `admin: true` app, shown to an admin, gets the admin's scope for its own steps | The box's repositories and its webhook secret are an admin's to set | The admin door serves only strut's first-party pages (`specs/API.md` §14.14, `src/steps/lib/earnings/_door.ts:1-15`) |
-| 3 | **Schedules a package ships:** a default automation on a workflow, installed with it and dropped with it | `check` runs every 15 minutes with nobody setting it up | Automations are workflow metadata, never in the package's YAML (`docs/automations.md`, "Key concepts") |
+| 3 | **Schedules a package ships:** a default automation on a workflow, installed with it and dropped with it. Built (stakwork/strut#791): `schedules:` in `strut.yaml`, each entry an automation's draft with the automations' own `trigger`. Its run acts as its workflow's owner (item 15) | `check` runs every 15 minutes with nobody setting it up | Automations are workflow metadata, never in the package's YAML (`docs/automations.md`, "Key concepts") |
 | 4 | **Events a package's workflow runs on:** `actor.removed`, run as that actor, with `DELETE /actors/:actor`, which then drops the actor's secrets; `retire`, with `POST /retire`, which runs `actor.removed` for every actor first | Revoking a leaver's token, and every token at teardown, from the package that holds them | The actor secret routes delete one name at a time (`src/createStrut.ts:7569`). There are no events |
 | 5 | **Bundles:** `bundle:` in `strut.yaml`, refs followed by branch, each package gated on its own secrets | Software as one subscription, with no pins (§3.3) | `requires.packages` pins a digest, and a `git+` subscription gates only its own package |
 | 6 | **First-boot subscriptions:** `STRUT_SUBSCRIPTIONS`, the twin of `STRUT_PACKAGES`, each made once and never remade after an admin deletes it | Fleet boots a box with Software (§6) | `STRUT_PACKAGES` installs once and never moves (`src/packages/boot.ts`) |
@@ -608,7 +619,7 @@ manifest, and gains no new kind of thing.
 | 12 | **A package's pages' claims, recorded at install** and dropped with it | A package ships its pages with their checks and cases, so `Repository Changes` is measured from the first day | The install's outcome carries them, and nothing records them (`docs/knowledge.md:400`) |
 | 13 | **A trial that runs a job:** a case whose replay starts a job in a pod of its own, released once the sample is judged | A past coding task replayed against a change (§14.3). Later | A trial starts no job (`src/createStrut.ts:8428`) |
 | 14 | **Panels:** `panels:` in `strut.yaml` names one of the package's apps as a section for a graph type. A page that shows a node of that type asks for its panels, and each installed package's section is drawn in place, opened on the node, with that app's own grants | One page for a repository, with a section from each package: its source, its pages, its pod, its code graph (§14.4). Any type can have them: a customer, a matter | An app can link to another app (`kit/src/links.ts:17`). It can't show one: its page allows no frames (`src/apps/build.ts:217`) |
-| 15 | **Unattended work runs as a person:** a run nobody launched (a schedule's, a webhook's, a subscription's sync) acts as a named actor, with that person's secrets. A package can name only a person who set that work up, or whom an admin handed it to: strut keeps who, so a package can't act as anyone else (open question 18) | No box token (Decided, row 6). `check` and `ingest` act as the person who added the repository, and a private package syncs as whoever subscribed | A run's secrets are its principal's (`src/actor-secrets.ts`). A scheduled run names no actor, and a subscription names one `tokenSecret` |
+| 15 | **Unattended work runs as a person:** a run nobody launched (a schedule's, a webhook's, a subscription's sync) acts as the owner of the workflow it runs, with that person's secrets and on their bill. What a subscription installs is owned by whoever subscribed. A package never names a person, and with no owner nothing runs | No box token (Decided, row 6). `check` and `ingest` act as whoever installed Software, and a private package syncs as whoever subscribed. An admin changes who by changing the owner | A package's schedule runs as its workflow's owner, and launches nothing with none (stakwork/strut#791). What a subscription installs has no owner, and a subscription names one `tokenSecret` |
 
 Not needed now, and kept for later:
 
@@ -786,18 +797,21 @@ course means asking people to connect again.
 Each is its own PR.
 
 0. This plan, and the owner's answers to §13.
-1. **The App** (Stakwork, by hand), registered with §13's settings.
+1. **The App** (registered by hand, 2026-11-20): "Stadeum AI",
+   `github.com/apps/stadeum-ai`, with §13's settings.
 2. **Stadeum: the connect seam** (built 2026-11-20), with GitHub's entry and the fake GitHub in
    `npm run fake-stack` (authorize, `access_token`). It needs nothing
-   from strut. Then fleet's `STADEUM_CONNECT_GITHUB_*` answers. From here
+   from strut. Then fleet's `STADEUM_CONNECT_GITHUB_*` answers: fleet
+   hands a box every `STADEUM_` line of its `fleet.env`, so they are
+   three lines there (fleet `DEPLOY.md`, "GitHub App"). From here
    each person's `GITHUB_TOKEN` reaches strut. The refresh route,
    `CONNECT_TOKEN` and the forges' `base` wait for the first provider
    that needs them.
 3. **Strut:**
    - secrets a package provides, and an admin's call from a package's
-     app (§5, items 1-2);
-   - schedules a package ships (item 3), and unattended work that runs
-     as a person (item 15);
+     app (§5, items 1-2). Built;
+   - schedules a package ships (item 3). Built;
+   - unattended work that runs as a person (item 15);
    - events, `DELETE /actors/:actor` and `POST /retire` (item 4);
    - webhook routes for packages, with the three schemes (item 7);
    - git credentials by host (item 9).
@@ -843,7 +857,8 @@ Each is its own PR.
 included.** The owner then chose repository webhooks for real-time
 updates (§7), which adds the Webhooks permission.
 
-1. **Which App?** *A new "Stadeum" App,* not Hive's. Hive's install
+1. **Which App?** *A new "Stadeum" App,* not Hive's (registered as
+   "Stadeum AI", slug `stadeum-ai`). Hive's install
    returns to Hive's callback, and a token belongs to the App that issued
    it. Orgs on Hive install Stadeum once more.
 2. ~~**How does a person connect?**~~ Answered (owner, 2026-11-19): the
@@ -973,7 +988,7 @@ So the Codebase tree needs no pipeline of its own:
     - source: Repository Changes   # a page in concepts/, under Dream: the rules
       step: changes                # a step in steps/: what is new since the cursor
       root: Codebase               # the tree it tends
-      every: day
+      trigger: { every: day, at: ["04:00"] }   # the automations' own trigger, as `schedules:` (§5, item 3)
   ```
 
   Strut's own dream runs once a day for the entry. It calls the step,
@@ -1098,8 +1113,7 @@ one app shows it.
 **What it keeps:**
 
 - **The box's repositories,** as graph nodes: `url`, `name`, default
-  `branch`, `checked` (the head last seen) and `actor` (the person its
-  unattended work runs as: whoever added it). The graph is in the
+  `branch` and `checked` (the head last seen). The graph is in the
   backup. A repository's own settings, the code graph's later, are
   fields on its node. When the parser comes back, its own `Repository`
   type wins and these fields go on it.
@@ -1156,8 +1170,8 @@ hive ▸ settings
 **Its workflows:**
 
 - **`check`,** a schedule the package ships (§5, item 3). Every 15
-  minutes it runs `git ls-remote <url> HEAD` on each repository, as the
-  repository's person (§5, item 15), with their token for that host,
+  minutes it runs `git ls-remote <url> HEAD` on each repository, as its
+  workflow's owner (§5, item 15), with their token for that host,
   which uses no REST quota. A public repository needs no token. When a
   head
   moved, it records the commit and calls `ingest`. A forge package's
@@ -1284,10 +1298,10 @@ repository must be configurable for it. So:
 17. **Who draws a panel.** An app's page allows no frames (§5, item 14).
     Does strut's own page draw each section, or may an app frame this
     strut's own apps?
-18. **Whom a package's unattended run may act as.** Item 15 lets a run
-    nobody launched act as a named person. What stops a package from
-    naming anyone: a record strut keeps of who set the work up, or that
-    person's own yes each time the work changes hands?
+18. ~~**Whom a package's unattended run may act as.**~~ Answered
+    (2026-11-20): nobody a package names. A run nobody launched acts as
+    the owner of the workflow it runs, and only that person or an admin
+    sets the owner (§5, item 15).
 19. **A Slack bot's token.** It is the workspace's, not a person's, and
     the seam writes only a person's secrets. Is it an admin's pasted
     value (§5, item 1), or does the Slack package's plan bring back a
