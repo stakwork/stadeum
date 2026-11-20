@@ -82,7 +82,6 @@ describe("POST /api/connect/:provider: the confirm page's Continue", () => {
     expect(to.searchParams.get("redirect_uri")).toBe(`${BOX}/api/connect/github/callback`);
     const back = verifyState(stateOf(res), { provider: "github", actor: "ada-c1" });
     expect(back.ok && back.state).toMatchObject({ return: `${BOX}/apps/stadeum/github` });
-    expect(back.ok && back.state.for).toBeUndefined();
     expect(back.ok && back.state.iat).toBeGreaterThanOrEqual(before);
     expect(back.ok && back.state.iat).toBeLessThanOrEqual(after);
   });
@@ -105,15 +104,14 @@ describe("POST /api/connect/:provider: the confirm page's Continue", () => {
     expect((await proceed("")).status).toBe(401);
   });
 
-  it("checks the ask again: the box's only for an admin", async () => {
-    const res = await proceed("?for=box");
-    expect(res.status).toBe(403);
-    expect(await res.text()).toContain("Only an admin");
-    who.user = { actor: "root-a1", role: "admin" };
-    const ok = await proceed("?for=box");
-    expect(ok.status).toBe(303);
-    const back = verifyState(stateOf(ok), { provider: "github", actor: "root-a1" });
-    expect(back.ok && back.state.for).toBe("box");
+  it("is always the person's own, a member's or an admin's: a for=box is ignored", async () => {
+    for (const user of [{ actor: "ada-c1", role: "member" }, { actor: "root-a1", role: "admin" }]) {
+      who.user = user;
+      const res = await proceed("?for=box&return=/apps");
+      expect(res.status, user.role).toBe(303);
+      const back = verifyState(stateOf(res), { provider: "github", actor: user.actor });
+      expect(back.ok && Object.keys(back.state).sort()).toEqual(["actor", "iat", "nonce", "provider", "return"]);
+    }
   });
 
   it("checks the ask again: return on the box's origins, no scope GitHub doesn't list", async () => {

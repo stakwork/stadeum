@@ -8,9 +8,10 @@ import { requireUser } from "@/lib/session";
 
 /**
  * The connect seam's confirm page (lib/connect.ts): what the person is about
- * to connect, on which box, and for whom. Continue posts the same parameters
- * to `/api/connect/:provider` from this origin, which sends them to the
- * provider. No other page can skip it, and it can't be framed (next.config.ts).
+ * to connect and on which box, always for themselves. Continue posts the
+ * same parameters to `/api/connect/:provider` from this origin, which sends
+ * them to the provider. No other page can skip it, and it can't be framed
+ * (next.config.ts).
  */
 export const metadata: Metadata = { title: "Connect" };
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export default async function ConnectPage({ params, searchParams }: { params: Pr
   if (!p) notFound();
   const user = await requireUser();
   const q = toQuery(await searchParams);
-  const checked = readAsk(p, user, q);
+  const checked = readAsk(p, q);
   const host = new URL(env.publicUrl()).host;
 
   return (
@@ -41,19 +42,9 @@ export default async function ConnectPage({ params, searchParams }: { params: Pr
       <h1 className="mb-1 font-serif text-[30px] font-medium tracking-[-0.01em]">Connect {p.name}</h1>
       {checked.ok ? (
         <>
-          {checked.ask.box ? (
-            <div className="flex flex-col gap-1 rounded-[10px] bg-warn-soft px-4 py-3 text-[15px]">
-              <p className="font-medium">For the box, not for you</p>
-              <p className="text-ink-2">
-                Unattended work, and anyone on this box who hasn&rsquo;t connected {p.name}, will act as the {p.name} account you
-                choose next. A bot account is best.
-              </p>
-            </div>
-          ) : (
-            <p className="text-[15px] text-ink-2">
-              For you, {user.email}: what you run on this box will act as the {p.name} account you choose next.
-            </p>
-          )}
+          <p className="text-[15px] text-ink-2">
+            For you, {user.email}: what you run on this box will act as the {p.name} account you choose next.
+          </p>
           {checked.ask.install && (
             <p className="text-[15px] text-ink-2">
               {p.name} will also install the box&rsquo;s app on an organisation or account you pick.

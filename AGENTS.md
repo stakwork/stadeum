@@ -98,12 +98,12 @@ work on it. Read the rules before adding anything.
      the box's prefix on a versioned bucket. With pods it holds
      `PODS_TOKEN`, so an agent could launch, use and destroy the box's own
      pods, within its tenant's limit: accepted, as it reaches no other
-     box's. It holds each person's GitHub token and the box token, which
-     the connect seam hands it, so an agent could act on GitHub as any of
-     them: accepted, with their revocation (`plans/software.md` §9: the
-     GitHub package's, to come; until then the person revokes the App on
-     GitHub). The treasury's admin token and seed stay in the treasury's
-     container.
+     box's. It holds each person's GitHub token, which the connect seam
+     hands it, so an agent could act on GitHub as any of them: accepted,
+     with their revocation (`plans/software.md` §9: the GitHub package's,
+     to come; until then the person revokes the App on GitHub). There is
+     no box token: every token the seam writes is a person's. The
+     treasury's admin token and seed stay in the treasury's container.
 
 5. **Any cloud.** One compose file is the deployment: stock images, every
    setting in `.env` with a comment in `.env.example`. Nothing depends on
@@ -187,7 +187,7 @@ order of the work, each step its own PR:
 7. Software: GitHub access, repositories and pods, as strut packages an
    admin turns on, with stadeum keeping only generic seams
    (`plans/software.md`). The connect seam: a person connects GitHub and
-   strut gets their `GITHUB_TOKEN`, or an admin's for the box. (Done.)
+   strut gets their own `GITHUB_TOKEN`. (Done.)
    Sign-in with GitHub is deferred.
 8. Calls: a Calls page in stadeum-ui, where a person talks to the
    assistant by voice. The browser makes a fresh key per call;

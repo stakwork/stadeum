@@ -42,31 +42,25 @@ describe("the connect seam's confirm page", () => {
     expect(html).toContain("Connect GitHub");
     expect(html).toContain("acme.example.com");
     expect(html).toContain("For you, ada@example.com");
-    expect(html).not.toContain("For the box");
     expect(action(html)).toBe("/api/connect/github?return=%2Fapps%2Fx");
     expect(html).toContain("Continue to GitHub");
     expect(html).toContain('href="https://acme.example.com/apps/x"');
   });
 
-  it("says what connecting for the box means, to an admin", async () => {
-    who.user = { actor: "root-a1", role: "admin", email: "root@example.com" };
-    const html = await page({ for: "box" });
-    expect(html).toContain("For the box, not for you");
-    expect(html).toContain("Unattended work, and anyone on this box who hasn’t connected GitHub, will act as the GitHub account you");
-    expect(action(html)).toBe("/api/connect/github?for=box");
+  it("is always for the person, a member or an admin, whatever a link says", async () => {
+    for (const user of [who.user, { actor: "root-a1", role: "admin", email: "root@example.com" }]) {
+      who.user = user;
+      const html = await page({ for: "box", return: "/packages" });
+      expect(html).toContain(`For you, ${user.email}`);
+      expect(html).not.toMatch(/for the box/i);
+      expect(action(html)).toBe("/api/connect/github?for=box&return=%2Fpackages");
+    }
   });
 
   it("says an install installs the app too", async () => {
     const html = await page({ install: "1" });
     expect(html).toContain("install the box’s app on an organisation or account you pick");
     expect(action(html)).toBe("/api/connect/github?install=1");
-  });
-
-  it("refuses a member's connect for the box, with no Continue", async () => {
-    const html = await page({ for: "box", return: "/packages" });
-    expect(html).toContain("Only an admin connects for the box.");
-    expect(action(html)).toBeUndefined();
-    expect(html).toContain('href="https://acme.example.com/packages"');
   });
 
   it("refuses a return off the box, with no Continue and no way back there", async () => {

@@ -8,7 +8,7 @@ import { currentUser } from "@/lib/session";
  * A connect (lib/connect.ts), in two steps, so that it is always a person's
  * click on the box's own page:
  *
- * - `GET /api/connect/:provider[?return=&scope=&install=1&for=box]`, the
+ * - `GET /api/connect/:provider[?return=&scope=&install=1]`, the
  *   link a package's app opens, shows the confirm page,
  *   `/connect/:provider` with the same parameters. It sends nobody to the
  *   provider: a link followed from anywhere lands on the page.
@@ -34,9 +34,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if (!fromTheBox(req.headers.get("origin"))) return refusal(403, `Connect ${p.name} from the box's own page.`);
   const user = await currentUser();
   if (!user) return refusal(401, "Sign in to the box, then connect again.");
-  const checked = readAsk(p, user, req.nextUrl.searchParams);
+  const checked = readAsk(p, req.nextUrl.searchParams);
   if (!checked.ok) return refusal(checked.status, checked.message, checked.back);
-  const { back, scopes, box, install } = checked.ask;
-  const state = signState({ provider: p.id, actor: user.actor, ...(box ? { for: "box" as const } : {}), return: back });
-  return goTo(startUrl(p, { state, scopes, box, install }), 303);
+  const { back, scopes, install } = checked.ask;
+  const state = signState({ provider: p.id, actor: user.actor, return: back });
+  return goTo(startUrl(p, { state, scopes, install }), 303);
 }
