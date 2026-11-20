@@ -8,7 +8,10 @@
 > powerful primitive that can pretty much do everything."* Then the owner
 > chose the web flow over the device flow, through a generic connect seam
 > in stadeum (§2). The owner approved the GitHub App's settings (§13),
-> and chose repository webhooks for real-time updates (§7). Rows marked **owner** in "Decided" are the owner's;
+> and chose repository webhooks for real-time updates (§7). The owner
+> then asked for the seam to fit more than GitHub: it now covers Slack,
+> Google and Microsoft too, with scopes, several tokens and refresh
+> (§2.1). Rows marked **owner** in "Decided" are the owner's;
 > every other row is *proposed*. Read against stadeum `main` @70d10e0, strut `main`
 > @e7663dff, hive `master` @554793fa1, stakwork/pods `main` @2cf4498 and
 > stadeum-fleet `main` @6d6f3342. It replaces most of
@@ -37,7 +40,7 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 1 | Does every box get software? | **No. An admin clicks Software** on the Packages page. | **owner** |
 | 2 | Where does it live? | **In packages, as much as possible. Stadeum keeps only generic seams.** | **owner** |
 | 3 | The model for GitHub tokens | **Hive's:** GitHub App user tokens that never expire, with no refresh and no private key (§1, §10). | **owner** (Hive's "works great") |
-| 4 | How a person connects | **The web flow, through a connect seam in stadeum:** two routes that any OAuth provider's package can use. The client secret stays in stadeum-ui. The token goes to strut as the person's secret. Everything else is the package's (§2). | **owner** (2026-11-19: web flow over device flow); the seam's shape is proposed |
+| 4 | How a person connects | **The web flow, through a connect seam in stadeum:** two routes, and a third to refresh tokens that expire, that any OAuth provider's package can use. The client secret stays in stadeum-ui. The token goes to strut as the person's secret. Everything else is the package's (§2). | **owner** (2026-11-19: web flow over device flow); the seam's shape is proposed |
 | 5 | Which repositories the box works on | **The GitHub package.** It picks them from what the App's installations grant, groups them into workspaces, checks them for new commits, and is where ingestion plugs in (§3.1). | proposed |
 | 6 | Unattended work: ingestion, subscriptions to private packages, a job with no person | **A box token:** a token an admin connects "for the box", kept as strut's deployment `GITHUB_TOKEN` (§3.1). | proposed |
 | 7 | A `software` package that requires the others | **No.** Strut pins a required package by digest, and a `git+` subscription doesn't gate a required package on its own secrets (§3.3). Software is a **bundle**, a strut capability to add (§5). Until then, the button makes two subscriptions. | proposed |
@@ -136,14 +139,17 @@ package's.
 
 ### 2.1 The seam
 
-Two routes in stadeum-ui. They name no package, and they work for any
-OAuth provider in a small table.
+Two routes in stadeum-ui, and a third for providers whose tokens
+expire. They name no package, and they work for any OAuth provider in a
+small table.
 
 - **`GET /api/connect/:provider`**, with these parameters:
   - `return`: where to send the person afterwards;
+  - `scope`: the scopes the package needs, each one listed in the
+    provider's entry;
   - `install=1`: start from the provider's install page instead of its
     authorize page;
-  - `for=box`: an admin only. The token becomes the box's.
+  - `for=box`: an admin only. The tokens become the box's.
 
   The person must be signed in. Stadeum signs a state and redirects to
   the provider. The state is `plans/github-app.md` §4's:
@@ -155,33 +161,105 @@ OAuth provider in a small table.
   the signed-in person. Then it:
   1. exchanges the code with the provider's token URL, its client id and
      its secret;
-  2. writes the token to strut: `pushActorSecret(actor, name, token)`,
-     or for `for=box`, the deployment's `name` (`putDeploymentSetting`,
-     `client.ts:208`);
+  2. writes to strut each secret that the provider's entry names and the
+     response holds: `pushActorSecret(actor, name, value)`, or for
+     `for=box`, the deployment's `name` (`putDeploymentSetting`,
+     `client.ts:208`). A response that holds none of them is a failure.
+     That also catches Slack's `ok: false`, which comes with HTTP 200;
   3. redirects to `return`.
 
   It keeps nothing. On GitHub, installing the App also authorizes the
   installer, and GitHub returns the install to this same callback with a
   code. The seam treats it as a connect and ignores `installation_id`:
   the package reads installations itself.
+- **`POST /api/connect/:provider/refresh`**, for a provider whose
+  access tokens expire. Refreshing needs the client secret too, so it
+  can't be the package's.
+  - Strut calls it over the stack's network, with `CONNECT_TOKEN` as
+    the bearer: a secret strut and stadeum-ui share, as strut and the
+    voice service share `STRUT_VOICE_TOKEN`.
+  - The body is `{ refresh_token }`. The route posts
+    `grant_type=refresh_token`, with the client id and secret, to the
+    provider's token URL.
+  - It answers `{ access_token, expires_in }`, plus `refresh_token` when
+    the provider rotated it. Like the callback, it keeps and logs
+    nothing.
+
+  It's built with the first provider whose tokens expire, because
+  GitHub's never do (§13 Q3). A package that refreshes requires
+  `CONNECT_URL` and `CONNECT_TOKEN`, which compose hands to strut as it
+  hands `PODS_URL` and `PODS_TOKEN`. Its step trades the stored refresh
+  token for an access token when its work starts: an hour covers a run.
+  When the provider rotates the refresh token, the step stores the new
+  one (§5, item 1). Microsoft rotates it on every use.
 
 **The provider table,** `ui/src/lib/connect.ts`, is the only part that
-names a provider. For each one it holds four things: the authorize URL,
-the install URL (if the provider has one), the token URL, and the secret
-name. GitHub's are `login/oauth/authorize`,
-`apps/<slug>/installations/new`, `login/oauth/access_token` and
-`GITHUB_TOKEN`. Its values come from `.env`: `CONNECT_GITHUB_CLIENT_ID`,
-`CONNECT_GITHUB_CLIENT_SECRET` and `CONNECT_GITHUB_SLUG`. A provider is
-available when its id and secret are set.
+names a provider. Each entry is data:
 
-**Three rules keep the seam safe:**
+```ts
+interface Provider {
+  authorize: string;                 // the authorize URL
+  install?: string;                  // an install page, if the provider has one
+  token: string;                     // the token URL: never from a package
+  scopes: string[];                  // every scope a package may ask for
+  scopeParam?: { person: string; box: string }; // where scopes go; "scope" for both by default
+  params?: Record<string, string>;   // fixed extras on the authorize URL
+  secrets: Record<string, string[]>; // each secret's paths in the token response; the first present wins
+  refresh?: true;                    // its access tokens expire: the refresh route serves it
+}
+```
 
-- **The token URL is stadeum's, never a package's.** If a package could
-  name it, it could make stadeum send the secret anywhere.
+| Provider | Scopes | Secrets the callback writes | Refresh |
+| --- | --- | --- | --- |
+| **GitHub** (ships first) | None: the App's settings decide (§13 Q4). `install` is `apps/<slug>/installations/new` | `GITHUB_TOKEN` ← `access_token` | No: expiry is off |
+| **Slack** | The bot's as `scope` for the box, a person's as `user_scope` | `SLACK_TOKEN` ← `access_token` (the bot's) or `authed_user.access_token` (the person's) | No: Slack's tokens last unless the app turns rotation on |
+| **Google** (Gmail, Drive, Calendar) | `params`: `access_type=offline`, `prompt=consent`, `include_granted_scopes=true` | `GOOGLE_REFRESH_TOKEN` ← `refresh_token` | Yes |
+| **Microsoft** (Outlook, OneDrive, Teams) | `offline_access` and Graph's scopes | `MICROSOFT_REFRESH_TOKEN` ← `refresh_token` | Yes, rotated on every use |
+
+How it fits each of them:
+
+- **One secret name per provider, the person's first, then the box's.**
+  Slack's `for=box` installs the bot, so the box token is the bot's, and
+  a person who connects acts as themselves, as with `GITHUB_TOKEN`.
+- **Google packages share one secret.** With
+  `include_granted_scopes`, each Google package's connect adds its
+  scopes to what the person granted before. The new refresh token covers
+  them all, so one `GOOGLE_REFRESH_TOKEN` serves every Google package.
+- **Settings.** Each entry's values come from `.env`:
+  `CONNECT_<PROVIDER>_CLIENT_ID` and `_CLIENT_SECRET`, plus
+  `CONNECT_GITHUB_SLUG`. A provider is available when its id and secret
+  are set. Google's and Microsoft's entries may reuse the sign-in apps
+  (`AUTH_GOOGLE_*`, `AUTH_MICROSOFT_ENTRA_ID_*`), with the seam's
+  callback added to their redirect URIs.
+- **One callback per provider:** `https://auth.stakwork.ai/api/connect/<provider>/callback`
+  on hosted boxes.
+
+Adding a provider is one entry and two settings.
+
+**Not every integration needs the seam.** It's for OAuth providers.
+Other integrations need nothing from stadeum: the package stores a
+pasted value itself, with §5 item 1. For example:
+
+- a Telegram bot's token from BotFather;
+- an IMAP password.
+
+Telegram's login widget sends a payload signed with the bot's token, and
+the package checks it itself.
+
+**Four rules keep the seam safe:**
+
+- **The token URL and the scopes are stadeum's, never a package's.** If
+  a package could name the token URL, it could make stadeum send the
+  secret anywhere. A package asks only for scopes its provider's entry
+  lists, and the person sees each one on the provider's consent page.
 - **`return` must be on the box's own origins:** `https://<host>` or
   `https://strut.<host>`. So the seam is no open redirect.
 - **`for=box` is an admin's.** The route checks the session's role, as
   every admin page does.
+- **The refresh route answers strut alone.** Without `CONNECT_TOKEN`
+  it refuses. So someone outside who copied a refresh token can't spend
+  the box's client secret through it. An agent inside strut's container
+  could, but it could already read the tokens themselves (§10).
 
 **Why the web flow over the device flow.** The device flow needs no
 secret and no callback, so the package alone could own it. But:
@@ -375,7 +453,8 @@ package's Concept page.
 All of it is generic. Only the connect seam's provider table names
 GitHub:
 
-- **The connect seam** (§2.1): two routes and the provider table. It
+- **The connect seam** (§2.1): two routes, a third once a provider's
+  tokens expire, and the provider table. It
   keeps no state, so `stadeum.db` gains nothing and rule 6 is unchanged.
 - **Install from a repository.** The Packages page installs only
   `publisher/name` from an index today
@@ -403,13 +482,16 @@ GitHub:
   every package's `forget` and drops the person's secrets. Stadeum names
   no package.
 - **Settings:**
-  - `CONNECT_GITHUB_*` (§2.1), read by stadeum-ui alone.
-    `stack/stadeum.yml` hands them to stadeum-ui's container only. Strut's
-    environment block names each of its variables, so they never reach
-    strut's container.
+  - `CONNECT_<PROVIDER>_*` (§2.1), GitHub's first, read by stadeum-ui
+    alone. `stack/stadeum.yml` hands them to stadeum-ui's container
+    only. Strut's environment block names each of its variables, so they
+    never reach strut's container.
+  - `CONNECT_TOKEN`, with the first provider that refreshes. Compose
+    hands it to stadeum-ui and strut, and `CONNECT_URL` to strut.
   - `STRUT_SUBSCRIPTIONS` (§6), passed through to strut.
 
-  Both go in `.env.example` and come from `install.sh` answers.
+  They go in `.env.example`. `install.sh` asks for the others, and
+  `init-env.sh` makes `CONNECT_TOKEN`.
 - **ops** syncs every subscription strut lists in the nightly window,
   after strut's image. Strut runs with `STRUT_DISTRO_POLL_MINUTES=0`
   (`plans/pods.md`). The list comes from strut, not from ops's image.
@@ -424,7 +506,7 @@ feature end to end.
 
 | # | Capability | Why | Today |
 | --- | --- | --- | --- |
-| 1 | **A package's steps manage the secrets it `provides`:** read the person's own value apart from the deployment's; delete the person's own; set and delete the deployment's from an admin's call | Disconnect, Clear the box token, a pasted token, and "Connected as @login" without mistaking the box token for the person's | Steps only read, through one merged lookup (`src/capabilities.ts:59-67`). Writes take the full scope (`src/createStrut.ts:7549`) |
+| 1 | **A package's steps manage the secrets it `provides`:** read the person's own value apart from the deployment's; delete the person's own; set and delete the deployment's from an admin's call; replace either with the value its provider rotated it to | Disconnect, Clear the box token, a pasted token (a Telegram bot's, an IMAP password), "Connected as @login" without mistaking the box token for the person's, and a refresh token its provider rotates (§2.1) | Steps only read, through one merged lookup (`src/capabilities.ts:59-67`). Writes take the full scope (`src/createStrut.ts:7549`) |
 | 2 | **An admin's call from a package's app:** a package's `admin: true` app, shown to an admin, gets the admin's scope for its own steps | The box token and the org's repositories are an admin's to set | The admin door serves only strut's first-party pages (`specs/API.md` §14.14, `src/steps/lib/earnings/_door.ts:1-15`) |
 | 3 | **Schedules a package ships:** a default automation on a workflow, installed with it and dropped with it | `check` runs every 15 minutes with nobody setting it up | Automations are workflow metadata, never in the package's YAML (`docs/automations.md`, "Key concepts") |
 | 4 | **Events a package's workflow runs on:** `actor.removed`, run as that actor, with `DELETE /actors/:actor`, which then drops the actor's secrets; `retire`, with `POST /retire`, which runs `actor.removed` for every actor first | Revoking a leaver's token, and every token at teardown, from the package that holds them | The actor secret routes delete one name at a time (`src/createStrut.ts:7569`). There are no events |
@@ -605,10 +687,11 @@ Each is its own PR.
 
 0. This plan, and the owner's answers to §13.
 1. **The App** (Stakwork, by hand), registered with §13's settings.
-2. **Stadeum: the connect seam,** with the fake GitHub in
+2. **Stadeum: the connect seam,** with GitHub's entry and the fake GitHub in
    `npm run fake-stack` (authorize, `access_token`). It needs nothing
    from strut. Then fleet's `STADEUM_CONNECT_GITHUB_*` answers. From here
-   each person's `GITHUB_TOKEN` reaches strut.
+   each person's `GITHUB_TOKEN` reaches strut. The refresh route and
+   `CONNECT_TOKEN` wait for the first provider whose tokens expire.
 3. **Strut:**
    - secrets a package provides, and an admin's call from a package's
      app (§5, items 1-2);
@@ -701,3 +784,8 @@ and suggests a bot account.
 6. **Jobs and events.** `on-event` records pull request, review and CI
    events on the repository. How a job that waits on CI or a review is
    woken by them is for strut's jobs to decide.
+7. **Google's verification.** Gmail's scopes and Drive's full scope are
+   restricted. Before people outside Stakwork can grant them, Google must
+   verify the app, with a yearly security assessment. Until then, an
+   app in testing gets refresh tokens that last 7 days. A Google
+   package's first scopes could be ones that need less.
