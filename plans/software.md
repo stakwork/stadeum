@@ -35,6 +35,15 @@
 > with GitHub's entry and a fake GitHub in `npm run fake-stack`
 > (`docs/stack-spec.md`, "The connect seam"). Everything else here is
 > still a plan.
+>
+> **2026-11-20:** the owner decided that a workspace is a node of its
+> own, so a repository can be in several (row 20, §14.4).
+>
+> **2026-11-20:** the owner dropped the box token: *"EVERYTHING IS A
+> PERSON"*. Every token is a person's, and unattended work runs as a
+> person: by default whoever set up GitHub on the box, with changing who
+> for later (row 6, §3.1, §14.4; §5, item 15). The seam's `for=box`
+> came out the same day.
 
 ## Problem
 
@@ -60,7 +69,7 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 3 | The model for GitHub tokens | **Hive's:** GitHub App user tokens that never expire, with no refresh and no private key (§1, §10). | **owner** (Hive's "works great") |
 | 4 | How a person connects | **The web flow, through a connect seam in stadeum:** two routes, and a third to refresh tokens that expire, that any OAuth provider's package can use. The client secret stays in stadeum-ui. The token goes to strut as the person's secret. Everything else is the package's (§2). | **owner** (2026-11-19: web flow over device flow); the seam's shape is proposed |
 | 5 | Which repositories the box works on | **`stadeum/code` keeps the list,** with its workspaces, in one app, Code. A repository is added by its address, or picked in the GitHub package from what the App's installations grant. `stadeum/code` checks them for new commits and is where the parser plugs in (§3.1, §14.4). | proposed (revised 2026-11-20: the list was the GitHub package's) |
-| 6 | Unattended work: ingestion, subscriptions to private packages, a job with no person | **A box token:** a token an admin connects "for the box", kept as strut's deployment `GITHUB_TOKEN` (§3.1). | proposed |
+| 6 | Unattended work: ingestion, subscriptions to private packages, a job with no person | **It runs as a person. There is no box token.** By default the person is whoever set up GitHub on the box, and changing who is for later. Each repository records the person who added it, and its unattended work runs as them (§3.1, §14.4; §5, item 15). | **owner** (2026-11-20: no box token, everything is a person, and the default); how it is recorded is proposed |
 | 7 | A `software` package that requires the others | **No.** Strut pins a required package by digest, and a `git+` subscription doesn't gate a required package on its own secrets (§3.3). Software is a **bundle**, a strut capability to add (§5). Until then, the button makes two subscriptions. | proposed |
 | 8 | Repositories and pods: one package or two? | **Two:** `stadeum/github` and `stadeum/pods`. Pods reads the repositories through the graph, not by requiring the package (§3.4). | proposed |
 | 9 | Fleet boots a box with Software | **First-boot subscriptions** (`STRUT_SUBSCRIPTIONS`), a strut capability to add, not `STRUT_PACKAGES`, which never moves (§6). | proposed |
@@ -74,6 +83,7 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 17 | The parsed code graph | **Not at first.** Pages and files. It comes back later, perhaps as a CLI, set up for each repository in the Code app and run in `ingest` (§14.6). | **owner** (2026-11-20: it comes back, and each repository is configurable for it); the rest is proposed |
 | 18 | Where a repository is set up | **In one app, Code.** Each other package's part of a repository is a link to its own app at first, and a section drawn in place once strut has panels (§14.4; §5, item 14). | proposed |
 | 19 | What a package's repository is called | **`stakwork/strut-<name>`:** `strut-github`, `strut-pods`, `strut-code`, and so on. The package's own name stays `stadeum/<name>`. Pods' package moves from `stakwork/pods-package` to `stakwork/strut-pods` (§11). | **owner** (2026-11-20) |
+| 20 | What a workspace is | **A node of its own,** linked to each of its repositories, so a repository can be in several workspaces (§14.4). | **owner** (2026-11-20); the node's fields are proposed |
 
 ## 1. What Hive does
 
@@ -100,8 +110,8 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 
 What `plans/github-app.md` §1 doesn't cover:
 
-- **Hive already has a box token, under other names.** Unattended work
-  runs as one person:
+- **Hive has no box token.** Unattended work runs as one person, which
+  is what a box does too (Decided, row 6):
   - a push webhook triggers ingestion with the **workspace owner's**
     token (`src/app/api/github/webhook/[workspaceId]/route.ts:155-167`);
   - a pod pool clones with **its creator's** token, stored on the pool as
@@ -156,9 +166,9 @@ package's.
 | Starting a connect or an install | **Stadeum's seam** | The package's app sends the person to the seam's start route. Stadeum signs the state, because the callback must trust it |
 | The callback and the exchange | **Stadeum's seam** | Through the sign-in bounce, as Google's and Microsoft's sign-in come back today |
 | The client secret | **stadeum-ui alone** | In its environment, never in strut's container or a browser |
-| Where tokens live | **Strut** | Each person's as their actor secret `GITHUB_TOKEN`, and the box token as the deployment's `GITHUB_TOKEN`. The seam writes them with the calls stadeum has today |
-| Handing tokens to steps | **Strut, as built** | A run reads its person's secret first, then the deployment's, then the environment (strut `src/actor-secrets.ts:12-17`). `git/checkout`, `github/create-pr`, pods' `git` and `git+` installs all read `GITHUB_TOKEN`. With other forges, git finds the token by host and strut refreshes one that expires (§5, items 8-9) |
-| Installations, repositories, the box token's display, disconnecting, revoking | **The package** | §3.1 |
+| Where tokens live | **Strut** | Each person's as their actor secret `GITHUB_TOKEN`. There is no box token (Decided, row 6). The seam writes it with the call stadeum has today |
+| Handing tokens to steps | **Strut, as built** | A run reads its person's secret first, then the deployment's, then the environment (strut `src/actor-secrets.ts:12-17`). `git/checkout`, `github/create-pr`, pods' `git` and `git+` installs all read `GITHUB_TOKEN`. A box sets no deployment `GITHUB_TOKEN`, so someone who hasn't connected is told to connect. With other forges, git finds the token by host and strut refreshes one that expires (§5, items 8-9) |
+| Installations, repositories, disconnecting, revoking | **The package** | §3.1 |
 | Webhooks | **The package, received by strut** | Repository webhooks to the box's own strut (§7). The App's webhook stays inactive |
 | Sign in to the box with GitHub | **Stadeum, later** | Identity is stadeum's (rule 1). It would be Auth.js on the same App (`plans/github-app.md` §6), deferred. People sign in with Google, Microsoft or email, and connect GitHub from the package |
 
@@ -173,18 +183,20 @@ any OAuth provider in a small table.
   - `scope`: the scopes the package needs, each one listed in the
     provider's entry;
   - `install=1`: start from the provider's install page instead of its
-    authorize page;
-  - `for=box`: an admin only. The tokens become the box's.
+    authorize page.
+
+  There is no `for=box`: a connect is always the person's own (Decided,
+  row 6).
 
   It shows the person a confirm page on the box, `/connect/:provider`
-  (built 2026-11-20, asked by the owner): which provider, which box, and
-  for whom, themselves or the box, with what the box's means. Its
+  (built 2026-11-20, asked by the owner): which provider and which box,
+  and that it is for them. Its
   Continue is `POST /api/connect/:provider` with the same parameters,
   taken only from stadeum's own origin. The person must be signed in.
   The POST checks the parameters again, signs a state and redirects to
   the provider. The state is `plans/github-app.md` §4's:
   `<label>.<body>.<sig>`, where the body holds the provider, the
-  person's actor, `for`, `return`, a nonce and the time. It's HMAC-SHA256
+  person's actor, `return`, a nonce and the time. It's HMAC-SHA256
   under a key derived from `AUTH_SECRET`, and it lasts an hour.
 - **`GET /api/connect/:provider/callback`**, reached through the bounce.
   It refuses a state that is bad, expired, or names someone other than
@@ -192,9 +204,8 @@ any OAuth provider in a small table.
   1. exchanges the code with the provider's token URL, its client id and
      its secret;
   2. writes to strut each secret that the provider's entry names and the
-     response holds: `pushActorSecret(actor, name, value)`, or for
-     `for=box`, the deployment's `name` (`putDeploymentSetting`,
-     `client.ts:208`). A response that holds none of them is a failure.
+     response holds: `pushActorSecret(actor, name, value)`. A response
+     that holds none of them is a failure.
      That also catches Slack's `ok: false`, which comes with HTTP 200;
   3. redirects to `return`.
 
@@ -239,7 +250,7 @@ interface Provider {
   install?: string;                  // an install page, if the provider has one
   token: string;                     // the token URL: never from a package
   scopes: string[];                  // every scope a package may ask for
-  scopeParam?: { person: string; box: string }; // where scopes go; "scope" for both by default
+  scopeParam?: string;               // where scopes go; "scope" by default
   params?: Record<string, string>;   // fixed extras on the authorize URL
   secrets: Record<string, string[]>; // each secret's paths in the token response; the first present wins
   refresh?: true;                    // its access tokens expire: strut refreshes them (§5, item 8)
@@ -249,7 +260,7 @@ interface Provider {
 | Provider | Scopes | Secrets the callback writes | Refresh |
 | --- | --- | --- | --- |
 | **GitHub** (ships first) | None: the App's settings decide (§13 Q4). `install` is `apps/<slug>/installations/new` | `GITHUB_TOKEN` ← `access_token` | No: expiry is off |
-| **Slack** | The bot's as `scope` for the box, a person's as `user_scope` | `SLACK_TOKEN` ← `access_token` (the bot's) or `authed_user.access_token` (the person's) | No: Slack's tokens last unless the app turns rotation on |
+| **Slack** | A person's, as `user_scope` | `SLACK_TOKEN` ← `authed_user.access_token` | No: Slack's tokens last unless the app turns rotation on |
 | **Google** (Gmail, Drive, Calendar) | `params`: `access_type=offline`, `prompt=consent`, `include_granted_scopes=true` | `GOOGLE_TOKEN` ← `access_token` | Yes: an hour |
 | **Microsoft** (Outlook, OneDrive, Teams) | `offline_access` and Graph's scopes | `MICROSOFT_TOKEN` ← `access_token` | Yes, and the refresh token rotates on every use |
 | **GitLab** (gitlab.com, or a company's own) | `api`, `read_repository`, `write_repository`. `base` is `CONNECT_GITLAB_URL` | `GITLAB_TOKEN` ← `access_token` | Yes: 2 hours. Spending a refresh token invalidates the old pair |
@@ -257,9 +268,9 @@ interface Provider {
 
 How it fits each of them:
 
-- **One secret name per provider, the person's first, then the box's.**
-  Slack's `for=box` installs the bot, so the box token is the bot's, and
-  a person who connects acts as themselves, as with `GITHUB_TOKEN`.
+- **One secret name per provider, and it is the person's.** A person
+  who connects acts as themselves, as with `GITHUB_TOKEN`. A Slack bot's
+  token is nobody's: how a box gets one is open question 19.
 - **Google packages share one secret.** With
   `include_granted_scopes`, each Google package's connect adds its
   scopes to what the person granted before. The new token covers them
@@ -301,7 +312,7 @@ pasted value itself, with §5 item 1. For example:
 Telegram's login widget sends a payload signed with the bot's token, and
 the package checks it itself.
 
-**Five rules keep the seam safe:**
+**Four rules keep the seam safe:**
 
 - **The token URL, a forge's address and the scopes are stadeum's, never
   a package's.** If a package could name the token URL or the address,
@@ -309,12 +320,10 @@ the package checks it itself.
   lists, and the person sees each one on the provider's consent page.
 - **`return` must be on the box's own origins:** `https://<host>` or
   `https://strut.<host>`. So the seam is no open redirect.
-- **`for=box` is an admin's.** The route checks the session's role, as
-  every admin page does.
 - **A connect is a person's click on the box's own page,** never a link
   they followed. A provider skips its consent page for someone who
   authorized the app before, so a link alone, from an email or another
-  box's page, could connect them, or make an admin's account the box's.
+  box's page, could connect them.
   The start route only shows the confirm page; its Continue is a POST
   taken only from stadeum's own origin, not strut's, so a package's app
   can't skip it, and the page can't be framed.
@@ -346,10 +355,11 @@ root and a `stable` branch moved by its promote, as pods does. No service.
 package: stadeum/github
 version: 0.1.0
 requires:
-  # The person's own or the box's: public repositories need neither.
+  # The person's own. Public repositories need none.
   optional: [GITHUB_TOKEN, GITHUB_HOOK_SECRET]
 provides:
-  # New (§5): the secrets its steps may delete, and set from an admin's call.
+  # New (§5): the secrets its steps may set and delete: a person's own
+  # token, and from an admin's call the box's hook secret.
   secrets: [GITHUB_TOKEN, GITHUB_HOOK_SECRET]
   # New (§5): the hosts its token serves, for git anywhere on the box.
   git:
@@ -369,7 +379,7 @@ hooks:
 
 - **Connect GitHub:** a link to `/api/connect/github?return=<this app>`.
   Back in the app, it shows "Connected as @login": its step reads the
-  person's own token, never the box's (§5), and calls `GET /user`.
+  person's own token (§5) and calls `GET /user`.
 - **Disconnect:** the step sends the token to `POST /credentials/revoke`
   and deletes the person's secret. That endpoint needs no authentication
   and takes GitHub App user tokens. GitHub emails the person that the
@@ -384,19 +394,22 @@ For an admin, the same app also shows:
   - **Change repositories**, which opens
     `github.com/apps/<slug>/installations/<id>`. The slug comes from the
     installation itself (`app_slug`).
-- **The box token:** "Unattended work, and anyone who hasn't connected
-  GitHub, act on GitHub as **@login**."
-  - **Connect for the box** is `/api/connect/github?for=box`. A team that
-    wants a neutral author signs in to GitHub as a bot account first.
-  - **Clear** revokes it and deletes it.
-  - On a box with no App, an admin pastes a fine-grained token instead
-    (§8).
+- **Unattended work:** "Checks and ingestion for these repositories act
+  on GitHub as **@login**." There is no box token (Decided, row 6).
+  - Each repository runs as the admin who checked it (§14.4). On a new
+    box that is whoever set up GitHub.
+  - When that person disconnects or leaves, the repository shows that
+    it has nobody to act as, until an admin checks it again and so takes
+    it over. Choosing another person outright is for later (owner).
+  - On a box with no App, each person pastes a fine-grained token of
+    their own instead (§8).
 - **Pick repositories,** where `stadeum/code` is installed (§14.4):
   - what the viewer's token reaches, by installation;
   - a checkbox for each, meaning "this box works on it".
 
   Checking one adds it to the box's list, which `stadeum/code` keeps,
-  and creates its webhook with the admin's token (§7). Unchecking
+  with the admin as the person it runs as, and creates its webhook with
+  the admin's token (§7). Unchecking
   deletes the webhook and takes the repository off the list. A
   repository newly granted on GitHub appears at once, unchecked:
   granting reach is not choosing to work on it.
@@ -430,12 +443,12 @@ For an admin, the same app also shows:
   a 401 (`src/steps/lib/github/pr-status.ts:110`).
 - **`forget`,** on a person's removal: it runs as that person, revokes
   their token and deletes it. **`retire`,** on the box's teardown: it
-  deletes the box's webhooks while the tokens still work, then revokes
-  the box token after strut has run `forget` for everyone. Both
-  are events strut runs, a capability to add (§5).
+  deletes the box's webhooks while the tokens still work. Strut then
+  runs `forget` for everyone, which revokes every token. Both are
+  events strut runs, a capability to add (§5).
 
 **Steps:** the app's own: `me`, `disconnect`, `installations`,
-`available`, `pick`, `box-token`.
+`available`, `pick`.
 
 ### 3.2 `stadeum/pods`: a workspace is a set of the box's repositories
 
@@ -447,7 +460,7 @@ and a bare pod tells the agent to clone by hand. Proposed:
 - **On a bare pod,** `claim` clones each one into `/workspaces/<name>`,
   the way `git` runs commands now: through podd's exec, with the token
   only in that command's `GIT_ASKPASS`. The token is the run's for that
-  repository's host (§5, item 9): the person's, else the box's. So a
+  repository's host (§5, item 9), which is the person's. So a
   GitLab or Forgejo repository clones the same way, and so does pods'
   `git` push.
 - **On a pod from an image,** it fetches each repository and leaves the
@@ -507,8 +520,8 @@ itself. §14.4 proposes a third package in the bundle, `stadeum/code`.
   webhooks use one of strut's schemes (item 7).
 
 Pods reads the nodes and requires neither package, so §3.3's pin never
-applies. The contract is the node's fields, written on `stadeum/code`'s
-Concept page.
+applies. The contract is the two nodes' fields and the link between
+them, written on `stadeum/code`'s Concept page.
 
 ## 4. What Stadeum still does
 
@@ -526,9 +539,9 @@ GitHub:
   - On, it's a subscription (`PUT /packages/subscriptions/:id { ref }`).
   - Off, it's one install (`POST /packages/install { ref }`).
 
-  A private repo is read with `GITHUB_TOKEN`: the admin's own for an
-  install, the box token for a subscription. Like every install, this is
-  for admins only.
+  A private repo is read with the admin's own `GITHUB_TOKEN`, for an
+  install and for a subscription, which syncs as whoever made it (§5,
+  item 15). Like every install, this is for admins only.
 - **The Software button.** A card on the Packages page, "Your
   repositories, known to the box and in its graph, and a machine of its
   own for every coding job." It makes one subscription to the bundle
@@ -581,20 +594,21 @@ manifest, and gains no new kind of thing.
 
 | # | Capability | Why | Today |
 | --- | --- | --- | --- |
-| 1 | **A package's steps manage the secrets it `provides`:** read the person's own value apart from the deployment's; delete the person's own; set and delete the deployment's from an admin's call | Disconnect, Clear the box token, a pasted token (a Telegram bot's, an IMAP password), and "Connected as @login" without mistaking the box token for the person's | Steps only read, through one merged lookup (`src/capabilities.ts:59-67`). Writes take the full scope (`src/createStrut.ts:7549`) |
-| 2 | **An admin's call from a package's app:** a package's `admin: true` app, shown to an admin, gets the admin's scope for its own steps | The box token and the org's repositories are an admin's to set | The admin door serves only strut's first-party pages (`specs/API.md` §14.14, `src/steps/lib/earnings/_door.ts:1-15`) |
+| 1 | **A package's steps manage the secrets it `provides`:** read the person's own value apart from the deployment's; set and delete the person's own; set and delete the deployment's from an admin's call | Disconnect, a person's pasted token (GitHub's on a box with no App, an IMAP password), a secret that is the box's and nobody's (a webhook's signing secret, a Telegram bot's token), and "Connected as @login" that never shows a deployment value as the person's | Steps only read, through one merged lookup (`src/capabilities.ts:59-67`). Writes take the full scope (`src/createStrut.ts:7549`) |
+| 2 | **An admin's call from a package's app:** a package's `admin: true` app, shown to an admin, gets the admin's scope for its own steps | The box's repositories and its webhook secret are an admin's to set | The admin door serves only strut's first-party pages (`specs/API.md` §14.14, `src/steps/lib/earnings/_door.ts:1-15`) |
 | 3 | **Schedules a package ships:** a default automation on a workflow, installed with it and dropped with it | `check` runs every 15 minutes with nobody setting it up | Automations are workflow metadata, never in the package's YAML (`docs/automations.md`, "Key concepts") |
 | 4 | **Events a package's workflow runs on:** `actor.removed`, run as that actor, with `DELETE /actors/:actor`, which then drops the actor's secrets; `retire`, with `POST /retire`, which runs `actor.removed` for every actor first | Revoking a leaver's token, and every token at teardown, from the package that holds them | The actor secret routes delete one name at a time (`src/createStrut.ts:7569`). There are no events |
 | 5 | **Bundles:** `bundle:` in `strut.yaml`, refs followed by branch, each package gated on its own secrets | Software as one subscription, with no pins (§3.3) | `requires.packages` pins a digest, and a `git+` subscription gates only its own package |
 | 6 | **First-boot subscriptions:** `STRUT_SUBSCRIPTIONS`, the twin of `STRUT_PACKAGES`, each made once and never remade after an admin deletes it | Fleet boots a box with Software (§6) | `STRUT_PACKAGES` installs once and never moves (`src/packages/boot.ts`) |
 | 7 | **Webhook routes for packages:** `hooks:` in `strut.yaml`. Each is served at `POST /hooks/<publisher>/<package>/<name>` on strut's public origin. Before anything runs, strut checks the delivery in constant time, against a secret the package names, by a `scheme` it knows: **`hmac-sha256`**, of the raw body, in a header the package names, with an optional prefix and hex or base64 (GitHub's `X-Hub-Signature-256`, Forgejo's `X-Forgejo-Signature`, Linear's, Shopify's); **`standard-webhooks`**, HMAC-SHA256 over the id, timestamp and body in `webhook-signature`, refusing old timestamps (GitLab's signing token, and others on that spec); **`token`**, a header that holds the secret itself (GitLab's older `X-Gitlab-Token`). It caps the body's size and the rate, answers 202 at once, and runs the package's workflow detached with the event. With no secret set, the route answers 404. Uninstalling the package removes the route | Real-time events from repositories, delivered to the box (§7), from any forge. A package names a scheme and writes no checking code | Strut has no route a package can declare |
 | 8 | **Secrets that refresh themselves:** the connect seam's callback writes a secret with its expiry and refresh token. When a step reads it near its expiry, strut calls the seam's refresh route (§2.1) with `CONNECT_URL` and `CONNECT_TOKEN`, stores the new pair, and hands over the new value. It refreshes one secret at a time. When the provider refuses the refresh token, strut drops the secret, so the step finds it missing and says to connect again | Google, Microsoft, GitLab and Forgejo tokens last an hour or two. Every reader gets a live token without code of its own, and two runs never spend one refresh token | A secret is a plain value, with no expiry |
-| 9 | **Git credentials by host:** a package declares the hosts its token serves, `provides: git: [{ host, secret }]`. The host can come from a setting, for a company's own forge. Any step asks strut for a repository URL's credentials and gets the run's token for that host: the person's, else the box's, refreshed if need be (item 8). Strut's own git steps and `git+` installs use the same lookup | Pods' `claim` and `git`, `git/checkout` and `git+` installs reach GitHub, GitLab and Forgejo repositories with the right token, and none of them names a forge | Each reads `GITHUB_TOKEN` by name (§2). A subscription can name one `tokenSecret` |
+| 9 | **Git credentials by host:** a package declares the hosts its token serves, `provides: git: [{ host, secret }]`. The host can come from a setting, for a company's own forge. Any step asks strut for a repository URL's credentials and gets the run's token for that host, which is its person's, refreshed if need be (item 8). Strut's own git steps and `git+` installs use the same lookup | Pods' `claim` and `git`, `git/checkout` and `git+` installs reach GitHub, GitLab and Forgejo repositories with the right token, and none of them names a forge | Each reads `GITHUB_TOKEN` by name (§2). A subscription can name one `tokenSecret` |
 | 10 | **A dream source a package ships:** `dream:` in `strut.yaml`. Each entry names a page the package carries under `Dream` (the rules), a step it carries (the material), the tree they tend and how often (§14.2). Strut makes the automation on `dream` for the entry. The dream calls the step in place of `dream/turns`, with the cursor it kept, and gets `{ count, text, cursor }`. Strut keeps a cursor for each tree and source. A lesson says where in the material it came from, and its claim is optional | The Codebase tree, kept by the dream from merged changes (§14.2). Any package can feed a tree the same way: tickets, mail, a wiki | The dream reads `dream/turns` by name (`src/workflows/system/dream/workflow.yaml:117`). Its marks are a conversation and a turn, one file for each tree (`src/steps/lib/dream/_state.ts`). A lesson requires `session`, `turn`, `said` and `claim` (`workflow.yaml:180`). The page can't name the step itself: a page carries only the fields `Concept` declares (`docs/knowledge.md:593`) |
 | 11 | **A tender tests its change:** where a page's claims carry cases, the dream runs a test of the page as it is against the page with its change. The verdicts go with the change: on the proposal where the tree is reviewed, in the history where it isn't | "When an update is proposed, run a bunch of previous tasks against it" (§14.3) | `knowledge/test` answers strut's own page shown to an admin, never a workflow (`docs/knowledge.md:429-437`) |
 | 12 | **A package's pages' claims, recorded at install** and dropped with it | A package ships its pages with their checks and cases, so `Repository Changes` is measured from the first day | The install's outcome carries them, and nothing records them (`docs/knowledge.md:400`) |
 | 13 | **A trial that runs a job:** a case whose replay starts a job in a pod of its own, released once the sample is judged | A past coding task replayed against a change (§14.3). Later | A trial starts no job (`src/createStrut.ts:8428`) |
 | 14 | **Panels:** `panels:` in `strut.yaml` names one of the package's apps as a section for a graph type. A page that shows a node of that type asks for its panels, and each installed package's section is drawn in place, opened on the node, with that app's own grants | One page for a repository, with a section from each package: its source, its pages, its pod, its code graph (§14.4). Any type can have them: a customer, a matter | An app can link to another app (`kit/src/links.ts:17`). It can't show one: its page allows no frames (`src/apps/build.ts:217`) |
+| 15 | **Unattended work runs as a person:** a run nobody launched (a schedule's, a webhook's, a subscription's sync) acts as a named actor, with that person's secrets. A package can name only a person who set that work up, or whom an admin handed it to: strut keeps who, so a package can't act as anyone else (open question 18) | No box token (Decided, row 6). `check` and `ingest` act as the person who added the repository, and a private package syncs as whoever subscribed | A run's secrets are its principal's (`src/actor-secrets.ts`). A scheduled run names no actor, and a subscription names one `tokenSecret` |
 
 Not needed now, and kept for later:
 
@@ -697,22 +711,22 @@ package:
   puts its values in `.env`, and the same seam does the rest.
   `plans/github-app.md` §7's manifest flow could automate the
   registration later.
-- **A pasted token,** fine-grained, kept as the box token from the
-  package's admin app (§5, item 1). Everything works, but every pull
-  request is authored by the token's owner, and the token expires when
-  GitHub says.
+- **A pasted token.** Each person pastes a fine-grained token of their
+  own in the package's app, kept as their own secret (§5, item 1).
+  Everything works, and the token expires when GitHub says.
 
 If a self-hosted box asks for Stakwork's App, the device flow (§2.1) is
 the way: it needs neither the bounce nor the secret.
 
 ## 9. When a box goes
 
-Tokens live in strut's `actor-secrets.json` and `secrets.json`, and in
-the backups. They don't expire, so deleting the machine doesn't end them.
+Tokens live in strut's `actor-secrets.json`, and in the backups. They
+don't expire, so deleting the machine doesn't end them.
 
 - **Destroy.** Fleet calls `POST /retire`. The GitHub package's `retire`
   deletes the box's webhooks first, while the tokens still work. Then
-  `forget` and `retire` send the tokens to `POST /credentials/revoke`.
+  `forget`, run for everyone, sends each token to
+  `POST /credentials/revoke`.
   Best effort; fleet records the answer. The backups fleet keeps then
   hold dead tokens.
 - **A person leaves.** Their `forget` revokes their token (§4).
@@ -747,13 +761,13 @@ course means asking people to connect again.
   - **Stands, generalised:** the App (§2), what is central and the
     secret's terms (§3), the state (§4) and the exchange (§4.3), now the
     seam's. Its repo webhooks pointed at the box (§4.6) stand too, now
-    the package's, through strut.
+    the package's, through strut. So does "No org token" (§5): every
+    token is a person's (Decided, row 6).
   - **Moves to the package:** the GitHub page, linked installations,
-    Change repositories, disconnect, revocation and the box token.
+    Change repositories, disconnect and revocation.
   - **Goes:**
     - stadeum's three tables;
-    - the six-hourly check, since a dead token shows when it's used;
-    - "No org token" (§5), replaced by the box token.
+    - the six-hourly check, since a dead token shows when it's used.
   - **Deferred:** sign-in with GitHub (§6).
 - **`plans/pods.md`:** ops no longer subscribes every box at first boot.
   Software does, and ops syncs every subscription.
@@ -763,8 +777,8 @@ course means asking people to connect again.
 - **`AGENTS.md`:**
   - rule 4:
     - the connect seam's client secrets live in stadeum-ui alone;
-    - strut holds each person's GitHub token and the box token, so an
-      agent's shell can read them, accepted with §9's revocation;
+    - strut holds each person's GitHub token, so an agent's shell can
+      read them, accepted with §9's revocation;
   - the roadmap's step 7 points here.
 
 ## 12. Steps
@@ -782,19 +796,21 @@ Each is its own PR.
 3. **Strut:**
    - secrets a package provides, and an admin's call from a package's
      app (§5, items 1-2);
-   - schedules a package ships (item 3);
+   - schedules a package ships (item 3), and unattended work that runs
+     as a person (item 15);
    - events, `DELETE /actors/:actor` and `POST /retire` (item 4);
    - webhook routes for packages, with the three schemes (item 7);
    - git credentials by host (item 9).
 
    Secrets that refresh themselves (item 8) wait for the first provider
    whose tokens expire.
-4. **`stadeum/code`, the list** (§14.4): the `Repository` type, the Code
+4. **`stadeum/code`, the list** (§14.4): the `Repository` and
+   `Workspace` types, the Code
    app (add by address, workspaces), `check`, an empty `ingest` and the
    `repositories` tool.
 
    **`stadeum/github`:**
-   - the app, installations, the box token and the picker;
+   - the app, installations and the picker;
    - webhooks and `on-event`;
    - `forget` and `retire`.
 5. **Stadeum:**
@@ -866,9 +882,10 @@ updates (§7), which adds the Webhooks permission.
 9. **Private key?** *None in use.* Keep any key GitHub makes offline,
    never on a box.
 
-Not about the App: **who is the box token by default?** *Nobody until an
-admin connects "for the box".* The GitHub app asks for it on first use,
-and suggests a bot account.
+Not about the App: **who does unattended work act as?** *A person,
+always (owner, 2026-11-20). There is no box token. By default it is
+whoever set up GitHub on the box, and changing who is for later
+(Decided, row 6).*
 
 ## 14. Catching up with Hive: the code features
 
@@ -1081,14 +1098,20 @@ one app shows it.
 **What it keeps:**
 
 - **The box's repositories,** as graph nodes: `url`, `name`, default
-  `branch`, `workspace`, `main` (the workspace's main repository) and
-  `checked` (the head last seen). The graph is in the backup. A
-  repository's own settings, the code graph's later, are fields on its
-  node. When the parser comes back, its own `Repository` type wins and
-  these fields go on it.
-- **A workspace is a name on repositories.** By default each repository
-  is its own workspace, named after it. An admin can group several:
-  `hive` holds `hive` (main), `stakgraph` and `mcp`.
+  `branch`, `checked` (the head last seen) and `actor` (the person its
+  unattended work runs as: whoever added it). The graph is in the
+  backup. A repository's own settings, the code graph's later, are
+  fields on its node. When the parser comes back, its own `Repository`
+  type wins and these fields go on it.
+- **Its workspaces,** as nodes of their own (owner, 2026-11-20). A
+  workspace has a `name`, a link to each of its repositories, and
+  `main`, which says which of them is its main one. The fields are
+  proposed.
+  - A repository can be in several workspaces: `stakgraph` is in
+    `hive`'s, with `hive` (main) and `mcp`, and can be in a larger
+    test's as well.
+  - By default a repository added to the list gets a workspace of its
+    own, named after it.
 
 **Its app, Code,** is every person's. It lists the repositories by
 workspace:
@@ -1105,7 +1128,8 @@ For an admin it also has:
 - **Add a repository** by its address. That works for any forge, since
   git finds its token by host (§5, item 9). Where the GitHub package is
   installed, **Pick from GitHub** opens its picker (§3.1).
-- **Workspaces:** group repositories, and name each group's main one.
+- **Workspaces:** put a repository in one workspace or several, and
+  name each workspace's main one.
 - **A repository's settings,** with a section for each package:
 
 ```text
@@ -1132,8 +1156,10 @@ hive ▸ settings
 **Its workflows:**
 
 - **`check`,** a schedule the package ships (§5, item 3). Every 15
-  minutes it runs `git ls-remote <url> HEAD` on each repository, with
-  the box's token for that host, which uses no REST quota. When a head
+  minutes it runs `git ls-remote <url> HEAD` on each repository, as the
+  repository's person (§5, item 15), with their token for that host,
+  which uses no REST quota. A public repository needs no token. When a
+  head
   moved, it records the commit and calls `ingest`. A forge package's
   push event runs it at once for one repository (§7), so the schedule
   is the fallback.
@@ -1146,7 +1172,7 @@ hive ▸ settings
 | --- | --- |
 | Pages | `Codebase` (a root); `Repository Changes` (under `Dream`); `Code Change` and `Explore` (under `Job`) |
 | An app | Code |
-| A graph type | `Repository` |
+| Graph types | `Repository` and `Workspace` |
 | Workflows | `check` and `ingest`; `explore`, open to peers as in the lab; `bootstrap` |
 | Steps | `repositories`, a job tool, which also tells `explore` what the box holds; `changes`; the app's own |
 | In its manifest | `job:` for `repositories`; `dream:` for the Codebase tree (§14.2); the schedule for `check` |
@@ -1258,6 +1284,14 @@ repository must be configurable for it. So:
 17. **Who draws a panel.** An app's page allows no frames (§5, item 14).
     Does strut's own page draw each section, or may an app frame this
     strut's own apps?
+18. **Whom a package's unattended run may act as.** Item 15 lets a run
+    nobody launched act as a named person. What stops a package from
+    naming anyone: a record strut keeps of who set the work up, or that
+    person's own yes each time the work changes hands?
+19. **A Slack bot's token.** It is the workspace's, not a person's, and
+    the seam writes only a person's secrets. Is it an admin's pasted
+    value (§5, item 1), or does the Slack package's plan bring back a
+    connect that isn't a person's?
 
 ## Later: workspaces that actually work (notes, not planned)
 
@@ -1289,12 +1323,11 @@ Where it runs then becomes a placement decision for the pods service.
    which ingestion puts in the graph. Given a diff, Jamie finds the
    screens it touches and opens them in the right state. This memory is
    in strut, so it outlives every pod.
-4. **A workspace is its own node, many-to-many with repositories.** In
-   §14.4, `workspace` is one field on a repository node, so a repository
-   is in only one workspace. stakgraph couldn't be in hive's workspace
-   and in a 30-system test as well. **This is the one note that touches
-   what's planned now.** Changing the nodes after `stadeum/code`
-   writes them means migrating them, so decide before step 4 of §12.
+4. **A workspace is its own node, many-to-many with repositories.**
+   Decided (owner, 2026-11-20), and now in §14.4: stakgraph can be in
+   hive's workspace and in a 30-system test as well. It was the one note
+   that touched what's planned now, since changing the nodes after
+   `stadeum/code` writes them would mean migrating them.
 5. **Composition.**
    - Each repository's `.pod/` describes that repository alone: the
      services it needs, the apps it runs, its ports.
@@ -1333,8 +1366,9 @@ Where it runs then becomes a placement decision for the pods service.
    contract that changed.
 
 **The order, when it's time:**
-1. Journeys, states and screens (1-3), with the workspace node (4). The
-   biggest gain for the least, and no infrastructure.
+1. Journeys, states and screens (1-3). The biggest gain for the least,
+   and no infrastructure. The workspace node (4) comes with step 4 of
+   §12.
 2. Composition (5).
 3. Worlds on Lambda (6).
 4. The metal backend (7).
