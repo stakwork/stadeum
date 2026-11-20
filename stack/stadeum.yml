@@ -63,7 +63,8 @@ services:
     <<: *common
     image: caddy:2.11.8-alpine
     environment:
-      # The Caddyfile serves {SCHEME}://{HOST} and {SCHEME}://strut.{HOST}.
+      # The Caddyfile serves {SCHEME}://{HOST}, {SCHEME}://strut.{HOST} and
+      # {SCHEME}://mothership.{HOST}.
       # https fetches and renews the certificates itself.
       SCHEME: https
       HOST: ${HOST:?set HOST in .env}
@@ -138,8 +139,9 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       neo4j: { condition: service_healthy }
-    # Internal only: strut and stadeum-ui call it on the network, and
-    # nothing outside the box does.
+    # strut and stadeum-ui call it on the network. Outside the box, only its
+    # providers' endpoints are reachable, at mothership.HOST (the
+    # Caddyfile), with a grant's key.
     # Do NOT set APP_PORT/APP_HOST: the wrapper (PID 1) listens on 8181 and
     # runs bifrost-http on 127.0.0.1:8080.
     environment:
@@ -240,6 +242,12 @@ services:
       # provider key. Hard-coded like bifrost's flags.
       STRUT_MOTHERSHIP: "1"
       STRUT_MOTHERSHIP_REQUIRED: "1"
+      # A grant of model calls to a machine outside strut (a pod's apps):
+      # strut asks stadeum-ui here, with the deployment key, for a key of
+      # the grant's own on the person's budget, capped and expiring, and
+      # the machine calls the gateway's public route with it
+      # (mothership.HOST, the Caddyfile). docs/models.md, "A grant's key".
+      STRUT_MOTHERSHIP_GRANTS_URL: http://stadeum-ui:3000/api/mothership/keys
       STRUT_PUBLIC_URL: https://strut.${HOST}
       # Optional: web search when a call is routed through the gateway.
       EXA_API_KEY: ${EXA_API_KEY:-}

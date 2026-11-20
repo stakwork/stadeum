@@ -72,6 +72,12 @@ work on it. Read the rules before adding anything.
      key, on the box's network only.
    - No deployment key or shared token ever reaches a browser. A person's
      browser holds only that person's short-lived credentials.
+   - The gateway's provider endpoints alone are public, at
+     `mothership.$HOST`, for a machine strut grants model calls (a pod).
+     It holds a key of its own on the person's budget: capped, expiring
+     within a day, deleted at release (`docs/models.md`, "A grant's
+     key"). The gateway's admin API, plugin routes and dashboard stay on
+     the box's network.
    - A call's key is made in the person's browser for that call, and goes
      only to strut and the voice service. LiveKit carries audio it cannot
      read. The LiveKit key pair is in `.env` and the voice container alone.
@@ -195,10 +201,10 @@ order of the work, each step its own PR:
 | Path | What |
 | --- | --- |
 | `stack/stadeum.yml` | The deployment (docker compose), on published images (the voice service's on Docker Hub): a release's, which ops writes onto a box. `stack/local.yml` is a box's own override, never in a release. `stack/dev.yml` overlays local mode: plain http on `*.localhost`, stadeum-ui and ops built here |
-| `stack/caddy/Caddyfile` | The routes: `$HOST` → stadeum-ui, `strut.$HOST` → strut |
+| `stack/caddy/Caddyfile` | The routes: `$HOST` → stadeum-ui, `strut.$HOST` → strut, `mothership.$HOST` → the gateway's provider endpoints alone |
 | `stack/bootstrap/` | First boot: the org signing key and its registration with the gateway |
 | `ui/` | stadeum-ui: Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db`) |
-| `ui/src/lib/mothership/` | Each person's virtual key and delegation, minted, pushed to strut, renewed |
+| `ui/src/lib/mothership/` | Each person's virtual key and delegation, minted, pushed to strut, renewed; a grant's key for a machine outside strut (`grant-key.ts`, `ui/src/app/api/mothership/keys/`) |
 | `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the brand, the frame's sign-in ticket, a call's room |
 | `ui/src/app/(app)/apps/` | A strut app framed for the person (`strut-frame.tsx`) and its one-use ticket (`open.ts`); the assistant's frame is the `(app)` layout's (`home-frame.tsx`), kept open across stadeum's pages. `ui/src/app/(app)/earnings/` frames strut's Earnings the same way, for an admin |
 | `ui/src/components/call.tsx`, `ui/src/lib/call*.ts` | A call: held by the `(app)` layout, its key and its checks, its LiveKit room (loaded only on a call), its transcript and artifacts; `ui/src/app/api/calls/` hands it to strut, `ui/src/app/(app)/calls/` draws it |

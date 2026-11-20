@@ -1,4 +1,5 @@
-# Local overlay: plain http on HOST and strut.HOST, no certificates.
+# Local overlay: plain http on HOST, strut.HOST and mothership.HOST, no
+# certificates.
 # Leave HOST at stadeum.localhost (.env.example): every *.localhost resolves
 # to this machine, and with a dot in it strut.HOST stays the same site as
 # HOST, which the strut frame's cookie needs (bare `localhost` and

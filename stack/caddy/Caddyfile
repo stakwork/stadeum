@@ -1,4 +1,4 @@
-# stadeum's router: TLS and the two sites, the only published ports.
+# stadeum's router: TLS and the three sites, the only published ports.
 # SCHEME, HOST and ACME_EMAIL come from stack/stadeum.yml (stack/dev.yml:
 # plain http on *.localhost). With https, Caddy fetches and renews the
 # certificates itself.
@@ -8,9 +8,11 @@
 
 # stadeum-ui: sign-in, the person, calls, the members, the admin pages.
 {$SCHEME}://{$HOST} {
-	# ops's routes (settings with the backup credentials, its status) are
-	# for the box's network only: never through here.
+	# Routes for the box's network only, never through here: ops's (settings
+	# with the backup credentials, its status) and strut's (a grant's model
+	# key, /api/mothership/keys).
 	respond /api/ops/* 404
+	respond /api/mothership/* 404
 	reverse_proxy stadeum-ui:3000
 }
 
@@ -22,4 +24,24 @@
 		# WebSocket upgrades (/rooms, /channels, /audio/stream) pass as is.
 		flush_interval -1
 	}
+}
+
+# The gateway, for a machine outside the box that strut grants model calls
+# (a pod's apps): the providers' own endpoints and nothing else, so a
+# standard SDK works with a base URL and a key. Its admin API (/api/*), its
+# plugin's routes (/_plugin/*) and its dashboard are never routed here.
+# Caddy cleans the path before it matches, so `..` cannot step out of them.
+# The key is `<virtual key>.<macaroon>`: the gateway itself splits it into
+# the key's own header and `x-macaroon` (stakgraph gateway/wrapper/authsplit.go),
+# and refuses a call without both, as on the box's network. docs/models.md,
+# "A grant's key".
+{$SCHEME}://mothership.{$HOST} {
+	@provider path /openai/* /anthropic/* /genai/*
+	handle @provider {
+		reverse_proxy bifrost:8181 {
+			# Streamed completions: pass every chunk on at once.
+			flush_interval -1
+		}
+	}
+	respond 404
 }

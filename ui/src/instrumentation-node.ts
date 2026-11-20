@@ -1,6 +1,7 @@
 import { applyModels } from "@/lib/models/apply";
 import { applyGivenProviders } from "@/lib/models/providers";
 import { ensureGatewayLogRetention } from "@/lib/mothership/gateway-settings";
+import { sweepGrantKeys } from "@/lib/mothership/grant-key";
 import { renewAllDelegations } from "@/lib/mothership/renew";
 import { applyGivenBackup } from "@/lib/ops/store";
 import { applyLimits } from "@/lib/spend/limits";
@@ -17,7 +18,9 @@ import { applyLimits } from "@/lib/spend/limits";
  * - spending limits: every person's budget, so a limit the gateway missed
  *   on a save is put right;
  * - the backup destination the box's host gives (STADEUM_BACKUP_DESTINATION),
- *   so an edit to it is put right.
+ *   so an edit to it is put right;
+ * - grants' model keys past their expiry, which the gateway already
+ *   refuses, deleted in case strut never released them.
  * `STADEUM_RENEWAL=0` turns it off.
  */
 const EVERY_MS = 6 * 60 * 60 * 1000;
@@ -33,6 +36,7 @@ if (process.env.STADEUM_RENEWAL !== "0") {
     await applyModels().catch(warn("models"));
     await applyLimits().catch(warn("spending limits"));
     await applyGivenBackup().catch(warn("given backup destination"));
+    await sweepGrantKeys().catch(warn("expired grant keys"));
   };
   setTimeout(tick, 60_000).unref?.();
   setInterval(tick, EVERY_MS).unref?.();

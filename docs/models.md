@@ -346,6 +346,75 @@ which anyone signed in can write. Editing them changes what Jamie shows,
 not what the gateway lets through, and stadeum's next reconcile puts
 them back.
 
+## A grant's key
+
+A machine outside the box that strut grants model calls, such as a pod's
+apps (stakwork/pods `PLAN.md` §3.2), never gets a provider's key. It
+gets a virtual key of its own on the person's budget, and calls the
+gateway's public route with it.
+
+- **Strut asks** with the deployment key, on the box's network
+  (`STRUT_MOTHERSHIP_GRANTS_URL`, `stack/stadeum.yml`):
+
+  ```
+  POST http://stadeum-ui:3000/api/mothership/keys
+  Authorization: Bearer <SHARED_API_TOKEN>
+  x-strut-actor: <the person's actor>
+  { "name": "job-42", "macaroon": "<narrowed, base64url>", "max_cost_usd": 10, "expires_at": "<ISO 8601>" }
+  → 201 { "id": "…", "key": "sk-bf-….<macaroon>", "address": "https://mothership.<HOST>", "expires_at": "…" }
+  ```
+
+  `name` is `[A-Za-z0-9._-]{1,64}`. `expires_at` is in the future and at
+  most 24 hours away. A refusal is 400 (the request), 401 (the key), 404
+  (no such person), 502 (the gateway) or 503 (the gateway's credentials
+  unset), with `{ error }`. `DELETE /api/mothership/keys/<id>`, with the
+  deployment key alone, deletes it: 200, or 404 when it is gone or is not
+  a grant's key. Caddy's public site answers `/api/mothership/*` with 404.
+- **The key** (`ui/src/lib/mothership/grant-key.ts`) is under the
+  person's customer, so their budget pays and their limit still holds.
+  It may call the org's models, as their own key may. It has a budget of
+  its own, `max_cost_usd`, over a week, so it never refills while it
+  lives; the gateway checks it before each call, so the call that crosses
+  it is answered and the next is a 402. The gateway refuses the key after
+  `expires_at` (403). It is named
+  `grant:<name>:<random>`; an actor never holds a `:`, so the delete and
+  the sweep touch no person's key. The gateway is the record: stadeum
+  keeps nothing.
+- **The answer** joins the key and the macaroon with a dot. The gateway
+  itself splits `sk-bf-<uuid>.<macaroon>` out of `Authorization: Bearer`,
+  `x-api-key` or `x-goog-api-key` into the key's header and `x-macaroon`
+  (stakgraph `gateway/wrapper/authsplit.go`, since stakwork/stakgraph#1297,
+  in the pinned v0.4.399). Neither half holds a `.`: a virtual key is
+  `sk-bf-<uuid>`, a macaroon unpadded base64url. So an app on a standard
+  SDK needs a base URL and a key, nothing more: `OPENAI_BASE_URL` is
+  `<address>/openai/v1`, `ANTHROPIC_BASE_URL` `<address>/anthropic`.
+- **The route** is `mothership.$HOST` (`stack/caddy/Caddyfile`): bifrost's
+  `/openai/*`, `/anthropic/*` and `/genai/*` alone. Its admin API
+  (`/api/*`), its plugin's routes (`/_plugin/*`) and its dashboard stay
+  on the box's network. Caddy cleans a path before it matches, so `..`
+  cannot step out of the three. The address is `mothership.` on
+  stadeum-ui's own host, from `AUTH_URL`.
+- **What bounds the machine** is the key: its budget, its expiry, and
+  its deletion when strut releases the grant. Not the macaroon's
+  narrowing: a macaroon carries each link's HMAC, so code that holds one
+  can drop strut's link and present the person's whole delegation
+  (strut's side found it, 2026-11-20). That is worth nothing without a
+  virtual key the gateway honours, and the grant's key stops at its
+  budget. The gateway does not yet check that a macaroon's user is the
+  key's customer (stakgraph `gateway/internal/auth/doc.go`, "out of
+  scope"), so a call is billed to the key's customer whoever's macaroon
+  rides with it.
+- **The sweep.** stadeum-ui's upkeep (every six hours) deletes every
+  grant's key past its expiry, in case strut never released it.
+- **Checked** by `scripts/mothership-e2e.sh`, section 6, through Caddy on
+  the real gateway: the joined key in both headers, billed to the person;
+  every other path on the site a 404, `..` included; the key alone a 401;
+  its budget a 402, its expiry a 403, its deletion a 401.
+- **DNS.** The certificate for `mothership.$HOST` needs that name to
+  point at the box, as `$HOST` and `strut.$HOST` do. `scripts/install.sh`
+  says so when it doesn't, but starts the box anyway: only grants need
+  the name. Until it resolves, Caddy keeps retrying its certificate.
+
 ## Work items
 
 In order, one PR each.

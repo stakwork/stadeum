@@ -1,4 +1,5 @@
-import { isOps, settingsForOps } from "@/lib/ops/store";
+import { hasDeploymentKey } from "@/lib/deployment-key";
+import { settingsForOps } from "@/lib/ops/store";
 
 /**
  * ops reads its settings here every tick (ui/src/lib/ops/contract.ts).
@@ -8,6 +9,6 @@ import { isOps, settingsForOps } from "@/lib/ops/store";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  if (!isOps(req.headers.get("authorization"))) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!hasDeploymentKey(req.headers.get("authorization"))) return Response.json({ error: "unauthorized" }, { status: 401 });
   return Response.json(await settingsForOps(), { headers: { "Cache-Control": "no-store" } });
 }
