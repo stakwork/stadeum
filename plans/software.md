@@ -843,3 +843,84 @@ and suggests a bot account.
    before the Forgejo package lists any. GitLab's docs say spending a
    refresh token invalidates the old pair, though a GitLab issue reports
    that old tokens keep working. Item 8 is built for the strict case.
+
+## Later: workspaces that actually work (notes, not planned)
+
+The owner, 2026-11-19: *"lets not do this yet, but it sounds great."*
+These are notes for later. The goal is for Jamie to find a setup that
+**works** for him and for the people he works with, not one that only
+runs. He goes to the part of the app being worked on, remembers how
+the UX works, and shows prototypes on the page itself. That includes
+huge end-to-end tests of dozens of systems working together.
+
+The idea: keep **what** a workspace is (its systems, how they connect,
+how its UX works) apart from **where** it runs (one pod or several).
+Where it runs then becomes a placement decision for the pods service.
+
+1. **Journeys.** Playwright scripts in `.pod/journeys/`, each one walking
+   to a screen. One file is four things:
+   - Jamie's way to a screen;
+   - a demo for a person;
+   - an end-to-end test;
+   - what a bake must pass, through `check.sh`.
+
+   It's Playwright's own format, like the rest of `.pod/`.
+2. **Named states.** Seeds that put the app into a situation, such as
+   `empty-account` or `three-overdue-invoices`. A prototype or a
+   simulation on the page is a state plus a journey, with hot reload on
+   top.
+3. **Screens in the graph.** Each screen is a node: its route, how to
+   reach it, and its journey. It's linked to the code that renders it,
+   which ingestion puts in the graph. Given a diff, Jamie finds the
+   screens it touches and opens them in the right state. This memory is
+   in strut, so it outlives every pod.
+4. **A workspace is its own node, many-to-many with repositories.** In
+   §3.1, `workspace` is one field on a repository node, so a repository
+   is in only one workspace. stakgraph couldn't be in hive's workspace
+   and in a 30-system test as well. **This is the one note that touches
+   what's planned now.** Changing the nodes after `stadeum/github`
+   writes them means migrating them, so decide before step 4 of §12.
+5. **Composition.**
+   - Each repository's `.pod/` describes that repository alone: the
+     services it needs, the apps it runs, its ports.
+   - A workspace composes them. Compose's `include:` does this, and
+     `pm2.config.js` can require the others.
+   - A workspace with no code of its own is a small workspace
+     repository: the composition and the journeys that cross systems.
+   - Jamie proposes compositions from the graph: which repository calls
+     which endpoints, and which settings point where. `pod survey` grows
+     to suggest how to wire them.
+6. **Worlds: several pods claimed together.**
+   - One description, placed by the service. A small workspace is one
+     pod, sized from what its bake measured (pods `PLAN.md` §15 item 13).
+   - A big one is split across pods along its HTTP edges. Each pod is
+     told its peers' addresses as `POD_URL_<peer>_<port>`, which grows
+     out of today's `POD_URL_<port>`.
+   - On Lambda (pods `PLAN.md` §7.1), pods are 2, 4 or 8 GB, bursting
+     to 4×, and live 8 hours at most.
+   - They reach each other only through their HTTPS endpoints: HTTP,
+     WebSocket and gRPC, but not raw TCP. So a database stays in the pod
+     of the system that owns it.
+   - The endpoint's limits suit a test's requests, not heavy traffic.
+7. **A metal backend.**
+   - Firecracker microVMs, plus Cuttlefish for Android, on an EC2
+     bare-metal host.
+   - It gives a private network between pods (raw TCP, no endpoint
+     limits), KVM for Android, and no 8-hour limit.
+   - Lambda's Firecracker gives no nested KVM and is arm64, so an
+     Android emulator can't really run there.
+   - The pods plan's interface already allows it (§6 there). A world can
+     span backends: the web stacks on Lambda, the Android app on metal.
+8. **Record and replay between systems.** The HTTP edges between pods
+   are where to record. A job runs the few systems under test for real
+   and replays the rest from a recording of a full run. The nightly bake
+   runs the whole world for real. A replay that fails points at the
+   contract that changed.
+
+**The order, when it's time:**
+1. Journeys, states and screens (1-3), with the workspace node (4). The
+   biggest gain for the least, and no infrastructure.
+2. Composition (5).
+3. Worlds on Lambda (6).
+4. The metal backend (7).
+5. Record and replay (8).
