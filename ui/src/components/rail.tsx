@@ -12,10 +12,10 @@ export interface RailProps {
   orgName: string;
   /** The top item, `/`: the assistant's title, or "Home" without one. */
   home: string;
-  /** Strut's other apps, in launcher order. */
+  /** Strut's other apps, in launcher order: for an admin, the admin-only ones they pinned too. */
   apps: Array<{ title: string; href: string }>;
   admin: boolean;
-  /** Strut's admin-only apps (Earnings among them), among the organisation's pages: an admin's. */
+  /** Strut's admin-only apps no admin pinned (Earnings among them), among the organisation's pages: an admin's. */
   adminApps?: Array<{ title: string; href: string }>;
   person: Person;
 }
@@ -41,8 +41,8 @@ const SETTINGS = {
 const SETTINGS_PATHS = [...SETTINGS.you, ...SETTINGS.organisation, ...SETTINGS.server].map((p) => p.href);
 
 /**
- * The admin Apps page, an app's versions and an admin-only app are
- * Settings; any other `/apps/<name>` is the app's frame.
+ * The admin Apps page, an app's versions and an admin-only app no admin
+ * pinned are Settings; any other `/apps/<name>` is the app's frame.
  */
 function settingsPage(path: string, adminPages: Array<{ href: string }>): string | undefined {
   if (/^\/apps\/[^/]+\/versions(\/|$)/.test(path)) return "/apps";
@@ -63,7 +63,7 @@ export function Rail({ orgName, home, apps, admin, adminApps = [], person }: Rai
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
 
-  // Strut's admin-only apps sit among the organisation's pages, before Apps.
+  // Strut's admin-only apps no admin pinned sit among the organisation's pages, before Apps.
   const adminPages = adminApps.map((a) => ({ href: a.href, label: a.title }));
   const current = settingsPage(path, adminPages);
   const call = useCall();

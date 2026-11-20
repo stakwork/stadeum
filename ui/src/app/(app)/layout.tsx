@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { CallProvider } from "@/components/call";
 import { describeDelegation } from "@/components/delegation";
 import { Rail } from "@/components/rail";
-import { adminApps, listApps } from "@/lib/apps";
+import { adminApps, listApps, railApps } from "@/lib/apps";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { isAdmin, isRole, roleLabel } from "@/lib/roles";
@@ -20,6 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ]);
   const access = describeDelegation(mothership);
   const home = apps?.find((a) => a.assistant);
+  const rail = railApps(apps ?? [], admins);
 
   // The call and the assistant's frame live here, above every page, so they keep going as the person moves between them.
   return (
@@ -28,9 +29,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Rail
           orgName={env.orgName()}
           home={home?.title ?? "Home"}
-          apps={(apps ?? []).filter((a) => !a.assistant).map((a) => ({ title: a.title, href: a.href }))}
+          apps={rail.apps.filter((a) => !a.assistant).map((a) => ({ title: a.title, href: a.href }))}
           admin={isAdmin(user.role)}
-          adminApps={admins.map((a) => ({ title: a.title, href: a.href }))}
+          adminApps={rail.settings.map((a) => ({ title: a.title, href: a.href }))}
           person={{
             name: user.name || user.email,
             email: user.email,

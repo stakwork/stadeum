@@ -28,9 +28,18 @@ export interface ManagedApp {
   pinned: boolean;
   /** The live version's usage warnings in the last day. */
   warnings: number;
-  /** Strut makes its committed version live at every start: read-only here. */
+  /** Strut makes its committed version live at every start: read-only here, but for an admin-only app's pin. */
   seeded: boolean;
+  /** An admin's app alone (§14.14): pinned, it is in an admin's rail, else among the organisation's pages. */
+  admin: boolean;
 }
+
+/**
+ * Whether the admin may pin the app here. A seeded app is read-only, but
+ * an admin-only one still takes a pin: it decides whether the app is in
+ * an admin's rail, and pinning a seeded app holds nothing.
+ */
+export const canPin = (app: Pick<ManagedApp, "seeded" | "admin">) => !app.seeded || app.admin;
 
 /** The admin page for one app's versions; `version` frames that one. */
 export const versionsHref = (name: string, version?: string) =>
@@ -47,6 +56,7 @@ function managed(app: StrutApp, v: StrutAppVersions): ManagedApp {
     pinned: !!app.pinned,
     warnings: app.warnings ?? 0,
     seeded: isSeeded(v),
+    admin: !!app.admin,
   };
 }
 

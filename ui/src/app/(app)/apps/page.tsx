@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { PageHeader } from "@/components/page-header";
 import { Dot } from "@/components/state";
-import { managedApps, versionsHref, type ManagedApp } from "@/lib/app-admin";
+import { canPin, managedApps, versionsHref, type ManagedApp } from "@/lib/app-admin";
 import { liveLabel, pinNote } from "@/lib/app-versions";
 import { requireAdmin } from "@/lib/session";
 import { PinToggle } from "./manage";
@@ -83,7 +83,7 @@ function Row({ app: a }: { app: ManagedApp }) {
         {a.warnings ? <Dot tone="attention" label={a.warnings === 1 ? "1 warning" : `${a.warnings} warnings`} /> : <span className="text-ink-3">{"—"}</span>}
       </td>
       <td className="px-5 py-2 text-right">
-        {!a.seeded && <PinToggle name={a.name} pinned={a.pinned} note={pinNote(a.pinned, a.active, a.live)} />}
+        {canPin(a) && <PinToggle name={a.name} pinned={a.pinned} note={pinNote(a)} />}
       </td>
     </tr>
   );

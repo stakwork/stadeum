@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { startFakeStack, type FakeStack } from "@/test/fake-stack";
-import { managedApp, managedApps, versionsHref } from "./app-admin";
+import { canPin, managedApp, managedApps, versionsHref } from "./app-admin";
 import { setAppLive, setAppPinned } from "./strut/client";
 
 let fake: FakeStack;
@@ -38,6 +38,9 @@ describe("managedApps", () => {
     expect(apps[1]).toMatchObject({ title: "Legal", active: "v1", live: "r1", held: true, drafts: 0, pinned: true, warnings: 1, seeded: false });
     // v2, v3 and v4 are newer than the held v1 and were never made live: drafts, as strut's rows count them.
     expect(apps[2]).toMatchObject({ title: "Books", active: "v1", held: true, drafts: 3, pinned: false, warnings: 0 });
+    // Seeded apps are read-only, but an admin-only one takes a pin: it puts the app in an admin's rail.
+    expect(apps[3]).toMatchObject({ title: "Earnings", seeded: true, admin: true });
+    expect(apps.map(canPin)).toEqual([false, true, true, true]);
     expect(fake.state.requests).toContain("GET /strut/apps/acme%2Fbooks/versions");
     expect(fake.state.requests).not.toContain("GET /strut/apps/strut%2Fviews/versions");
   });

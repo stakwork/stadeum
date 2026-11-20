@@ -110,12 +110,20 @@ export const liveLabel = (active: string, live: string | undefined): string =>
 
 /**
  * What pinning does here: stadeum lists pinned apps right after Jamie
- * (strut's "tab"), and pinning an app that follows latest also holds it
- * at its live version (`PUT /apps/:name/pin`, strut's Tab toggle wording).
+ * (strut's "tab"), an admin-only app in an admin's rail only once pinned,
+ * and pinning an app that follows latest also holds it at its live
+ * version, a seeded one excepted (`PUT /apps/:name/pin`, strut's Tab
+ * toggle wording).
  */
-export function pinNote(pinned: boolean, active: string, live: string | undefined): string {
-  if (pinned) return "Everyone sees the app among the others again, by title. What is live stays as it is.";
-  return isHeld(live)
-    ? "Everyone sees the app pinned near the top of their apps."
-    : `Everyone sees the app pinned near the top of their apps, and it stays at ${active}: later publishes wait as drafts until you make one live.`;
+export function pinNote(app: { pinned: boolean; active: string; live?: string; seeded: boolean; admin: boolean }): string {
+  if (app.pinned) {
+    const back = app.admin
+      ? "Admins find the app among the organisation's pages again."
+      : "Everyone sees the app among the others again, by title.";
+    return `${back} What is live stays as it is.`;
+  }
+  const to = app.admin ? "Admins see the app in their apps, near the top" : "Everyone sees the app pinned near the top of their apps";
+  return isHeld(app.live) || app.seeded
+    ? `${to}.`
+    : `${to}, and it stays at ${app.active}: later publishes wait as drafts until you make one live.`;
 }
