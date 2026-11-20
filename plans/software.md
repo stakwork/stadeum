@@ -1,6 +1,6 @@
 # Software: GitHub, repositories and pods, as packages
 
-> **Status (2026-11-19): a plan, nothing built.** The owner decided that
+> **Status (2026-11-19): a plan.** The owner decided that
 > software is a choice each box's admin makes: an admin clicks
 > **Software** on the Packages page. Later the same day the owner set the
 > direction for how: *"as much as possible … built into the package, and
@@ -30,6 +30,11 @@
 > later: in one app, Code, in `stadeum/code`, which now keeps the
 > repository list in place of the GitHub package (§3.1, §14.4). That is
 > proposed too.
+>
+> **Built (2026-11-20):** step 2 (§12), the connect seam in stadeum-ui,
+> with GitHub's entry and a fake GitHub in `npm run fake-stack`
+> (`docs/stack-spec.md`, "The connect seam"). Everything else here is
+> still a plan.
 
 ## Problem
 
@@ -267,7 +272,10 @@ How it fits each of them:
   - `CONNECT_<PROVIDER>_CLIENT_ID` and `_CLIENT_SECRET`;
   - `CONNECT_GITHUB_SLUG`;
   - `CONNECT_GITLAB_URL` (default `https://gitlab.com`) and
-    `CONNECT_FORGEJO_URL`.
+    `CONNECT_FORGEJO_URL`;
+  - `CONNECT_GITHUB_URL` (default `https://github.com`), only so that
+    `npm run fake-stack` can stand in for GitHub: compose never hands it
+    to a box.
 
   A provider is available when its id and secret are set. Google's and
   Microsoft's entries may reuse the sign-in apps (`AUTH_GOOGLE_*`,
@@ -538,7 +546,8 @@ GitHub:
     (§5, item 9).
   - `STRUT_SUBSCRIPTIONS` (§6), passed through to strut.
 
-  They go in `.env.example`. `install.sh` asks for the others, and
+  They go in `.env.example`. `install.sh` takes the others as a host's
+  answers (`STADEUM_CONNECT_GITHUB_*`, never asked on a terminal), and
   `init-env.sh` makes `CONNECT_TOKEN`.
 - **ops** syncs every subscription strut lists in the nightly window,
   after strut's image. Strut runs with `STRUT_DISTRO_POLL_MINUTES=0`
@@ -752,7 +761,7 @@ Each is its own PR.
 
 0. This plan, and the owner's answers to §13.
 1. **The App** (Stakwork, by hand), registered with §13's settings.
-2. **Stadeum: the connect seam,** with GitHub's entry and the fake GitHub in
+2. **Stadeum: the connect seam** (built 2026-11-20), with GitHub's entry and the fake GitHub in
    `npm run fake-stack` (authorize, `access_token`). It needs nothing
    from strut. Then fleet's `STADEUM_CONNECT_GITHUB_*` answers. From here
    each person's `GITHUB_TOKEN` reaches strut. The refresh route,

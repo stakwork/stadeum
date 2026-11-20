@@ -86,6 +86,11 @@
 #   STADEUM_PODS_URL, STADEUM_PODS_TOKEN (optional, never asked: a host that
 #                             runs a pods service gives the box its tenant;
 #                             plans/pods.md)
+#   STADEUM_CONNECT_GITHUB_CLIENT_ID, STADEUM_CONNECT_GITHUB_CLIENT_SECRET,
+#   STADEUM_CONNECT_GITHUB_SLUG (optional, never asked: a GitHub App a host
+#                             gives, for people to connect GitHub; its
+#                             callback is the box's, or the bounce's;
+#                             docs/stack-spec.md, "The connect seam")
 #   STADEUM_LIVEKIT_API_KEY, STADEUM_LIVEKIT_API_SECRET (optional: calls stay
 #                             off without them; STADEUM_LIVEKIT_URL for a
 #                             LiveKit server other than the central one)
@@ -417,6 +422,19 @@ check_pods_url() {
   return 1
 }
 
+check_github_client_id() {
+  [[ $ANSWER =~ ^[A-Za-z0-9._-]+$ ]] && return 0
+  note "the GitHub App's Client ID, on its settings page (e.g. Iv23li…)"
+  return 1
+}
+
+check_github_slug() {
+  ANSWER=${ANSWER,,}
+  [[ $ANSWER =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] && return 0
+  note "the App's name in github.com/apps/<slug>"
+  return 1
+}
+
 check_backup_destination() {
   [[ $ANSWER == \{*\} ]] && return 0
   note 'a JSON object, e.g. {"kind":"s3","bucket":"…","accessKeyId":"…","secretAccessKey":"…"}'
@@ -530,6 +548,11 @@ configure() {
   # (plans/pods.md). Each taken only when given.
   [ -z "${STADEUM_PODS_URL:-}" ] || setting PODS_URL "Pods service" check_pods_url
   [ -z "${STADEUM_PODS_TOKEN:-}" ] || setting PODS_TOKEN "Pods token" any secret
+  # GitHub for the connect seam: a GitHub App a host gives, taken only when
+  # given, its client secret with its client ID.
+  [ -z "${STADEUM_CONNECT_GITHUB_CLIENT_ID:-}" ] || setting CONNECT_GITHUB_CLIENT_ID "GitHub App client ID" check_github_client_id
+  [ -z "$(env_get CONNECT_GITHUB_CLIENT_ID)" ] || setting CONNECT_GITHUB_CLIENT_SECRET "GitHub App client secret" given secret
+  [ -z "${STADEUM_CONNECT_GITHUB_SLUG:-}" ] || setting CONNECT_GITHUB_SLUG "GitHub App slug" check_github_slug
   check_replaced
 }
 
@@ -741,6 +764,7 @@ finish() {
   fi
   say "    Google     $(callback_base)/api/auth/callback/google"
   say "    Microsoft  $(callback_base)/api/auth/callback/microsoft-entra-id"
+  [ -z "$(env_get CONNECT_GITHUB_CLIENT_ID)" ] || say "    GitHub     $(callback_base)/api/connect/github/callback (the App's one callback URL)"
   say "  Keep ports 80 and 443 (TCP, and 443 UDP) open to the internet, in the cloud's"
   say "  firewall or security group: Caddy renews the certificates through them."
   admin=$(env_get STADEUM_ADMIN_EMAIL)

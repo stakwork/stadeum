@@ -487,6 +487,12 @@ services:
       AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
       AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
       STADEUM_SIGNIN_BOUNCE: ${STADEUM_SIGNIN_BOUNCE:-}
+      # The connect seam's GitHub App (docs/stack-spec.md): its client
+      # secret is here alone, never in strut's container, whose agents run
+      # shell commands. Strut gets the tokens it trades for.
+      CONNECT_GITHUB_CLIENT_ID: ${CONNECT_GITHUB_CLIENT_ID:-}
+      CONNECT_GITHUB_CLIENT_SECRET: ${CONNECT_GITHUB_CLIENT_SECRET:-}
+      CONNECT_GITHUB_SLUG: ${CONNECT_GITHUB_SLUG:-}
       STADEUM_DEV_LOGIN: ${STADEUM_DEV_LOGIN:-}
       STADEUM_ALLOWED_DOMAINS: ${STADEUM_ALLOWED_DOMAINS:-}
       STADEUM_ADMIN_EMAIL: ${STADEUM_ADMIN_EMAIL:-}

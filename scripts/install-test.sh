@@ -177,3 +177,27 @@ grep -qxF PODS_TOKEN=pods_tenant-token-1 "$WORK/pods.env" || fail "PODS_TOKEN wa
 if grep -q 'tenant-token-1' "$WORK/out"; then fail "the pods token was printed"; fi
 if rerun pods-bad.env STADEUM_PODS_URL=http://pods.example.com; then fail "a pods URL that isn't https was taken"; fi
 echo "ok - pods a host gives are added, the token unprinted"
+
+# 9. The GitHub App a host gives for the connect seam: added when .env lacks
+# it (the secret unprinted), kept on a re-run, its secret rotated by
+# STADEUM_REPLACE alone; a client ID without its secret, or a slug that is
+# not one, stops the install.
+GITHUB=(STADEUM_CONNECT_GITHUB_CLIENT_ID=Iv23liOldClient STADEUM_CONNECT_GITHUB_CLIENT_SECRET=gh-old-secret STADEUM_CONNECT_GITHUB_SLUG=Stadeum)
+rerun github.env "${GITHUB[@]}" || fail "a re-run given the GitHub App"
+for line in CONNECT_GITHUB_CLIENT_ID=Iv23liOldClient CONNECT_GITHUB_CLIENT_SECRET=gh-old-secret CONNECT_GITHUB_SLUG=stadeum; do
+  grep -qxF "$line" "$WORK/github.env" || fail "the GitHub App's ${line%%=*}: $(grep "^${line%%=*}=" "$WORK/github.env")"
+done
+if grep -q 'gh-old-secret' "$WORK/out"; then fail "the GitHub App's secret was printed"; fi
+cp "$WORK/github.env" "$WORK/before.env"
+rerun github-kept.env STADEUM_CONNECT_GITHUB_CLIENT_ID=Iv23liNewClient STADEUM_CONNECT_GITHUB_CLIENT_SECRET=gh-new-secret || fail "a re-run with the GitHub App set"
+cmp -s "$WORK/before.env" "$WORK/github-kept.env" || fail "a re-run changed the GitHub App: $(diff "$WORK/before.env" "$WORK/github-kept.env")"
+rerun github-rotated.env STADEUM_CONNECT_GITHUB_CLIENT_SECRET=gh-new-secret STADEUM_REPLACE=CONNECT_GITHUB_CLIENT_SECRET || fail "a re-run rotating the GitHub App's secret"
+grep -qxF CONNECT_GITHUB_CLIENT_SECRET=gh-new-secret "$WORK/github-rotated.env" || fail "the GitHub App's secret was not rotated"
+cmp -s <(without CONNECT_GITHUB_CLIENT_SECRET "$WORK/before.env") <(without CONNECT_GITHUB_CLIENT_SECRET "$WORK/github-rotated.env") ||
+  fail "rotating the GitHub App's secret changed another value"
+without CONNECT_GITHUB_CLIENT_ID CONNECT_GITHUB_CLIENT_SECRET CONNECT_GITHUB_SLUG "$WORK/github.env" >"$WORK/before.env"
+if rerun github-nosecret.env STADEUM_CONNECT_GITHUB_CLIENT_ID=Iv23liOldClient; then fail "a GitHub App client ID without its secret"; fi
+grep -q 'CONNECT_GITHUB_CLIENT_SECRET is not set' "$WORK/out" || fail "a client ID without its secret says so"
+if rerun github-badslug.env "${GITHUB[@]:0:2}" "STADEUM_CONNECT_GITHUB_SLUG=my app"; then fail "a GitHub App slug that is not one"; fi
+grep -q 'STADEUM_CONNECT_GITHUB_SLUG is not a valid CONNECT_GITHUB_SLUG' "$WORK/out" || fail "a slug that is not one says so"
+echo "ok - the GitHub App a host gives is added, kept, and its secret rotated"
