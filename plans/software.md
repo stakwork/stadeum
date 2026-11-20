@@ -11,7 +11,10 @@
 > and chose repository webhooks for real-time updates (§7). The owner
 > then asked for the seam to fit more than GitHub: it now covers Slack,
 > Google and Microsoft too, with scopes, several tokens and refresh
-> (§2.1). Rows marked **owner** in "Decided" are the owner's;
+> (§2.1). It also fits GitLab and Forgejo. For them, a forge's address is
+> a setting, strut refreshes expiring tokens, webhooks are checked by
+> several signature schemes, and git finds its token by host (§2.1, §5
+> items 7-9). Rows marked **owner** in "Decided" are the owner's;
 > every other row is *proposed*. Read against stadeum `main` @70d10e0, strut `main`
 > @e7663dff, hive `master` @554793fa1, stakwork/pods `main` @2cf4498 and
 > stadeum-fleet `main` @6d6f3342. It replaces most of
@@ -132,7 +135,7 @@ package's.
 | The callback and the exchange | **Stadeum's seam** | Through the sign-in bounce, as Google's and Microsoft's sign-in come back today |
 | The client secret | **stadeum-ui alone** | In its environment, never in strut's container or a browser |
 | Where tokens live | **Strut** | Each person's as their actor secret `GITHUB_TOKEN`, and the box token as the deployment's `GITHUB_TOKEN`. The seam writes them with the calls stadeum has today |
-| Handing tokens to steps | **Strut, as built** | A run reads its person's secret first, then the deployment's, then the environment (strut `src/actor-secrets.ts:12-17`). `git/checkout`, `github/create-pr`, pods' `git` and `git+` installs all read `GITHUB_TOKEN` |
+| Handing tokens to steps | **Strut, as built** | A run reads its person's secret first, then the deployment's, then the environment (strut `src/actor-secrets.ts:12-17`). `git/checkout`, `github/create-pr`, pods' `git` and `git+` installs all read `GITHUB_TOKEN`. With other forges, git finds the token by host and strut refreshes one that expires (§5, items 8-9) |
 | Installations, repositories, the box token's display, disconnecting, revoking | **The package** | §3.1 |
 | Webhooks | **The package, received by strut** | Repository webhooks to the box's own strut (§7). The App's webhook stays inactive |
 | Sign in to the box with GitHub | **Stadeum, later** | Identity is stadeum's (rule 1). It would be Auth.js on the same App (`plans/github-app.md` §6), deferred. People sign in with Google, Microsoft or email, and connect GitHub from the package |
@@ -174,7 +177,8 @@ small table.
   the package reads installations itself.
 - **`POST /api/connect/:provider/refresh`**, for a provider whose
   access tokens expire. Refreshing needs the client secret too, so it
-  can't be the package's.
+  can't be the package's. Its only caller is strut itself, never a
+  package's step (§5, item 8).
   - Strut calls it over the stack's network, with `CONNECT_TOKEN` as
     the bearer: a secret strut and stadeum-ui share, as strut and the
     voice service share `STRUT_VOICE_TOKEN`.
@@ -186,18 +190,24 @@ small table.
     nothing.
 
   It's built with the first provider whose tokens expire, because
-  GitHub's never do (§13 Q3). A package that refreshes requires
-  `CONNECT_URL` and `CONNECT_TOKEN`, which compose hands to strut as it
-  hands `PODS_URL` and `PODS_TOKEN`. Its step trades the stored refresh
-  token for an access token when its work starts: an hour covers a run.
-  When the provider rotates the refresh token, the step stores the new
-  one (§5, item 1). Microsoft rotates it on every use.
+  GitHub's never do (§13 Q3). For such a provider, the callback writes
+  the access token as the secret, with its expiry and the refresh token
+  beside it. When a step reads the secret near its expiry, strut
+  refreshes it and stores the new pair. So:
+  - **No reader refreshes.** A package, pods' `git` or a `git+` install
+    reads `GITLAB_TOKEN` just as it reads `GITHUB_TOKEN`, and never sees
+    a refresh token.
+  - **No two runs race.** Strut refreshes one secret at a time.
+    Spending a GitLab refresh token invalidates the old pair, so if two
+    steps refreshed at once, one would lose and the person would have
+    to connect again.
 
 **The provider table,** `ui/src/lib/connect.ts`, is the only part that
 names a provider. Each entry is data:
 
 ```ts
 interface Provider {
+  base?: string;                     // a forge's address, from .env: the URLs below are paths under it
   authorize: string;                 // the authorize URL
   install?: string;                  // an install page, if the provider has one
   token: string;                     // the token URL: never from a package
@@ -205,7 +215,7 @@ interface Provider {
   scopeParam?: { person: string; box: string }; // where scopes go; "scope" for both by default
   params?: Record<string, string>;   // fixed extras on the authorize URL
   secrets: Record<string, string[]>; // each secret's paths in the token response; the first present wins
-  refresh?: true;                    // its access tokens expire: the refresh route serves it
+  refresh?: true;                    // its access tokens expire: strut refreshes them (§5, item 8)
 }
 ```
 
@@ -213,8 +223,10 @@ interface Provider {
 | --- | --- | --- | --- |
 | **GitHub** (ships first) | None: the App's settings decide (§13 Q4). `install` is `apps/<slug>/installations/new` | `GITHUB_TOKEN` ← `access_token` | No: expiry is off |
 | **Slack** | The bot's as `scope` for the box, a person's as `user_scope` | `SLACK_TOKEN` ← `access_token` (the bot's) or `authed_user.access_token` (the person's) | No: Slack's tokens last unless the app turns rotation on |
-| **Google** (Gmail, Drive, Calendar) | `params`: `access_type=offline`, `prompt=consent`, `include_granted_scopes=true` | `GOOGLE_REFRESH_TOKEN` ← `refresh_token` | Yes |
-| **Microsoft** (Outlook, OneDrive, Teams) | `offline_access` and Graph's scopes | `MICROSOFT_REFRESH_TOKEN` ← `refresh_token` | Yes, rotated on every use |
+| **Google** (Gmail, Drive, Calendar) | `params`: `access_type=offline`, `prompt=consent`, `include_granted_scopes=true` | `GOOGLE_TOKEN` ← `access_token` | Yes: an hour |
+| **Microsoft** (Outlook, OneDrive, Teams) | `offline_access` and Graph's scopes | `MICROSOFT_TOKEN` ← `access_token` | Yes, and the refresh token rotates on every use |
+| **GitLab** (gitlab.com, or a company's own) | `api`, `read_repository`, `write_repository`. `base` is `CONNECT_GITLAB_URL` | `GITLAB_TOKEN` ← `access_token` | Yes: 2 hours. Spending a refresh token invalidates the old pair |
+| **Forgejo** (Codeberg, or a company's own) | Its own, if the version honours them (open question 8). `base` is `CONNECT_FORGEJO_URL` | `FORGEJO_TOKEN` ← `access_token` | Yes: an hour by default, with refresh tokens good for 730 hours |
 
 How it fits each of them:
 
@@ -223,18 +235,31 @@ How it fits each of them:
   a person who connects acts as themselves, as with `GITHUB_TOKEN`.
 - **Google packages share one secret.** With
   `include_granted_scopes`, each Google package's connect adds its
-  scopes to what the person granted before. The new refresh token covers
-  them all, so one `GOOGLE_REFRESH_TOKEN` serves every Google package.
+  scopes to what the person granted before. The new token covers them
+  all, so one `GOOGLE_TOKEN` serves every Google package.
+- **A forge at its own address.** GitLab and Forgejo run at many
+  addresses, so their entries take `base` from `.env`. It's still
+  stadeum's setting, never a package's.
+  - gitlab.com and Codeberg can each have one Stakwork app for every
+    hosted box, like the GitHub App.
+  - A company's own instance registers an app on that instance, with
+    the box's own callback (§8).
+  - Two instances of one forge on a box would be two entries. That's for
+    later.
 - **Settings.** Each entry's values come from `.env`:
-  `CONNECT_<PROVIDER>_CLIENT_ID` and `_CLIENT_SECRET`, plus
-  `CONNECT_GITHUB_SLUG`. A provider is available when its id and secret
-  are set. Google's and Microsoft's entries may reuse the sign-in apps
-  (`AUTH_GOOGLE_*`, `AUTH_MICROSOFT_ENTRA_ID_*`), with the seam's
-  callback added to their redirect URIs.
+  - `CONNECT_<PROVIDER>_CLIENT_ID` and `_CLIENT_SECRET`;
+  - `CONNECT_GITHUB_SLUG`;
+  - `CONNECT_GITLAB_URL` (default `https://gitlab.com`) and
+    `CONNECT_FORGEJO_URL`.
+
+  A provider is available when its id and secret are set. Google's and
+  Microsoft's entries may reuse the sign-in apps (`AUTH_GOOGLE_*`,
+  `AUTH_MICROSOFT_ENTRA_ID_*`), with the seam's callback added to their
+  redirect URIs.
 - **One callback per provider:** `https://auth.stakwork.ai/api/connect/<provider>/callback`
   on hosted boxes.
 
-Adding a provider is one entry and two settings.
+Adding a provider is one entry and two settings, or three for a forge.
 
 **Not every integration needs the seam.** It's for OAuth providers.
 Other integrations need nothing from stadeum: the package stores a
@@ -248,9 +273,9 @@ the package checks it itself.
 
 **Four rules keep the seam safe:**
 
-- **The token URL and the scopes are stadeum's, never a package's.** If
-  a package could name the token URL, it could make stadeum send the
-  secret anywhere. A package asks only for scopes its provider's entry
+- **The token URL, a forge's address and the scopes are stadeum's, never
+  a package's.** If a package could name the token URL or the address,
+  it could make stadeum send the secret anywhere. A package asks only for scopes its provider's entry
   lists, and the person sees each one on the provider's consent page.
 - **`return` must be on the box's own origins:** `https://<host>` or
   `https://strut.<host>`. So the seam is no open redirect.
@@ -291,11 +316,18 @@ requires:
 provides:
   # New (§5): the secrets its steps may delete, and set from an admin's call.
   secrets: [GITHUB_TOKEN, GITHUB_HOOK_SECRET]
+  # New (§5): the hosts its token serves, for git anywhere on the box.
+  git:
+    - { host: github.com, secret: GITHUB_TOKEN }
 hooks:
   # New (§5): POST https://strut.<host>/hooks/stadeum/github/events
   - name: events
     workflow: on-event
-    signature: { header: X-Hub-Signature-256, secret: GITHUB_HOOK_SECRET }
+    signature:
+      scheme: hmac-sha256
+      header: X-Hub-Signature-256
+      prefix: "sha256="
+      secret: GITHUB_HOOK_SECRET
 ```
 
 **Its app, GitHub,** is every person's:
@@ -387,8 +419,10 @@ and a bare pod tells the agent to clone by hand. Proposed:
   graph, main first.
 - **On a bare pod,** `claim` clones each one into `/workspaces/<name>`,
   the way `git` runs commands now: through podd's exec, with the token
-  only in that command's `GIT_ASKPASS`. The token is the run's
-  `GITHUB_TOKEN`: the person's, else the box's.
+  only in that command's `GIT_ASKPASS`. The token is the run's for that
+  repository's host (§5, item 9): the person's, else the box's. So a
+  GitLab or Forgejo repository clones the same way, and so does pods'
+  `git` push.
 - **On a pod from an image,** it fetches each repository and leaves the
   pull to the agent, as now.
 - **A workspace with no nodes** (GitHub not installed, or an unknown
@@ -439,8 +473,10 @@ Until bundles exist, the button makes the two subscriptions itself.
 - **Repositories go with GitHub,** not in a third package. Choosing them
   means listing what a GitHub token can reach, so it's GitHub's to do.
   The contract that others read is not GitHub's: a repository node and
-  the `ingest` workflow. A second provider (GitLab) would be its own
-  package, connecting through the same seam and writing the same nodes.
+  the `ingest` workflow. Another forge (GitLab, Forgejo) would be its own
+  package that connects through the same seam and writes the same
+  nodes. Its token reaches git by host (§5, item 9), strut refreshes it
+  (item 8), and its webhooks use one of strut's schemes (item 7).
   Ingestion and the check would then move to a provider-free
   `stadeum/repos`, mechanically.
 
@@ -487,7 +523,13 @@ GitHub:
     only. Strut's environment block names each of its variables, so they
     never reach strut's container.
   - `CONNECT_TOKEN`, with the first provider that refreshes. Compose
-    hands it to stadeum-ui and strut, and `CONNECT_URL` to strut.
+    hands it to stadeum-ui and strut, and `CONNECT_URL` to strut. Strut
+    uses them itself to refresh secrets (§5, item 8). No package sees
+    them.
+  - A forge's address, `CONNECT_GITLAB_URL` or `CONNECT_FORGEJO_URL`,
+    also reaches strut as `GITLAB_URL` or `FORGEJO_URL`, as `PODS_URL`
+    does. Its package reads it for its API and for the host it serves
+    (§5, item 9).
   - `STRUT_SUBSCRIPTIONS` (§6), passed through to strut.
 
   They go in `.env.example`. `install.sh` asks for the others, and
@@ -506,13 +548,15 @@ feature end to end.
 
 | # | Capability | Why | Today |
 | --- | --- | --- | --- |
-| 1 | **A package's steps manage the secrets it `provides`:** read the person's own value apart from the deployment's; delete the person's own; set and delete the deployment's from an admin's call; replace either with the value its provider rotated it to | Disconnect, Clear the box token, a pasted token (a Telegram bot's, an IMAP password), "Connected as @login" without mistaking the box token for the person's, and a refresh token its provider rotates (§2.1) | Steps only read, through one merged lookup (`src/capabilities.ts:59-67`). Writes take the full scope (`src/createStrut.ts:7549`) |
+| 1 | **A package's steps manage the secrets it `provides`:** read the person's own value apart from the deployment's; delete the person's own; set and delete the deployment's from an admin's call | Disconnect, Clear the box token, a pasted token (a Telegram bot's, an IMAP password), and "Connected as @login" without mistaking the box token for the person's | Steps only read, through one merged lookup (`src/capabilities.ts:59-67`). Writes take the full scope (`src/createStrut.ts:7549`) |
 | 2 | **An admin's call from a package's app:** a package's `admin: true` app, shown to an admin, gets the admin's scope for its own steps | The box token and the org's repositories are an admin's to set | The admin door serves only strut's first-party pages (`specs/API.md` §14.14, `src/steps/lib/earnings/_door.ts:1-15`) |
 | 3 | **Schedules a package ships:** a default automation on a workflow, installed with it and dropped with it | `check` runs every 15 minutes with nobody setting it up | Automations are workflow metadata, never in the package's YAML (`docs/automations.md`, "Key concepts") |
 | 4 | **Events a package's workflow runs on:** `actor.removed`, run as that actor, with `DELETE /actors/:actor`, which then drops the actor's secrets; `retire`, with `POST /retire`, which runs `actor.removed` for every actor first | Revoking a leaver's token, and every token at teardown, from the package that holds them | The actor secret routes delete one name at a time (`src/createStrut.ts:7569`). There are no events |
 | 5 | **Bundles:** `bundle:` in `strut.yaml`, refs followed by branch, each package gated on its own secrets | Software as one subscription, with no pins (§3.3) | `requires.packages` pins a digest, and a `git+` subscription gates only its own package |
 | 6 | **First-boot subscriptions:** `STRUT_SUBSCRIPTIONS`, the twin of `STRUT_PACKAGES`, each made once and never remade after an admin deletes it | Fleet boots a box with Software (§6) | `STRUT_PACKAGES` installs once and never moves (`src/packages/boot.ts`) |
-| 7 | **Webhook routes for packages:** `hooks:` in `strut.yaml`. Each is served at `POST /hooks/<publisher>/<package>/<name>` on strut's public origin. Strut checks the signature (HMAC-SHA256 of the raw body, against a secret the package names) before anything runs, in constant time. It caps the body's size and the rate, answers 202 at once, and runs the package's workflow detached with the event. With no secret set, the route answers 404. Uninstalling the package removes the route | Real-time events from repositories, delivered to the box (§7). Generic: Linear, Shopify and others sign the same way, and other schemes can be added | Strut has no route a package can declare |
+| 7 | **Webhook routes for packages:** `hooks:` in `strut.yaml`. Each is served at `POST /hooks/<publisher>/<package>/<name>` on strut's public origin. Before anything runs, strut checks the delivery in constant time, against a secret the package names, by a `scheme` it knows: **`hmac-sha256`**, of the raw body, in a header the package names, with an optional prefix and hex or base64 (GitHub's `X-Hub-Signature-256`, Forgejo's `X-Forgejo-Signature`, Linear's, Shopify's); **`standard-webhooks`**, HMAC-SHA256 over the id, timestamp and body in `webhook-signature`, refusing old timestamps (GitLab's signing token, and others on that spec); **`token`**, a header that holds the secret itself (GitLab's older `X-Gitlab-Token`). It caps the body's size and the rate, answers 202 at once, and runs the package's workflow detached with the event. With no secret set, the route answers 404. Uninstalling the package removes the route | Real-time events from repositories, delivered to the box (§7), from any forge. A package names a scheme and writes no checking code | Strut has no route a package can declare |
+| 8 | **Secrets that refresh themselves:** the connect seam's callback writes a secret with its expiry and refresh token. When a step reads it near its expiry, strut calls the seam's refresh route (§2.1) with `CONNECT_URL` and `CONNECT_TOKEN`, stores the new pair, and hands over the new value. It refreshes one secret at a time. When the provider refuses the refresh token, strut drops the secret, so the step finds it missing and says to connect again | Google, Microsoft, GitLab and Forgejo tokens last an hour or two. Every reader gets a live token without code of its own, and two runs never spend one refresh token | A secret is a plain value, with no expiry |
+| 9 | **Git credentials by host:** a package declares the hosts its token serves, `provides: git: [{ host, secret }]`. The host can come from a setting, for a company's own forge. Any step asks strut for a repository URL's credentials and gets the run's token for that host: the person's, else the box's, refreshed if need be (item 8). Strut's own git steps and `git+` installs use the same lookup | Pods' `claim` and `git`, `git/checkout` and `git+` installs reach GitHub, GitLab and Forgejo repositories with the right token, and none of them names a forge | Each reads `GITHUB_TOKEN` by name (§2). A subscription can name one `tokenSecret` |
 
 Not needed now, and kept for later:
 
@@ -690,14 +734,19 @@ Each is its own PR.
 2. **Stadeum: the connect seam,** with GitHub's entry and the fake GitHub in
    `npm run fake-stack` (authorize, `access_token`). It needs nothing
    from strut. Then fleet's `STADEUM_CONNECT_GITHUB_*` answers. From here
-   each person's `GITHUB_TOKEN` reaches strut. The refresh route and
-   `CONNECT_TOKEN` wait for the first provider whose tokens expire.
+   each person's `GITHUB_TOKEN` reaches strut. The refresh route,
+   `CONNECT_TOKEN` and the forges' `base` wait for the first provider
+   that needs them.
 3. **Strut:**
    - secrets a package provides, and an admin's call from a package's
      app (§5, items 1-2);
    - schedules a package ships (item 3);
    - events, `DELETE /actors/:actor` and `POST /retire` (item 4);
-   - webhook routes for packages (item 7).
+   - webhook routes for packages, with the three schemes (item 7);
+   - git credentials by host (item 9).
+
+   Secrets that refresh themselves (item 8) wait for the first provider
+   whose tokens expire.
 4. **`stadeum/github`:**
    - the app, installations, the box token and repositories;
    - webhooks and `on-event`, with `check` as the fallback;
@@ -789,3 +838,8 @@ and suggests a bot account.
    verify the app, with a yearly security assessment. Until then, an
    app in testing gets refresh tokens that last 7 days. A Google
    package's first scopes could be ones that need less.
+8. **Forgejo's scopes, and GitLab's refresh.** Does the Forgejo version in use honour an
+   OAuth app's scopes, or grant everything the person can do? Check it
+   before the Forgejo package lists any. GitLab's docs say spending a
+   refresh token invalidates the old pair, though a GitLab issue reports
+   that old tokens keep working. Item 8 is built for the strict case.
