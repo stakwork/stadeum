@@ -421,7 +421,8 @@ checked".
 - One strut client, `ui/src/lib/strut/client.ts`, with
   `Authorization: Bearer <SHARED_API_TOKEN>`: `GET /health` (Status),
   `GET/PUT/DELETE /llm/delegations[/:actor]` (each person's delegation),
-  `PUT /actors/:actor/secrets/:NAME`, `POST /auth/ticket` (the frame, and
+  `PUT /actors/:actor/secrets/:NAME` (a person's connected token, the
+  connect seam's), `POST /auth/ticket` (the frame, and
   a call's artifact), `POST /voice/calls` with the person as
   `x-strut-actor` (a call), and for the Packages page `GET /packages`,
   `GET /packages/search`, `GET/PUT/DELETE /packages/indexes[/:id]`,
@@ -468,6 +469,65 @@ checked".
   - Not Auth.js's own redirect proxy (`AUTH_REDIRECT_PROXY_URL`): its
     proxy decrypts the state, so every box would share one `AUTH_SECRET`,
     and any box could forge another's sessions.
+- **The connect seam** (`ui/src/lib/connect.ts`, `ui/src/app/api/connect/`,
+  `ui/src/app/connect/`;
+  `plans/software.md` §2.1). A person connects an OAuth provider, GitHub
+  for now, and strut gets the token: their actor secret
+  (`PUT /actors/:actor/secrets/GITHUB_TOKEN`), or for an admin's
+  `for=box`, the deployment's (`PUT /secrets/GITHUB_TOKEN`). Trading the
+  code needs the provider's client secret, which only stadeum-ui holds
+  (`CONNECT_GITHUB_CLIENT_ID`, `_CLIENT_SECRET`, `_SLUG`, never in strut's
+  container); everything else is a package's. A provider is one entry in
+  the table in `connect.ts`, the only place that names one, and is there
+  only when its client id and secret are set; otherwise its routes are a
+  404.
+  - A connect is always a person's click on the box's own page, never a
+    link they followed: GitHub skips its consent page for someone who
+    authorized the App before, so a link alone could connect them, or
+    make an admin's account the box's.
+  - `GET /api/connect/:provider?return=&scope=&install=1&for=box`, the
+    link a package's app opens, sends nobody to the provider. It forwards
+    to the confirm page, `/connect/:provider` with the same parameters,
+    from wherever it was followed (a signed-out person signs in first and
+    comes back to it). The page says which provider, which box (its host)
+    and for whom: the person, or the box, with what that means
+    (unattended work, and anyone who hasn't connected, act as the account
+    chosen next), and that an install installs the app too. It has one
+    Continue and a way back to `return`, or says what is wrong. It can't
+    be framed (`frame-ancestors 'none'`, `X-Frame-Options: DENY`, from
+    `next.config.ts`).
+  - Continue is `POST /api/connect/:provider` with the same parameters,
+    taken only with an `Origin` that is stadeum's own public origin: not
+    strut's, so a package's app can't skip the page, not another box's,
+    and not none. The page and the POST check the ask alike: `return`
+    must be on stadeum's origin or strut's (a path is stadeum's; absent,
+    the home); each `scope` must be one the entry lists (GitHub's: none,
+    the App's settings decide); `install=1` needs an install page
+    (`github.com/apps/<slug>/installations/new`); `for=box` is an
+    admin's. The POST signs the state then, so its hour starts at the
+    click, and answers 303 to the provider.
+  - The state is `<label>.<body>.<sig>`: the body base64url JSON of the
+    provider, the person's actor, `for`, `return`, a nonce and the time;
+    the signature HMAC-SHA256 under a key derived from `AUTH_SECRET`; the
+    label as sign-in's, only with a bounce. It lasts an hour.
+  - `GET /api/connect/:provider/callback` refuses a state that is bad,
+    expired, for another provider or another person, or a box's for
+    someone no longer an admin. It trades the code at the provider's
+    token URL with the client id and secret, writes each secret the entry
+    names that the response holds, and redirects to `return`. A response
+    with none of them is a failure (GitHub answers a spent code with a 200
+    and `{ error }`). A refusal is a short page with a link back to
+    `return` when the state was good. It keeps nothing and logs no code or
+    token. An install comes back here with a code, and is a connect: its
+    `installation_id` is ignored, the package reads installations itself.
+  - Through a bounce, the redirect URI is the bounce's
+    `/api/connect/<provider>/callback`, so a GitHub App registers that one
+    callback URL for every box behind it (`install.sh` prints it). Without
+    one it is the box's own.
+  - `npm run fake-stack` has a fake GitHub App (`/github`): its authorize
+    and install pages, with a button back to the callback, and its token
+    URL, one use per code. `CONNECT_GITHUB_URL` points GitHub's entry at
+    it; compose never hands that to a box.
 - **The frame.** Per page load the server mints a sign-in ticket for the
   person (`POST /auth/ticket { actor, role }` → `{ ticket, expiresAt }`, good
   once for 60 s; `role` is the person's stadeum role, `admin` or `member`:

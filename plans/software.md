@@ -1,6 +1,6 @@
 # Software: GitHub, repositories and pods, as packages
 
-> **Status (2026-11-19): a plan, nothing built.** The owner decided that
+> **Status (2026-11-19): a plan.** The owner decided that
 > software is a choice each box's admin makes: an admin clicks
 > **Software** on the Packages page. Later the same day the owner set the
 > direction for how: *"as much as possible … built into the package, and
@@ -30,6 +30,11 @@
 > later: in one app, Code, in `stadeum/code`, which now keeps the
 > repository list in place of the GitHub package (§3.1, §14.4). That is
 > proposed too.
+>
+> **Built (2026-11-20):** step 2 (§12), the connect seam in stadeum-ui,
+> with GitHub's entry and a fake GitHub in `npm run fake-stack`
+> (`docs/stack-spec.md`, "The connect seam"). Everything else here is
+> still a plan.
 
 ## Problem
 
@@ -159,9 +164,9 @@ package's.
 
 ### 2.1 The seam
 
-Two routes in stadeum-ui, and a third for providers whose tokens
-expire. They name no package, and they work for any OAuth provider in a
-small table.
+Two routes in stadeum-ui and a confirm page, and a third route for
+providers whose tokens expire. They name no package, and they work for
+any OAuth provider in a small table.
 
 - **`GET /api/connect/:provider`**, with these parameters:
   - `return`: where to send the person afterwards;
@@ -171,7 +176,12 @@ small table.
     authorize page;
   - `for=box`: an admin only. The tokens become the box's.
 
-  The person must be signed in. Stadeum signs a state and redirects to
+  It shows the person a confirm page on the box, `/connect/:provider`
+  (built 2026-11-20, asked by the owner): which provider, which box, and
+  for whom, themselves or the box, with what the box's means. Its
+  Continue is `POST /api/connect/:provider` with the same parameters,
+  taken only from stadeum's own origin. The person must be signed in.
+  The POST checks the parameters again, signs a state and redirects to
   the provider. The state is `plans/github-app.md` §4's:
   `<label>.<body>.<sig>`, where the body holds the provider, the
   person's actor, `for`, `return`, a nonce and the time. It's HMAC-SHA256
@@ -267,7 +277,10 @@ How it fits each of them:
   - `CONNECT_<PROVIDER>_CLIENT_ID` and `_CLIENT_SECRET`;
   - `CONNECT_GITHUB_SLUG`;
   - `CONNECT_GITLAB_URL` (default `https://gitlab.com`) and
-    `CONNECT_FORGEJO_URL`.
+    `CONNECT_FORGEJO_URL`;
+  - `CONNECT_GITHUB_URL` (default `https://github.com`), only so that
+    `npm run fake-stack` can stand in for GitHub: compose never hands it
+    to a box.
 
   A provider is available when its id and secret are set. Google's and
   Microsoft's entries may reuse the sign-in apps (`AUTH_GOOGLE_*`,
@@ -288,7 +301,7 @@ pasted value itself, with §5 item 1. For example:
 Telegram's login widget sends a payload signed with the bot's token, and
 the package checks it itself.
 
-**Four rules keep the seam safe:**
+**Five rules keep the seam safe:**
 
 - **The token URL, a forge's address and the scopes are stadeum's, never
   a package's.** If a package could name the token URL or the address,
@@ -298,6 +311,13 @@ the package checks it itself.
   `https://strut.<host>`. So the seam is no open redirect.
 - **`for=box` is an admin's.** The route checks the session's role, as
   every admin page does.
+- **A connect is a person's click on the box's own page,** never a link
+  they followed. A provider skips its consent page for someone who
+  authorized the app before, so a link alone, from an email or another
+  box's page, could connect them, or make an admin's account the box's.
+  The start route only shows the confirm page; its Continue is a POST
+  taken only from stadeum's own origin, not strut's, so a package's app
+  can't skip it, and the page can't be framed.
 - **The refresh route answers strut alone.** Without `CONNECT_TOKEN`
   it refuses. So someone outside who copied a refresh token can't spend
   the box's client secret through it. An agent inside strut's container
@@ -538,7 +558,8 @@ GitHub:
     (§5, item 9).
   - `STRUT_SUBSCRIPTIONS` (§6), passed through to strut.
 
-  They go in `.env.example`. `install.sh` asks for the others, and
+  They go in `.env.example`. `install.sh` takes the others as a host's
+  answers (`STADEUM_CONNECT_GITHUB_*`, never asked on a terminal), and
   `init-env.sh` makes `CONNECT_TOKEN`.
 - **ops** syncs every subscription strut lists in the nightly window,
   after strut's image. Strut runs with `STRUT_DISTRO_POLL_MINUTES=0`
@@ -752,7 +773,7 @@ Each is its own PR.
 
 0. This plan, and the owner's answers to §13.
 1. **The App** (Stakwork, by hand), registered with §13's settings.
-2. **Stadeum: the connect seam,** with GitHub's entry and the fake GitHub in
+2. **Stadeum: the connect seam** (built 2026-11-20), with GitHub's entry and the fake GitHub in
    `npm run fake-stack` (authorize, `access_token`). It needs nothing
    from strut. Then fleet's `STADEUM_CONNECT_GITHUB_*` answers. From here
    each person's `GITHUB_TOKEN` reaches strut. The refresh route,

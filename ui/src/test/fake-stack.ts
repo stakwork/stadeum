@@ -19,6 +19,10 @@
  *               joins the room, unless the call is forwarded to a voice
  *               service, as strut does
  *   /neo4j    — HTTP discovery
+ *   /github   — a GitHub App's web flow, for the connect seam (lib/connect.ts):
+ *               the authorize page and the install page, each sending the
+ *               browser back with a one-use code and the state, and the
+ *               token URL that trades a code for an `access_token`
  * Wire shapes follow docs/mothership-spec.md. The delegation PUT runs
  * Strut's own shape check and verifies the macaroon against the org key
  * the trust registry holds, like the real gateway would.
@@ -41,7 +45,25 @@ export interface FakeStackOptions {
   providers?: string[];
   /** The LiveKit server `/voice/calls` mints tokens for. Default: `livekit-server --dev` on this machine. */
   livekit?: FakeLivekit;
+  /** The fake GitHub App's settings. */
+  github?: Partial<FakeGithubApp>;
 }
+
+/** A GitHub App as GitHub holds it: its client, its slug, and the callback URL an install comes back to. */
+export interface FakeGithubApp {
+  clientId: string;
+  clientSecret: string;
+  slug: string;
+  callbackUrl: string;
+}
+
+/** The fake App's defaults: what `npm run fake-stack` prints for ui/.env. */
+export const FAKE_GITHUB_APP: FakeGithubApp = {
+  clientId: "Iv23.fakestadeumapp",
+  clientSecret: "fake-github-client-secret",
+  slug: "stadeum-dev",
+  callbackUrl: "http://localhost:3000/api/connect/github/callback",
+};
 
 export interface FakeLivekit {
   url: string;
@@ -286,6 +308,17 @@ export interface FakeState {
     forward: { url: string; token: string } | null;
     calls: Array<{ actor: string; room: string }>;
   };
+  /**
+   * GitHub: the App, the account that authorizes it, each code given (one
+   * use, ten minutes, bound to its client and `redirect_uri`) and each
+   * token traded for one.
+   */
+  github: {
+    app: FakeGithubApp;
+    login: string;
+    codes: Map<string, { clientId: string; redirectUri?: string; exp: number; used: boolean }>;
+    tokens: string[];
+  };
 }
 
 /** One phase of a fake install, as strut reports it. */
@@ -356,13 +389,16 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     down: { bifrost: false, strut: false, neo4j: false },
     readyAfter: 0,
     voice: { livekit: opts.livekit ?? DEV_LIVEKIT, refuse: null, forward: null, calls: [] },
+    github: { app: { ...FAKE_GITHUB_APP, ...opts.github }, login: "octocat", codes: new Map(), tokens: [] },
   };
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://fake");
     state.requests.push(`${req.method} ${url.pathname}`);
-    const body = await readJson(req);
+    const raw = await readBody(req);
+    const body = parseJson(raw);
     try {
+      if (url.pathname.startsWith("/github/")) return github(req, res, url.pathname.slice("/github".length), url, raw);
       if (url.pathname.startsWith("/bifrost/")) {
         if (state.down.bifrost) return send(res, 503, { error: "down" });
         return bifrost(req, res, url.pathname.slice("/bifrost".length), url, body);
@@ -699,12 +735,92 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       state.deploymentSecrets.set(setting[1]!, body.value);
       return send(res, 200, { ok: true, name: setting[1] });
     }
+    const mine = path.match(/^\/actors\/([^/]+)\/secrets$/);
+    if (mine && m === "GET") {
+      const actor = decodeURIComponent(mine[1]!);
+      const names = [...state.secrets.keys()].filter((k) => k.startsWith(`${actor}/`)).map((k) => k.slice(actor.length + 1));
+      return send(res, 200, { actor, secrets: names.sort().map((name) => ({ name, createdAt: "2026-11-05T12:00:00.000Z", updatedAt: "2026-11-05T12:00:00.000Z" })) });
+    }
     const sec = path.match(/^\/actors\/([^/]+)\/secrets\/([^/]+)$/);
     if (sec && m === "PUT") {
       state.secrets.set(`${decodeURIComponent(sec[1]!)}/${sec[2]}`, body.value);
       return send(res, 200, { ok: true });
     }
     send(res, 404, { error: "not found" });
+  }
+
+  /**
+   * GitHub's web flow for a GitHub App (docs.github.com, "Generating a user
+   * access token for a GitHub App"): the authorize page and the install page
+   * stand in for GitHub's, with a button that sends the browser back with a
+   * code and the state (or `error=access_denied`), and say what they were
+   * given. The token URL trades a code once, for the App's client id and
+   * secret, as GitHub does: an error is a 200 with `{ error }`.
+   */
+  function github(req: IncomingMessage, res: ServerResponse, path: string, url: URL, raw: string) {
+    const gh = state.github;
+    const m = req.method;
+    const q = url.searchParams;
+    if (path === "/login/oauth/authorize" && m === "GET") {
+      if (q.get("client_id") !== gh.app.clientId) return html(res, githubPage("404", "<p>This client ID is not a GitHub App's.</p>"), 404);
+      // A GitHub App sends the browser only to its registered callback URL.
+      const redirectUri = q.get("redirect_uri") ?? undefined;
+      if (redirectUri && redirectUri !== gh.app.callbackUrl) {
+        return html(res, githubPage("Redirect URI mismatch", "<p>The redirect_uri is not associated with this application.</p>"), 400);
+      }
+      const back = new URL(redirectUri ?? gh.app.callbackUrl);
+      return html(res, githubPage(`Authorize ${gh.app.slug}`, consent(gh.app.slug, back, q, githubCode(redirectUri), "Authorize")));
+    }
+    const install = path.match(/^\/apps\/([^/]+)\/installations\/new$/);
+    if (install && m === "GET") {
+      if (decodeURIComponent(install[1]!) !== gh.app.slug) return html(res, githubPage("404", "<p>No such GitHub App.</p>"), 404);
+      // "Request user authorization (OAuth) during installation": back to the App's callback URL, with the install's id.
+      const back = new URL(gh.app.callbackUrl);
+      back.searchParams.set("installation_id", "4242");
+      back.searchParams.set("setup_action", "install");
+      return html(res, githubPage(`Install ${gh.app.slug}`, consent(gh.app.slug, back, q, githubCode(undefined), "Install")));
+    }
+    if (path === "/login/oauth/access_token" && m === "POST") {
+      const form = (req.headers["content-type"] ?? "").includes("json") ? new URLSearchParams(Object.entries((parseJson(raw) ?? {}) as Record<string, string>)) : new URLSearchParams(raw);
+      if (form.get("client_id") !== gh.app.clientId || form.get("client_secret") !== gh.app.clientSecret) {
+        return send(res, 200, { error: "incorrect_client_credentials", error_description: "The client_id and/or client_secret passed are incorrect." });
+      }
+      const given = gh.codes.get(form.get("code") ?? "");
+      if (!given || given.used || given.exp < Date.now() || given.clientId !== form.get("client_id")) {
+        return send(res, 200, { error: "bad_verification_code", error_description: "The code passed is incorrect or expired." });
+      }
+      given.used = true;
+      const redirectUri = form.get("redirect_uri");
+      if (given.redirectUri && redirectUri && redirectUri !== given.redirectUri) {
+        return send(res, 200, { error: "redirect_uri_mismatch", error_description: "The redirect_uri MUST match the registered callback URL for this application." });
+      }
+      const token = `ghu_${randomBytes(18).toString("base64url")}`;
+      gh.tokens.push(token);
+      return send(res, 200, { access_token: token, token_type: "bearer", scope: "" });
+    }
+    send(res, 404, { message: "Not Found" });
+  }
+
+  function githubCode(redirectUri: string | undefined): string {
+    const code = randomBytes(10).toString("hex");
+    state.github.codes.set(code, { clientId: state.github.app.clientId, ...(redirectUri ? { redirectUri } : {}), exp: Date.now() + 600_000, used: false });
+    return code;
+  }
+
+  /** The page's buttons: back to `back` with the code and the state, or with `error=access_denied`; and what it was given. */
+  function consent(slug: string, back: URL, q: URLSearchParams, code: string, verb: string): string {
+    const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+    const yes = new URL(back);
+    yes.searchParams.set("code", code);
+    const no = new URL(back);
+    no.searchParams.set("error", "access_denied");
+    no.searchParams.set("error_description", "The user has denied your application access.");
+    for (const u of [yes, no]) if (q.has("state")) u.searchParams.set("state", q.get("state")!);
+    const given = [...q].map(([k, v]) => `<tr><td><code>${esc(k)}</code></td><td><code>${esc(v)}</code></td></tr>`).join("");
+    return `<p><b>${esc(slug)}</b> wants to act for <b>@${esc(state.github.login)}</b> on the repositories it is installed on.</p>
+<p><a class="go" href="${esc(yes.toString())}">${verb}</a> <a href="${esc(no.toString())}">Cancel</a></p>
+<p>Sends you back to <code>${esc(back.origin + back.pathname)}</code>.</p>
+<table>${given}</table>`;
   }
 
   /**
@@ -1092,6 +1208,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     bifrostUrl: `${base}/bifrost`,
     strutUrl: `${base}/strut`,
     neo4jUrl: `${base}/neo4j`,
+    githubUrl: `${base}/github`,
     token,
     adminUser,
     adminPass,
@@ -1102,12 +1219,16 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
 
 export type FakeStack = Awaited<ReturnType<typeof startFakeStack>>;
 
-async function readJson(req: IncomingMessage): Promise<any> {
+async function readBody(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(c as Buffer);
-  if (!chunks.length) return undefined;
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function parseJson(raw: string): any {
+  if (!raw) return undefined;
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return JSON.parse(raw);
   } catch {
     return undefined;
   }
@@ -1137,6 +1258,13 @@ function send(res: ServerResponse, status: number, body: unknown) {
   const text = typeof body === "string" ? body : JSON.stringify(body);
   res.writeHead(status, { "Content-Type": typeof body === "string" ? "text/plain" : "application/json" });
   res.end(text);
+}
+
+/** A page of the fake GitHub. */
+function githubPage(title: string, body: string): string {
+  return `<!doctype html><meta charset="utf-8"><title>${title} · GitHub (fake)</title>
+<style>body{font:15px/1.5 system-ui;margin:0;padding:40px;color:#1f2328;background:#f6f8fa;max-width:44rem}td{padding:2px 12px 2px 0;vertical-align:top;word-break:break-all}a{color:#0969da}a.go{display:inline-block;background:#1f883d;color:#fff;padding:6px 16px;border-radius:6px;text-decoration:none;margin-right:12px}code{font-size:13px}</style>
+<h1 style="font-size:20px">${title}</h1>${body}`;
 }
 
 function html(res: ServerResponse, body: string, status = 200) {

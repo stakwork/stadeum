@@ -3,6 +3,8 @@ import path from "node:path";
 
 export default defineConfig({
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
+  // tsconfig leaves JSX to Next ("preserve"); a test that renders a page needs it compiled as Next does.
+  esbuild: { jsx: "automatic" },
   test: {
     environment: "node",
     globalSetup: ["./src/test/global-setup.ts"],

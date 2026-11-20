@@ -33,7 +33,8 @@ work on it. Read the rules before adding anything.
 
 2. **Stadeum never draws an app.** An app runs in strut's own host page,
    framed, signed in as the person. Stadeum's own pages are sign-in, the
-   person, Calls, the members and the admin pages. The list of apps comes
+   person, Calls, the connect seam's confirm page, the members and the
+   admin pages. The list of apps comes
    from strut, never from a list in this repo.
    - **Admin-only apps** (`admin: true`, strut `specs/API.md` §14.14)
      sit among the org's admin pages, for an admin alone, framed and
@@ -66,6 +67,9 @@ work on it. Read the rules before adding anything.
      credentials live in stadeum-ui's database, encrypted under
      `STADEUM_ENCRYPTION_KEY`, and in the `org` volume `bootstrap` writes.
      Nothing else reads them.
+   - The connect seam's client secrets (`CONNECT_<PROVIDER>_CLIENT_SECRET`,
+     GitHub's first) are in `.env` and stadeum-ui's container alone, never
+     strut's or a browser's: with one, a code becomes a token.
    - The Docker socket is mounted in `ops` alone, which has no open port.
      With it ops is the box: it reads every volume it backs up and `.env`,
      and gets the backup credentials from stadeum-ui with the deployment
@@ -94,7 +98,11 @@ work on it. Read the rules before adding anything.
      the box's prefix on a versioned bucket. With pods it holds
      `PODS_TOKEN`, so an agent could launch, use and destroy the box's own
      pods, within its tenant's limit: accepted, as it reaches no other
-     box's. The treasury's admin token and seed stay in the treasury's
+     box's. It holds each person's GitHub token and the box token, which
+     the connect seam hands it, so an agent could act on GitHub as any of
+     them: accepted, with their revocation (`plans/software.md` §9: the
+     GitHub package's, to come; until then the person revokes the App on
+     GitHub). The treasury's admin token and seed stay in the treasury's
      container.
 
 5. **Any cloud.** One compose file is the deployment: stock images, every
@@ -176,9 +184,11 @@ order of the work, each step its own PR:
 6. A custom domain. Caddy fetches the certificates. A new domain also needs
    its sign-in redirect URLs registered with Google and Microsoft, which
    the admin page says.
-7. GitHub sign-in, with each person's GitHub token handed to strut as their
-   own `GITHUB_TOKEN` (low priority). One Stadeum App, repos picked on its
-   installation: `plans/github-app.md`.
+7. Software: GitHub access, repositories and pods, as strut packages an
+   admin turns on, with stadeum keeping only generic seams
+   (`plans/software.md`). The connect seam: a person connects GitHub and
+   strut gets their `GITHUB_TOKEN`, or an admin's for the box. (Done.)
+   Sign-in with GitHub is deferred.
 8. Calls: a Calls page in stadeum-ui, where a person talks to the
    assistant by voice. The browser makes a fresh key per call;
    stadeum-ui hands it to strut's `POST /voice/calls` as the person; the
@@ -208,6 +218,7 @@ order of the work, each step its own PR:
 | `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the brand, the frame's sign-in ticket, a call's room |
 | `ui/src/app/(app)/apps/` | A strut app framed for the person (`strut-frame.tsx`) and its one-use ticket (`open.ts`); the assistant's frame is the `(app)` layout's (`home-frame.tsx`), kept open across stadeum's pages. `ui/src/app/(app)/earnings/` frames strut's Earnings the same way, for an admin |
 | `ui/src/components/call.tsx`, `ui/src/lib/call*.ts` | A call: held by the `(app)` layout, its key and its checks, its LiveKit room (loaded only on a call), its transcript and artifacts; `ui/src/app/api/calls/` hands it to strut, `ui/src/app/(app)/calls/` draws it |
+| `ui/src/lib/connect.ts`, `ui/src/app/api/connect/`, `ui/src/app/connect/` | The connect seam: the provider table (GitHub's entry), the signed state, the confirm page whose Continue sends a person to the provider, and the callback that trades the code it sends back for tokens written to strut |
 | `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
 | `ui/src/lib/models/` | The Models page's work: each provider's key in the gateway, the org's model list and default, carried to every person's virtual key and to strut |
 | `ui/src/app/(app)/packages/`, `ui/src/lib/packages.ts` | The Packages page: strut's packages installed, searched, installed and uninstalled, their missing secrets set, the indexes followed, and the store's Install link (`?install=`) read |
@@ -215,7 +226,7 @@ order of the work, each step its own PR:
 | `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |
 | `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the release's stack files from stadeum-ops's image, `.env`, the DNS check, the stack; or a restore), `install-test.sh` (the install's answers on a re-run, kept or replaced), `init-env.sh` (generates `.env`'s secrets), `promote.sh` (moves strut's or stadeum's `stable` to main's newest images, the Sphinx daemon's to stakwork/sphinx master's newest, or sphinx-voice's to its newest release), the gateway end-to-end check, the backup-and-restore proof, the release proof |
 | `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract), `models.md` (who picks a model, where the keys live) |
-| `plans/` | Work not built yet, one file each, with what is decided and what is open: `github-app.md` (roadmap step 7), `treasury.md` (step 9: built, kept for its decisions and what is open), `pods.md` (what Stadeum does for pods, a machine for every coding job; the plan itself is `stakwork/pods`'s `PLAN.md`, proposed) |
+| `plans/` | Work not built yet, one file each, with what is decided and what is open: `software.md` (roadmap step 7: GitHub, repositories and pods as packages, through the connect seam), `github-app.md` (the App, the state and the exchange `software.md` generalises), `treasury.md` (step 9: built, kept for its decisions and what is open), `pods.md` (what Stadeum does for pods, a machine for every coding job; the plan itself is `stakwork/pods`'s `PLAN.md`, proposed) |
 
 ## Running
 

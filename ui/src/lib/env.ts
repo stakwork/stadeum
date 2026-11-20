@@ -63,4 +63,8 @@ export const env = {
     trimmed("AUTH_GOOGLE_ID")
       ? { clientId: trimmed("AUTH_GOOGLE_ID")!, clientSecret: trimmed("AUTH_GOOGLE_SECRET") }
       : undefined,
+  /** Auth.js's session secret: the connect seam derives its state key from it. */
+  authSecret: () => trimmed("AUTH_SECRET"),
+  /** A connect provider's setting, `CONNECT_<PROVIDER>_<NAME>` (lib/connect.ts names the providers). */
+  connect: (provider: string, name: string) => trimmed(`CONNECT_${provider.toUpperCase()}_${name}`),
 };
