@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { startFakeStack, type FakeStack } from "@/test/fake-stack";
-import { adminApps, adminAppsFor, appHref, isAdminOnly, launcherApps, listApps } from "./apps";
+import { adminApps, adminAppsFor, appHref, isAdminOnly, launcherApps, listApps, railApps } from "./apps";
 
 describe("launcherApps", () => {
   const app = (name: string, title: string, pinned?: boolean) => ({ name, title, activeVersion: "v1", ...(pinned ? { pinned } : {}) });
@@ -98,6 +98,33 @@ describe("adminAppsFor", () => {
 
   it("is none for a member, even when strut lists them", () => {
     expect(adminAppsFor("member", [legal, earnings, payroll])).toEqual([]);
+  });
+});
+
+describe("railApps", () => {
+  const strut = [
+    { name: "strut/jamie", title: "Jamie", activeVersion: "v1" },
+    { name: "acme/zeta", title: "Zeta", activeVersion: "v1" },
+    { name: "acme/tax", title: "Tax", activeVersion: "v1", pinned: true },
+    { name: "strut/earnings", title: "Earnings", activeVersion: "v1", admin: true as const },
+    { name: "strut/staff", title: "Workers", activeVersion: "v1", admin: true as const, pinned: true },
+  ];
+
+  it("puts an admin-only app an admin pinned among the pinned apps, and leaves the rest among the organisation's pages", () => {
+    const { apps, settings } = railApps(launcherApps(strut), adminAppsFor("admin", strut));
+    expect(apps.map((a) => [a.name, a.href])).toEqual([
+      ["strut/jamie", "/"],
+      ["acme/tax", "/apps/acme%2Ftax"],
+      ["strut/staff", "/apps/strut%2Fstaff"],
+      ["acme/zeta", "/apps/acme%2Fzeta"],
+    ]);
+    expect(settings.map((a) => [a.name, a.href])).toEqual([["strut/earnings", "/earnings"]]);
+  });
+
+  it("is the launcher's apps alone for a member, pinned or not", () => {
+    const { apps, settings } = railApps(launcherApps(strut), adminAppsFor("member", strut));
+    expect(apps.map((a) => a.name)).toEqual(["strut/jamie", "acme/tax", "acme/zeta"]);
+    expect(settings).toEqual([]);
   });
 });
 

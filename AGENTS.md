@@ -37,9 +37,11 @@ work on it. Read the rules before adding anything.
    from strut, never from a list in this repo.
    - **Admin-only apps** (`admin: true`, strut `specs/API.md` §14.14)
      sit among the org's admin pages, for an admin alone, framed and
-     signed in as the admin. Strut lists them to stadeum's key, so the
-     launcher leaves them out (the rail is every person's), a member gets
-     a 404 for one, and strut refuses a member's session one anyway.
+     signed in as the admin. One an admin pins (strut's pin, on the Apps
+     page) is in an admin's Apps in the rail instead, so a box that never
+     uses one never has it in the way. Strut lists them to stadeum's key,
+     so a member's rail leaves them out, a member gets a 404 for one, and
+     strut refuses a member's session one anyway.
      **Earnings** (`strut/earnings`) is one, at its own `/earnings`:
      stadeum knows no payment. Each shows only when strut lists it.
    - **Calls** is stadeum's because a strut app cannot carry live media:

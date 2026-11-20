@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { PageHeader, SectionLabel } from "@/components/page-header";
-import { managedApp, versionsHref } from "@/lib/app-admin";
+import { canPin, managedApp, versionsHref } from "@/lib/app-admin";
 import {
   STATE_LABEL,
   appVersionRows,
@@ -65,7 +65,7 @@ export default async function AppVersionsPage({ params }: Params) {
   return (
     <>
       <PageHeader title={app.title}>
-        {!app.seeded && <PinToggle name={app.name} pinned={app.pinned} note={pinNote(app.pinned, app.active, app.live)} />}
+        {canPin(app) && <PinToggle name={app.name} pinned={app.pinned} note={pinNote(app)} />}
       </PageHeader>
 
       <section aria-labelledby="live" className="flex flex-col gap-3">

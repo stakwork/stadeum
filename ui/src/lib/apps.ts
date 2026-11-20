@@ -17,6 +17,8 @@ export interface App {
   href: string;
   /** The assistant, Jamie: the home. */
   assistant: boolean;
+  /** Pinned by an admin (strut's `PUT /apps/:name/pin`, §14). */
+  pinned?: true;
 }
 
 /**
@@ -60,8 +62,9 @@ export function launcherOrder<T extends Pick<StrutApp, "name" | "title" | "pinne
 /**
  * The launcher's apps: everyone's. Stadeum lists with its key, which strut
  * answers as full scope, so an admin-only app (`admin: true`, §14.14) is
- * in the listing and is left out here: the rail is every person's. An
- * admin finds those among the organisation's pages (`adminApps`).
+ * in the listing and is left out here: these are every person's. An
+ * admin finds those among the organisation's pages, or with these once
+ * pinned (`adminApps`, `railApps`).
  */
 export function launcherApps(apps: StrutApp[]): App[] {
   return launcherOrder(apps.filter((a) => !a.admin)).map((a) => ({
@@ -70,7 +73,22 @@ export function launcherApps(apps: StrutApp[]): App[] {
     ...(a.description ? { description: a.description } : {}),
     href: appHref(a.name),
     assistant: ASSISTANT.has(a.name),
+    ...(a.pinned ? { pinned: true as const } : {}),
   }));
+}
+
+/**
+ * Where a person's apps go in the rail. An admin-only app an admin pinned
+ * joins the launcher's apps, in the launcher's order; the others sit
+ * among the organisation's pages. So a box that never uses one (Workers,
+ * say) never has it in the way, and one that does pins it. For anyone
+ * but an admin `admin` is empty: the launcher's apps are all of theirs.
+ */
+export function railApps(launcher: App[], admin: App[]): { apps: App[]; settings: App[] } {
+  return {
+    apps: launcherOrder([...launcher, ...admin.filter((a) => a.pinned)]),
+    settings: admin.filter((a) => !a.pinned),
+  };
 }
 
 /**
@@ -100,6 +118,7 @@ export function adminAppsFor(role: string, apps: StrutApp[] | null): App[] {
       ...(a.description ? { description: a.description } : {}),
       href: a.name === EARNINGS ? "/earnings" : appHref(a.name),
       assistant: false,
+      ...(a.pinned ? { pinned: true as const } : {}),
     }));
 }
 

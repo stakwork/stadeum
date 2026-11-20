@@ -151,7 +151,8 @@ No change to `ops/src/`.
 - **Earnings in the org's admin pages** (**built**, 2026-11-12: strut's
   `strut/earnings`, an admin-only app, stakwork/strut#650; stadeum's
   `/earnings` frames it for an admin, and the Organisation settings list
-  it when strut does). People never see strut's own UI, so an admin needs the balance,
+  it when strut does; since 2026-11-20 an admin who pins it has it in
+  the rail's Apps instead, as any admin-only app). People never see strut's own UI, so an admin needs the balance,
   earnings, Add sats and Withdraw among stadeum's admin pages (beside
   Spending, Models, Backups). Rule 2 still holds: the page is a strut app
   (strut's Earnings, shipped as an app and listed by `GET /apps`) framed
