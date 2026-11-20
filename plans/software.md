@@ -20,6 +20,16 @@
 > stadeum-fleet `main` @6d6f3342. It replaces most of
 > `plans/github-app.md` (§11) and `plans/pods.md`'s first-boot
 > subscription.
+>
+> **2026-11-20:** the owner asked how Software catches up with what Hive
+> and stakgraph's lab do for code, *"as SIMPLY and ELEGANTLY and
+> GENERICALLY as possible"*, not line for line. §14 answers, and all of it
+> is *proposed*. It was read against stakgraph `main` @0f7c2297, strut
+> `main` @c924062f and stakwork/pods `main` @2cf4498. The owner then
+> asked where a repository is set up, with the code graph coming back
+> later: in one app, Code, in `stadeum/code`, which now keeps the
+> repository list in place of the GitHub package (§3.1, §14.4). That is
+> proposed too.
 
 ## Problem
 
@@ -44,7 +54,7 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 2 | Where does it live? | **In packages, as much as possible. Stadeum keeps only generic seams.** | **owner** |
 | 3 | The model for GitHub tokens | **Hive's:** GitHub App user tokens that never expire, with no refresh and no private key (§1, §10). | **owner** (Hive's "works great") |
 | 4 | How a person connects | **The web flow, through a connect seam in stadeum:** two routes, and a third to refresh tokens that expire, that any OAuth provider's package can use. The client secret stays in stadeum-ui. The token goes to strut as the person's secret. Everything else is the package's (§2). | **owner** (2026-11-19: web flow over device flow); the seam's shape is proposed |
-| 5 | Which repositories the box works on | **The GitHub package.** It picks them from what the App's installations grant, groups them into workspaces, checks them for new commits, and is where ingestion plugs in (§3.1). | proposed |
+| 5 | Which repositories the box works on | **`stadeum/code` keeps the list,** with its workspaces, in one app, Code. A repository is added by its address, or picked in the GitHub package from what the App's installations grant. `stadeum/code` checks them for new commits and is where the parser plugs in (§3.1, §14.4). | proposed (revised 2026-11-20: the list was the GitHub package's) |
 | 6 | Unattended work: ingestion, subscriptions to private packages, a job with no person | **A box token:** a token an admin connects "for the box", kept as strut's deployment `GITHUB_TOKEN` (§3.1). | proposed |
 | 7 | A `software` package that requires the others | **No.** Strut pins a required package by digest, and a `git+` subscription doesn't gate a required package on its own secrets (§3.3). Software is a **bundle**, a strut capability to add (§5). Until then, the button makes two subscriptions. | proposed |
 | 8 | Repositories and pods: one package or two? | **Two:** `stadeum/github` and `stadeum/pods`. Pods reads the repositories through the graph, not by requiring the package (§3.4). | proposed |
@@ -52,6 +62,13 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 10 | Real-time updates | **Repository webhooks, straight to each box's strut.** The GitHub package creates one on each repository the box works on, and strut receives it on a webhook route the package declares, a capability to add (§5). Polling stays as the fallback. The App's own webhook is inactive, so nothing central relays events (§7). | **owner** (2026-11-19) |
 | 11 | Self-hosted boxes | **Their own App, through the same seam, or a pasted token.** Stakwork's App needs the bounce, so it's for hosted boxes (§8). | proposed |
 | 12 | When a box goes | **The package revokes every token it holds,** on a strut event fleet triggers before the machine is destroyed (§9). | proposed |
+| 13 | How Software catches up with Hive's code features | **Not a port.** Each feature is mapped onto a part strut already has, and the package ships pages and thin workflows (§14). | **owner** (2026-11-20: the goal); the mapping is proposed |
+| 14 | What keeps the Codebase tree | **The dream,** with merged changes as a second source (§14.2). | proposed |
+| 15 | Where the code knowledge lives | **A third package, `stadeum/code`,** that names no forge. It keeps the repository list and ships the Code app. Software is github, pods and code (§14.4). | proposed |
+| 16 | Logs | **Not Software.** A package for each place logs are kept, `stadeum/aws` first (§14.5). | proposed (the owner's lean, 2026-11-20) |
+| 17 | The parsed code graph | **Not at first.** Pages and files. It comes back later, perhaps as a CLI, set up for each repository in the Code app and run in `ingest` (§14.6). | **owner** (2026-11-20: it comes back, and each repository is configurable for it); the rest is proposed |
+| 18 | Where a repository is set up | **In one app, Code.** Each other package's part of a repository is a link to its own app at first, and a section drawn in place once strut has panels (§14.4; §5, item 14). | proposed |
+| 19 | What a package's repository is called | **`stakwork/strut-<name>`:** `strut-github`, `strut-pods`, `strut-code`, and so on. The package's own name stays `stadeum/<name>`. Pods' package moves from `stakwork/pods-package` to `stakwork/strut-pods` (§11). | **owner** (2026-11-20) |
 
 ## 1. What Hive does
 
@@ -301,15 +318,13 @@ It stays an option for a self-hosted box that wants Stakwork's App (§8).
 
 ### 3.1 `stadeum/github`
 
-A public repository, `stakwork/github-package`, with the package at its
+A public repository, `stakwork/strut-github`, with the package at its
 root and a `stable` branch moved by its promote, as pods does. No service.
 
 ```yaml
 # strut.yaml
 package: stadeum/github
 version: 0.1.0
-job:
-  tools: [repositories]
 requires:
   # The person's own or the box's: public repositories need neither.
   optional: [GITHUB_TOKEN, GITHUB_HOOK_SECRET]
@@ -356,59 +371,51 @@ For an admin, the same app also shows:
   - **Clear** revokes it and deletes it.
   - On a box with no App, an admin pastes a fine-grained token instead
     (§8).
-- **Repositories:**
+- **Pick repositories,** where `stadeum/code` is installed (§14.4):
   - what the viewer's token reaches, by installation;
-  - a checkbox for each, meaning "this box works on it";
-  - a workspace name for each.
+  - a checkbox for each, meaning "this box works on it".
 
-  A repository newly granted on GitHub appears at once, unchecked:
+  Checking one adds it to the box's list, which `stadeum/code` keeps,
+  and creates its webhook with the admin's token (§7). Unchecking
+  deletes the webhook and takes the repository off the list. A
+  repository newly granted on GitHub appears at once, unchecked:
   granting reach is not choosing to work on it.
 
-  Checking a repository creates its webhook with the admin's token
-  (§7), and unchecking deletes it. GitHub lets only a repository's admins
-  create webhooks. When the admin isn't one, the repository shows "no
-  webhook: checked every 15 minutes".
+  GitHub lets only a repository's admins create webhooks. When the admin
+  isn't one, the repository shows "no webhook: checked every 15
+  minutes". A repository added by its address in the Code app has no
+  webhook either, until an admin turns one on here.
 
-**What it keeps:**
+**What it keeps: nothing.**
 
-- **The box's repositories,** as graph nodes: `url`, `name`, default
-  `branch`, `workspace`, `main` (the workspace's main repository) and
-  `checked` (the head last seen). The graph is in the backup, and
-  ingestion hangs the code under each node. When ingestion folds in, its
-  own `Repository` type wins and these fields go on it.
-- **A workspace is a name on repositories.** By default each repository is
-  its own workspace, named after it. An admin can group several: `hive`
-  holds `hive` (main), `stakgraph` and `mcp`.
-- **Nothing else.** Tokens are strut's secrets. Who is connected is read
-  from GitHub with each person's own token.
+- **The box's repositories** and their workspaces are `stadeum/code`'s
+  (§14.4).
+- **Tokens** are strut's secrets. Who is connected is read from GitHub
+  with each person's own token.
+- **A webhook** is found on its repository by the webhook's address, so
+  no id is kept.
 
 **Its workflows:**
 
 - **`on-event`,** run by each webhook delivery (§7):
-  - a push to a repository's default branch calls `ingest`;
+  - a push to a repository's default branch runs `stadeum/code`'s
+    `check` for that repository (open question 16);
   - pull request, review and CI events are recorded on the repository,
-    for jobs to read.
-- **`check`,** the fallback, a schedule the package ships (§5). It covers
-  repositories with no webhook every 15 minutes, and every repository
-  hourly, for deliveries that were lost. For each one it runs
-  `git ls-remote <url> HEAD` with the box token, which uses no REST
-  quota. When the head moved, `check` calls `ingest` and records the
-  commit. It also checks the box token with `GET /user`. A person's dead token shows when it's used: strut's GitHub
-  steps already say "connect GitHub again" on a 401
-  (`src/steps/lib/github/pr-status.ts:110`).
-- **`ingest`:** today it only records the commit. **This is where
-  ingestion plugs in.** It also runs once when a repository is checked.
+    for jobs to read;
+  - a delivery for a repository that has left the list deletes its
+    webhook.
+- **No check of its own.** The check for new commits and `ingest` are
+  `stadeum/code`'s (§14.4): they name no forge. A dead token shows when
+  it's used: strut's GitHub steps already say "connect GitHub again" on
+  a 401 (`src/steps/lib/github/pr-status.ts:110`).
 - **`forget`,** on a person's removal: it runs as that person, revokes
   their token and deletes it. **`retire`,** on the box's teardown: it
   deletes the box's webhooks while the tokens still work, then revokes
   the box token after strut has run `forget` for everyone. Both
   are events strut runs, a capability to add (§5).
 
-**Steps:**
-
-- `repositories` (the box's repositories, by workspace), a job tool;
-- the app's steps: `me`, `disconnect`, `installations`, `available`,
-  `pick`, `box-token`.
+**Steps:** the app's own: `me`, `disconnect`, `installations`,
+`available`, `pick`, `box-token`.
 
 ### 3.2 `stadeum/pods`: a workspace is a set of the box's repositories
 
@@ -425,8 +432,8 @@ and a bare pod tells the agent to clone by hand. Proposed:
   `git` push.
 - **On a pod from an image,** it fetches each repository and leaves the
   pull to the agent, as now.
-- **A workspace with no nodes** (GitHub not installed, or an unknown
-  name): `claim` behaves as today.
+- **A workspace with no nodes** (`stadeum/code` not installed, or an
+  unknown name): `claim` behaves as today.
 
 The pods service doesn't change. It never sees a repository or a token.
 The `<workspace> pod` Concept pages stop listing repositories, which the
@@ -453,36 +460,35 @@ each listed package on its own secrets, and each moves on its own branch.
 Software is then one bundle, `stadeum/software`, one subscription:
 
 ```yaml
-# strut.yaml of stakwork/software-package
+# strut.yaml of stakwork/strut-software
 package: stadeum/software
 version: 0.1.0
 bundle:
-  - git+https://github.com/stakwork/github-package@stable
-  - git+https://github.com/stakwork/pods-package@stable
+  - git+https://github.com/stakwork/strut-github@stable
+  - git+https://github.com/stakwork/strut-pods@stable
 ```
 
-Until bundles exist, the button makes the two subscriptions itself.
+Until bundles exist, the button makes a subscription for each package
+itself. §14.4 proposes a third package in the bundle, `stadeum/code`.
 
-### 3.4 Two packages, and why repositories go with GitHub
+### 3.4 Separate packages, and where repositories go
 
 - **GitHub without pods** works: the graph knows the code, and jobs check
   out with strut's own `git/checkout` (`src/workflows/job.yaml:20`).
 - **Pods without GitHub** works as today.
 - **Different secrets.** Pods waits for `PODS_URL` and `PODS_TOKEN`. In
   one package with pods, GitHub would wait for them too.
-- **Repositories go with GitHub,** not in a third package. Choosing them
-  means listing what a GitHub token can reach, so it's GitHub's to do.
-  The contract that others read is not GitHub's: a repository node and
-  the `ingest` workflow. Another forge (GitLab, Forgejo) would be its own
-  package that connects through the same seam and writes the same
-  nodes. Its token reaches git by host (§5, item 9), strut refreshes it
-  (item 8), and its webhooks use one of strut's schemes (item 7).
-  Ingestion and the check would then move to a provider-free
-  `stadeum/repos`, mechanically.
+- **Repositories go with `stadeum/code`** (§14.4), not with GitHub. The
+  list, its workspaces, the check for new commits and `ingest` name no
+  forge. Listing what a GitHub token can reach is GitHub's, as one way
+  to fill the list. Another forge (GitLab, Forgejo) is its own package
+  that connects through the same seam and fills the same list. Its token
+  reaches git by host (§5, item 9), strut refreshes it (item 8), and its
+  webhooks use one of strut's schemes (item 7).
 
-Pods reads the nodes and doesn't require the GitHub package, so §3.3's pin
-never applies. The contract is the node's fields, written on the GitHub
-package's Concept page.
+Pods reads the nodes and requires neither package, so §3.3's pin never
+applies. The contract is the node's fields, written on `stadeum/code`'s
+Concept page.
 
 ## 4. What Stadeum still does
 
@@ -546,6 +552,12 @@ person's `GITHUB_TOKEN` reaches strut, and pods' `git` can push.
 Each is generic: no GitHub in it. Each is what lets a package own a
 feature end to end.
 
+Items 1, 5, 7, 9, 10 and 14 take one shape: a few lines in `strut.yaml`
+name something the package carries and say which of strut's own parts
+may use it. `job:` does this today for the job agent's tools (strut
+`src/packages/format.ts:13`). So a package stays five folders and a
+manifest, and gains no new kind of thing.
+
 | # | Capability | Why | Today |
 | --- | --- | --- | --- |
 | 1 | **A package's steps manage the secrets it `provides`:** read the person's own value apart from the deployment's; delete the person's own; set and delete the deployment's from an admin's call | Disconnect, Clear the box token, a pasted token (a Telegram bot's, an IMAP password), and "Connected as @login" without mistaking the box token for the person's | Steps only read, through one merged lookup (`src/capabilities.ts:59-67`). Writes take the full scope (`src/createStrut.ts:7549`) |
@@ -557,6 +569,11 @@ feature end to end.
 | 7 | **Webhook routes for packages:** `hooks:` in `strut.yaml`. Each is served at `POST /hooks/<publisher>/<package>/<name>` on strut's public origin. Before anything runs, strut checks the delivery in constant time, against a secret the package names, by a `scheme` it knows: **`hmac-sha256`**, of the raw body, in a header the package names, with an optional prefix and hex or base64 (GitHub's `X-Hub-Signature-256`, Forgejo's `X-Forgejo-Signature`, Linear's, Shopify's); **`standard-webhooks`**, HMAC-SHA256 over the id, timestamp and body in `webhook-signature`, refusing old timestamps (GitLab's signing token, and others on that spec); **`token`**, a header that holds the secret itself (GitLab's older `X-Gitlab-Token`). It caps the body's size and the rate, answers 202 at once, and runs the package's workflow detached with the event. With no secret set, the route answers 404. Uninstalling the package removes the route | Real-time events from repositories, delivered to the box (§7), from any forge. A package names a scheme and writes no checking code | Strut has no route a package can declare |
 | 8 | **Secrets that refresh themselves:** the connect seam's callback writes a secret with its expiry and refresh token. When a step reads it near its expiry, strut calls the seam's refresh route (§2.1) with `CONNECT_URL` and `CONNECT_TOKEN`, stores the new pair, and hands over the new value. It refreshes one secret at a time. When the provider refuses the refresh token, strut drops the secret, so the step finds it missing and says to connect again | Google, Microsoft, GitLab and Forgejo tokens last an hour or two. Every reader gets a live token without code of its own, and two runs never spend one refresh token | A secret is a plain value, with no expiry |
 | 9 | **Git credentials by host:** a package declares the hosts its token serves, `provides: git: [{ host, secret }]`. The host can come from a setting, for a company's own forge. Any step asks strut for a repository URL's credentials and gets the run's token for that host: the person's, else the box's, refreshed if need be (item 8). Strut's own git steps and `git+` installs use the same lookup | Pods' `claim` and `git`, `git/checkout` and `git+` installs reach GitHub, GitLab and Forgejo repositories with the right token, and none of them names a forge | Each reads `GITHUB_TOKEN` by name (§2). A subscription can name one `tokenSecret` |
+| 10 | **A dream source a package ships:** `dream:` in `strut.yaml`. Each entry names a page the package carries under `Dream` (the rules), a step it carries (the material), the tree they tend and how often (§14.2). Strut makes the automation on `dream` for the entry. The dream calls the step in place of `dream/turns`, with the cursor it kept, and gets `{ count, text, cursor }`. Strut keeps a cursor for each tree and source. A lesson says where in the material it came from, and its claim is optional | The Codebase tree, kept by the dream from merged changes (§14.2). Any package can feed a tree the same way: tickets, mail, a wiki | The dream reads `dream/turns` by name (`src/workflows/system/dream/workflow.yaml:117`). Its marks are a conversation and a turn, one file for each tree (`src/steps/lib/dream/_state.ts`). A lesson requires `session`, `turn`, `said` and `claim` (`workflow.yaml:180`). The page can't name the step itself: a page carries only the fields `Concept` declares (`docs/knowledge.md:593`) |
+| 11 | **A tender tests its change:** where a page's claims carry cases, the dream runs a test of the page as it is against the page with its change. The verdicts go with the change: on the proposal where the tree is reviewed, in the history where it isn't | "When an update is proposed, run a bunch of previous tasks against it" (§14.3) | `knowledge/test` answers strut's own page shown to an admin, never a workflow (`docs/knowledge.md:429-437`) |
+| 12 | **A package's pages' claims, recorded at install** and dropped with it | A package ships its pages with their checks and cases, so `Repository Changes` is measured from the first day | The install's outcome carries them, and nothing records them (`docs/knowledge.md:400`) |
+| 13 | **A trial that runs a job:** a case whose replay starts a job in a pod of its own, released once the sample is judged | A past coding task replayed against a change (§14.3). Later | A trial starts no job (`src/createStrut.ts:8428`) |
+| 14 | **Panels:** `panels:` in `strut.yaml` names one of the package's apps as a section for a graph type. A page that shows a node of that type asks for its panels, and each installed package's section is drawn in place, opened on the node, with that app's own grants | One page for a repository, with a section from each package: its source, its pages, its pod, its code graph (§14.4). Any type can have them: a customer, a matter | An app can link to another app (`kit/src/links.ts:17`). It can't show one: its page allows no frames (`src/apps/build.ts:217`) |
 
 Not needed now, and kept for later:
 
@@ -604,12 +621,15 @@ the fallback.
      `pull_request_review_comment`, `issue_comment`, `check_run` and
      `workflow_run`.
 
-   The package keeps the webhook's id on the repository's node.
+   The package keeps no id: it finds its webhook on a repository by that
+   URL.
 2. **Receiving a delivery.** Strut checks the signature, then runs
-   `on-event` (§5, item 7). A push to the default branch calls `ingest`.
-   The other events are recorded for jobs.
+   `on-event` (§5, item 7). A push to the default branch runs
+   `stadeum/code`'s `check` for that repository, which calls `ingest`
+   (§14.4). The other events are recorded for jobs.
 3. **Unchecking or retiring.** Unchecking a repository deletes its
-   webhook, and so does `retire` (§9).
+   webhook, and so does `retire` (§9). A delivery for a repository that
+   has left the list deletes its webhook too.
 
 **What it needs:**
 
@@ -717,7 +737,8 @@ course means asking people to connect again.
 - **`plans/pods.md`:** ops no longer subscribes every box at first boot.
   Software does, and ops syncs every subscription.
 - **stakwork/pods `PLAN.md` §8:** the same, plus `claim` cloning the
-  workspace's repositories (§3.2).
+  workspace's repositories (§3.2). Its package is published to
+  `stakwork/strut-pods`, no longer to `stakwork/pods-package`.
 - **`AGENTS.md`:**
   - rule 4:
     - the connect seam's client secrets live in stadeum-ui alone;
@@ -747,13 +768,17 @@ Each is its own PR.
 
    Secrets that refresh themselves (item 8) wait for the first provider
    whose tokens expire.
-4. **`stadeum/github`:**
-   - the app, installations, the box token and repositories;
-   - webhooks and `on-event`, with `check` as the fallback;
-   - an empty `ingest`;
+4. **`stadeum/code`, the list** (§14.4): the `Repository` type, the Code
+   app (add by address, workspaces), `check`, an empty `ingest` and the
+   `repositories` tool.
+
+   **`stadeum/github`:**
+   - the app, installations, the box token and the picker;
+   - webhooks and `on-event`;
    - `forget` and `retire`.
 5. **Stadeum:**
-   - From a repository, and the Software button as two subscriptions;
+   - From a repository, and the Software button as a subscription for
+     each package;
    - `DELETE /actors/:actor` on a member's removal;
    - ops syncing every subscription;
    - strut's poll off.
@@ -762,6 +787,18 @@ Each is its own PR.
    `stadeum/software`, the button as one subscription, and fleet's
    Software answer and `POST /retire` at teardown.
 8. **Ingestion** folds into `ingest` (the owner's).
+9. **Code** (§14), on the list of step 4:
+   - `explore` and the pages under `Job`. They need nothing from strut.
+   - Strut: a dream source a package ships (§5, item 10). Then the
+     `Codebase` root, `bootstrap`, `changes` and the `Repository Changes`
+     page.
+   - Strut: a tender tests its change, and a package's pages' claims at
+     install (items 11-12).
+   - Strut: panels (item 14). Then each package's section in the Code
+     app.
+   - `stadeum/aws`: logs (§14.5).
+
+   A trial that runs a job (item 13) and the parser wait.
 
 ## 13. The GitHub App's settings
 
@@ -812,6 +849,332 @@ Not about the App: **who is the box token by default?** *Nobody until an
 admin connects "for the box".* The GitHub app asks for it on first use,
 and suggests a bot account.
 
+## 14. Catching up with Hive: the code features
+
+**Proposed (2026-11-20). Only the goal is the owner's.** Hive and
+stakgraph's lab hold *"A LOT of code-specific logic"* that Software is to
+replace, and *"the goal isnt to copy line for line, its to migrate the
+functionality as SIMPLY and ELEGANTLY and GENERICALLY as possible"*.
+
+Hive built each code feature as code of its own. Strut has since grown
+general parts that do most of that work: the dream, the Knowledge app,
+claims and trials, jobs, and the git steps. So Software's share is pages
+and a few thin workflows over those parts. Where a part falls short, the
+fix is a generic strut capability (§5, items 10-14), never code in the
+package.
+
+This section covers the lab folders the owner named: `concepts`,
+`explore`, `logs` and `pods`. Hive's own app was not re-read for it (open
+question 13).
+
+### 14.1 What goes where
+
+Sizes are the lab's, tests included (`stakgraph/mcp/src/lab/`).
+
+| In the lab | Size | In Stadeum | New work |
+| --- | --- | --- | --- |
+| `concepts/`: walks a repository's pull requests and commits, asks a model which feature each belongs to, and writes `Concept` nodes through a Neo4j store of its own | 8,400 lines | **The dream, with merged changes as a second source,** and `Codebase` as its tree (§14.2) | A step that hands over what merged, a page of rules, and a workflow for a repository's first pages |
+| `explore/`: a read-only agent that answers a question from the graph and the repositories | 560 lines | **Moves as it is.** Its workflow is YAML over strut's own steps. Its one step of its own lists the repositories, which become the nodes of the box's list (§14.4) | Little |
+| `logs/`: an agent that reads CloudWatch and Quickwit | 1,160 lines | **Not Software.** A package for each place logs are kept, `stadeum/aws` first (§14.5) | The AWS calls, signed, over strut's `http` |
+| `pods/`: Hive's pool manager as steps. `pod-setup/`: eleven pages on configuring it | 3,150 lines | **Done:** `stadeum/pods`, 580 lines of steps and one page, with `.pod/` in the repository in place of those pages | `claim` cloning the workspace (§3.2) |
+| `code/` and `job/`: the `Code Change` and `Explore` pages | Pages | **Pages the package ships under `Job`,** as pods ships `Pod`. The job agent, `git/*` and `github/*` are strut's already | Pages |
+
+### 14.2 The Codebase tree is the dream's
+
+**What the lab does** (`concepts/workflows/`):
+
+- `bootstrap-then-process`: for a new repository, an agent explores a
+  clone and names its features.
+- `process-repo-chronological`: reads the pull requests and commits
+  merged since a checkpoint from GitHub's API
+  (`concepts/steps/fetch-changes.ts`). For each one, `process-change`
+  asks a model to decide: add it to a feature, make a new one, rewrite a
+  description, or ignore it. A step applies the decision.
+- `concepts/pages` then writes each repository's page and the `Codebase`
+  root above them (strut `plans/concept-tree.md`).
+- It keeps a store of its own (`concepts/store/graphStorage.ts`, 1,885
+  lines), `PullRequest` and `Commit` nodes, theme tags, and its prompts
+  in the workflows' params.
+
+**What the dream is** (strut `docs/knowledge.md:152`): a workflow that
+reads the material that is new since its mark and keeps one tree of
+Concepts in step with it. It edits a page as little as would have got it
+right. Each tree is automatic or reviewed. The history keeps every
+change with the run that made it. Its rules are pages under `Dream`, one
+for each kind of source: *"A second kind of source is its page under
+`Dream` and the step that hands over its material."*
+
+So the Codebase tree needs no pipeline of its own:
+
+- **The tree.** `Codebase` is the root, shipped by the package: a short
+  page that stays as it is, as the dream leaves every root. Under it is a
+  page for each repository, and under that a page for each feature.
+- **The rules.** A page under `Dream`, `Repository Changes`, shipped by
+  the package. It holds what the lab's prompts hold: what a feature is,
+  and when a change adds one, rewrites one or is ignored. As a page, it
+  is measured and tested like any other (§14.3).
+- **The material.** One step, `changes`. For each of the box's
+  repositories (§14.4), it hands over the commits on the
+  default branch since the cursor: each one's message, its files and a
+  capped diff. It reads them from git alone, with `git/checkout` and
+  `git log --first-parent`, so it names no forge. A merged pull request
+  is such a commit.
+- **The first pages.** A workflow, `bootstrap`: `explore`'s skeleton with
+  another answer. It checks the repository out, a read-only agent names
+  its features, and the repository's page and theirs are written as
+  ordinary pages. `ingest` starts it when a repository is added
+  (§14.4).
+- **The manifest ties them.** A dream source is no new kind of thing in
+  a package. It is a page and a step the package carries, named in a few
+  lines of `strut.yaml` (§5, item 10), as `job:` names the job agent's
+  tools today:
+
+  ```yaml
+  # strut.yaml of stadeum/code
+  dream:
+    - source: Repository Changes   # a page in concepts/, under Dream: the rules
+      step: changes                # a step in steps/: what is new since the cursor
+      root: Codebase               # the tree it tends
+      every: day
+  ```
+
+  Strut's own dream runs once a day for the entry. It calls the step,
+  reads the page as its rules, and keeps the cursor.
+
+**What strut's dream lacks** (§5, item 10). It is shaped for
+conversations in three places:
+
+- it reads `dream/turns` by name
+  (`src/workflows/system/dream/workflow.yaml:117`);
+- its marks are a conversation and a turn, one file for each tree
+  (`src/steps/lib/dream/_state.ts`);
+- a lesson requires `session`, `turn`, `said` and `claim`
+  (`workflow.yaml:180`).
+
+**What is dropped:**
+
+- **`PullRequest` and `Commit` nodes.** The history has every change to a
+  page with the run that made it, and that run's material names the
+  commits.
+- **Theme tags.**
+- **The decision and the step that applies it.** The agent edits the page
+  through the Knowledge door.
+- **The store.** Pages are ordinary Concepts.
+- **A running cost for each repository.** A run carries its own cost.
+- **Links from a feature to `File` nodes.** They need the parser (§14.6).
+  Until then a feature's page lists its main files by path.
+- **A written overview above the repositories.** Opening `Codebase` lists
+  each repository with its one line, which the dream keeps.
+
+**What is gained:**
+
+- review as a switch for the tree;
+- every change and its diff in the Knowledge app;
+- branches, claims and tests (§14.3);
+- a second dream on the same tree. With `root: "Codebase"` and the source
+  `Assistant Conversations`, what a person corrects ("we use pnpm here")
+  lands on the repository's page.
+
+**Who can shape a page.** The material is data, and the dream's agent
+has no shell, files or web. Whoever can merge to a default branch can
+shape the page that describes it. They can already change its README.
+
+**The other way,** not recommended: the package ships a tender of its
+own over the Knowledge steps. It may need nothing from strut (open
+question 12). But it would be a second tender to keep in step with the
+dream, and what the dream gains later it would not.
+
+### 14.3 Claims on the Codebase tree
+
+The owner (2026-11-20): repository Concepts should be *"integrated with
+the Knowledge app stuff: being able to create claims on concepts
+generated from repos, so we could give a task and prove that an update
+worked. Or when an update is proposed, run a bunch of previous tasks
+against it to check"*.
+
+**Built in strut, for any Concept** (`docs/knowledge.md:79`, `:360`):
+
+- **A claim on a page** judges every piece of work that opened the page.
+- **A case** is a workflow and its input, kept on a claim. A trial runs a
+  claim's cases as fresh runs.
+- **A test** runs the same cases on two wordings of a page, the page as
+  it is and the page with a change, and counts the verdicts on each. A
+  person then takes the change or leaves it.
+- **The Knowledge app** draws all of it, for an admin.
+
+A repository's pages are ordinary Concepts, so all of this holds for them
+with no code in the package.
+
+| The owner's ask | How |
+| --- | --- |
+| "give a task and prove that an update worked" | The task is a case on a claim of the page. A test runs it on the page as it was and on the page as it is |
+| "when an update is proposed, run a bunch of previous tasks against it" | The dream tests its change before the change lands, and the verdicts go with it (§5, item 11) |
+
+**What is missing:**
+
+- **The dream can't start a test.** The steps that do answer strut's own
+  page shown to an admin, never a workflow (`docs/knowledge.md:429-437`).
+  Item 11.
+- **A case must name a commit.** Otherwise a verdict moves when the code
+  does, not when the page does. `git/checkout` takes a `ref` already
+  (`src/steps/lib/git/checkout.ts:74`), so the package's `explore` takes
+  one for each repository.
+- **A package's claims aren't recorded at install.** A page's file can
+  carry its claims and cases, but only strut's own are recorded
+  (`docs/knowledge.md:400`). Item 12.
+- **A case can't be a coding job.** A trial starts no job
+  (`src/createStrut.ts:8428`). So a case replays what one run does: a
+  question to `explore`, or an orchestrator's turn up to the brief it
+  would have sent. Replaying a coding task in a pod is item 13, later.
+
+**Nothing decides by a score.** That ruling stands
+(`docs/knowledge.md:426`). A test's verdicts go with the change: on the
+proposal where the tree is reviewed, in the history where it isn't. What
+a worse result does to an automatic tree is open question 10.
+
+**An update to the code,** not to a page, is covered already:
+
+- **Job claims** (strut `plans/job-claims.md`, built). The job agent
+  writes claims about the work and verifies them before it says done. A
+  check reads the live app in the job's pod.
+- **A feature's page.** Its claims judge every job that opened it. With a
+  check that walks the app in the job's pod (a journey, in the notes
+  below), each change to a feature is tried against what earlier tasks
+  proved. Not planned here.
+
+### 14.4 `stadeum/code`: the repository list and one app
+
+Nothing in §14.2 or §14.3 names GitHub. So the code knowledge is a
+package of its own, and it keeps the list of repositories it works from.
+A GitLab or Forgejo package would use both whole. Its repository is
+`stakwork/strut-code`, public, with a `stable` branch as the others.
+
+**Why the list is here, not in the GitHub package.** A repository is set
+up for several things: where it comes from, its pages, its pod, and
+later its code graph. The owner (2026-11-20): the code graph comes back
+later, and *"each 'repo' needs to be configurable in that way"*. With the
+list in the GitHub package, a repository would be set up in three apps,
+and in a fourth for the code graph. So one package keeps the list, and
+one app shows it.
+
+**What it keeps:**
+
+- **The box's repositories,** as graph nodes: `url`, `name`, default
+  `branch`, `workspace`, `main` (the workspace's main repository) and
+  `checked` (the head last seen). The graph is in the backup. A
+  repository's own settings, the code graph's later, are fields on its
+  node. When the parser comes back, its own `Repository` type wins and
+  these fields go on it.
+- **A workspace is a name on repositories.** By default each repository
+  is its own workspace, named after it. An admin can group several:
+  `hive` holds `hive` (main), `stakgraph` and `mcp`.
+
+**Its app, Code,** is every person's. It lists the repositories by
+workspace:
+
+```text
+Code ▸ hive
+  hive        main   checked 2 min ago   14 features
+  stakgraph   main   checked 9 min ago    9 features
+  + Add a repository   [its address]   [pick from GitHub]
+```
+
+For an admin it also has:
+
+- **Add a repository** by its address. That works for any forge, since
+  git finds its token by host (§5, item 9). Where the GitHub package is
+  installed, **Pick from GitHub** opens its picker (§3.1).
+- **Workspaces:** group repositories, and name each group's main one.
+- **A repository's settings,** with a section for each package:
+
+```text
+hive ▸ settings
+  Knowledge    14 feature pages, updated today    code
+  Code graph   on or off, and its options         code, later
+  Source       open in GitHub                     github
+  Pod          the pod's own section              pods, with panels
+```
+
+**How another package's section gets there:**
+
+1. **Links first.** A strut app can open another app on a thing:
+   `appLink` (strut `kit/src/links.ts:17`). Code links to the GitHub
+   package's app, opened on the repository. It needs nothing new. Pods
+   ships no app today, so it has no line yet.
+2. **Panels later** (§5, item 14). A package names one of its apps as a
+   section for a graph type, and the section is drawn in place on that
+   type's page. Then Code names no other package, and a new package's
+   section appears when it is installed. An app's page allows no frames
+   today (strut `src/apps/build.ts:217`), so who draws the section is
+   open question 17.
+
+**Its workflows:**
+
+- **`check`,** a schedule the package ships (§5, item 3). Every 15
+  minutes it runs `git ls-remote <url> HEAD` on each repository, with
+  the box's token for that host, which uses no REST quota. When a head
+  moved, it records the commit and calls `ingest`. A forge package's
+  push event runs it at once for one repository (§7), so the schedule
+  is the fallback.
+- **`ingest`:** today it only records the commit. **This is where the
+  parser plugs in** (§14.6). It also runs once when a repository is
+  added.
+- **`explore`** and **`bootstrap`** (§14.1, §14.2).
+
+| It ships | What |
+| --- | --- |
+| Pages | `Codebase` (a root); `Repository Changes` (under `Dream`); `Code Change` and `Explore` (under `Job`) |
+| An app | Code |
+| A graph type | `Repository` |
+| Workflows | `check` and `ingest`; `explore`, open to peers as in the lab; `bootstrap` |
+| Steps | `repositories`, a job tool, which also tells `explore` what the box holds; `changes`; the app's own |
+| In its manifest | `job:` for `repositories`; `dream:` for the Codebase tree (§14.2); the schedule for `check` |
+
+It requires no secret. Software's bundle becomes github, pods and code
+(§3.3). Without a forge package it works on public repositories, added
+by their address.
+
+### 14.5 Logs are packages of their own
+
+Logs aren't about code, and where they are kept differs from team to
+team.
+
+- **One package for each place logs are kept.** Each ships a `logs`
+  workflow with the lab's launch, `{ prompt, session? }`, and answer,
+  `{ answer, cost }`, and a page under `Job` that says when to ask it.
+- **`stadeum/aws` first,** in `stakwork/strut-aws`: CloudWatch. An admin
+  pastes a read-only key, which the package keeps as its secrets (§5,
+  item 1).
+- **No AWS SDK.** The lab's steps call it from mcp's own code
+  (`logs/service.ts:4`). A package's step imports `strut` alone, so the
+  calls are signed requests over strut's `http`.
+- **The app being developed** logs in its pod: `pod logs`, in
+  `stadeum/pods`.
+
+### 14.6 The parsed code graph: later, set up for each repository
+
+Stakgraph parses code into `Function`, `Class` and `Endpoint` nodes.
+`explore` uses them where the graph has them and reads the files where it
+doesn't (`explore/steps/repositories.ts`). A box has no parser (rule 9),
+so Software starts with pages and files.
+
+The owner (2026-11-20): it comes back later, perhaps as a CLI, and each
+repository must be configurable for it. So:
+
+- its options are fields on the repository's node, set in the Code app's
+  settings for that repository (§14.4);
+- the parser runs in `ingest`, which `check` calls when a head moves
+  (§12, step 8);
+- `explore` uses its nodes with no change.
+
+### 14.7 Not in this section
+
+- **Janitors,** the lab's scheduled clean-ups (`janitor/`).
+- **Benchmarks:** `gaia/`, `wfbench/`, `eval/`.
+- **The orchestrator and the job agent.** They are strut's own now.
+- **`Plan Mode`, `Verify` and `Onboarding`,** pages the lab ships to
+  every workspace. They aren't about code (open question 14).
+
 ## Open questions
 
 1. **A cap on tokens.** GitHub caps an OAuth App at ten tokens per person
@@ -843,6 +1206,37 @@ and suggests a bot account.
    before the Forgejo package lists any. GitLab's docs say spending a
    refresh token invalidates the old pair, though a GitLab issue reports
    that old tokens keep working. Item 8 is built for the strict case.
+9. **What starts the first pages.** `ingest` starts `bootstrap` when a
+   repository is added (§14.2). A repository added before the pages
+   shipped has none. Does `check` start it for any repository with no
+   page?
+10. **A change that tests worse.** Where a tree is automatic, does a
+    worse test hold the dream's change for a person (§14.3)? Strut
+    decides nothing by a score today.
+11. **A past run as a case.** Who turns a run into a case, with each
+    repository at the commit that run read: a person in the Knowledge
+    app, or the dream?
+12. **May a package's workflow hold the Knowledge door?** Not checked. A
+    package's own step can't be in a sealed namespace
+    (strut `src/packages/install.ts:715`). Whether its workflow may call
+    `knowledge/edit-page` decides what §14.2's other way would need.
+13. **Hive's own app.** Its tasks and features, its janitors'
+    recommendations and its pull request monitoring were not re-read for
+    §14. What of them does a software team on Stadeum still lack?
+14. **Ways of working that aren't about code.** The lab ships
+    `Plan Mode`, `Verify` and `Onboarding` to every workspace. Are they
+    strut's own pages, or a package's?
+15. **Two dreams on one tree.** §14.2 runs the dream on `Codebase` from
+    two sources. Item 10 gives each its own cursor. Can both edit one
+    page in the same night without undoing each other?
+16. **A package that names another.** GitHub's `on-event` runs
+    `stadeum/code`'s `check` by name, and its picker writes nodes of a
+    type `stadeum/code` ships (§3.1). Should strut carry an event one
+    package raises and another's workflow runs on, so neither names the
+    other?
+17. **Who draws a panel.** An app's page allows no frames (§5, item 14).
+    Does strut's own page draw each section, or may an app frame this
+    strut's own apps?
 
 ## Later: workspaces that actually work (notes, not planned)
 
@@ -875,10 +1269,10 @@ Where it runs then becomes a placement decision for the pods service.
    screens it touches and opens them in the right state. This memory is
    in strut, so it outlives every pod.
 4. **A workspace is its own node, many-to-many with repositories.** In
-   §3.1, `workspace` is one field on a repository node, so a repository
+   §14.4, `workspace` is one field on a repository node, so a repository
    is in only one workspace. stakgraph couldn't be in hive's workspace
    and in a 30-system test as well. **This is the one note that touches
-   what's planned now.** Changing the nodes after `stadeum/github`
+   what's planned now.** Changing the nodes after `stadeum/code`
    writes them means migrating them, so decide before step 4 of §12.
 5. **Composition.**
    - Each repository's `.pod/` describes that repository alone: the
