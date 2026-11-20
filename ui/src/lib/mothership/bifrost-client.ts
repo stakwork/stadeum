@@ -80,12 +80,20 @@ export class BifrostClient {
     description?: string;
     customer_id: string;
     provider_configs: ProviderConfigInput[];
+    /** The key's own budgets, each with its own period, beside its customer's. */
+    budgets?: Array<{ max_limit: number; reset_duration: string }>;
+    /** RFC 3339, in the future: the gateway refuses the key after it. Omitted: it never expires. */
+    expires_at?: string;
   }) {
     return this.request<VirtualKeyResponse>("POST", `/api/governance/virtual-keys`, input);
   }
 
   getVirtualKey(vkId: string) {
     return this.request<VirtualKeyResponse>("GET", `/api/governance/virtual-keys/${encodeURIComponent(vkId)}`);
+  }
+
+  deleteVirtualKey(vkId: string) {
+    return this.request<unknown>("DELETE", `/api/governance/virtual-keys/${encodeURIComponent(vkId)}`);
   }
 
   /** Bifrost REPLACES the VK's provider_configs with this set: always send all of them. */

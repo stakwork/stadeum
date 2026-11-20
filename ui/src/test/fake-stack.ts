@@ -2,7 +2,8 @@
 /**
  * A fake of the stadeum stack on one port, for tests and local runs:
  *   /bifrost  — gateway: /_plugin/* (Bearer) and /api/* (Basic): customers,
- *               virtual keys, each provider's keys and their check, the
+ *               virtual keys (with their expiry, and deleted), each
+ *               provider's keys and their check, the
  *               client config (bifrost transports/v2.2.2 handlers)
  *   /strut    — strut: /health, /apps (the list, each app's versions,
  *               usage, what is live and the pin), /brand, /auth/ticket and
@@ -225,7 +226,17 @@ export interface FakeState {
   }>;
   /** Model calls the gateway logged: what its spend rollups and each customer's budget usage sum. `user_id` is the actor (= customer name). */
   calls: FakeCall[];
-  vks: Array<{ id: string; name: string; value: string; customer_id: string; created_at: string; provider_configs: unknown[] }>;
+  vks: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    value: string;
+    customer_id: string;
+    created_at: string;
+    expires_at?: string;
+    budgets?: Array<{ max_limit: number; reset_duration: string }>;
+    provider_configs: unknown[];
+  }>;
   trust: Map<string, { org_id: string; pubkey: string; issuer_url: string; revocation_poll_seconds: number }>;
   realmId: string;
   agents: unknown[];
@@ -517,20 +528,29 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       if (path === "/api/governance/virtual-keys" && m === "GET") {
         const q = url.searchParams.get("search") ?? "";
         const cid = url.searchParams.get("customer_id");
-        const virtual_keys = state.vks.filter((v) => v.name.includes(q) && (!cid || v.customer_id === cid));
-        return send(res, 200, { virtual_keys, count: virtual_keys.length, total_count: virtual_keys.length, limit: 50, offset: 0 });
+        // Oldest first, a page of at most 100 (bifrost's ClampPaginationParams).
+        const all = state.vks.filter((v) => v.name.includes(q) && (!cid || v.customer_id === cid));
+        const limit = Math.min(Number(url.searchParams.get("limit") ?? 25) || 25, 100);
+        const offset = Number(url.searchParams.get("offset") ?? 0);
+        const virtual_keys = all.slice(offset, offset + limit);
+        return send(res, 200, { virtual_keys, count: virtual_keys.length, total_count: all.length, limit, offset });
       }
       if (path === "/api/governance/virtual-keys" && m === "POST") {
         for (const pc of body.provider_configs) {
           if (!providers.includes(pc.provider) && !state.customProviders.has(pc.provider)) return send(res, 400, { error: `provider ${pc.provider} not configured` });
           if (JSON.stringify(pc.key_ids) !== '["*"]') return send(res, 400, { error: "key_ids must be [\"*\"] here" });
         }
+        if (state.vks.some((v) => v.name === body.name)) return send(res, 400, { error: "duplicate key value violates unique constraint" });
+        if (body.expires_at !== undefined && !(Date.parse(body.expires_at) > Date.now())) return send(res, 400, { error: "expires_at must be a future timestamp" });
         const vk = {
           id: randomUUID(),
           name: body.name,
+          description: body.description,
           value: `sk-bf-${randomUUID()}`,
           customer_id: body.customer_id,
           created_at: new Date().toISOString(),
+          ...(body.expires_at ? { expires_at: new Date(body.expires_at).toISOString() } : {}),
+          ...(body.budgets ? { budgets: body.budgets } : {}),
           provider_configs: body.provider_configs.map((pc: object, i: number) => ({ id: i + 1, ...pc, allow_all_keys: true })),
         };
         state.vks.push(vk);
@@ -544,6 +564,10 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
           // Bifrost replaces the set; a config sent without an id is a new one and gets one.
           let next = Math.max(0, ...vk.provider_configs.map((pc: any) => pc.id ?? 0)) + 1;
           vk.provider_configs = body.provider_configs.map((pc: any) => ({ ...pc, id: pc.id ?? next++, allow_all_keys: JSON.stringify(pc.key_ids) === '["*"]' }));
+        }
+        if (m === "DELETE") {
+          state.vks.splice(state.vks.indexOf(vk), 1);
+          return send(res, 200, { message: "Virtual key deleted successfully" });
         }
         return send(res, 200, { virtual_key: vk });
       }

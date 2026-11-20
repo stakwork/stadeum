@@ -62,8 +62,9 @@ checked".
 ## Services
 
 ### caddy
-- `stack/caddy/Caddyfile`, two sites: `{SCHEME}://{HOST}` → `stadeum-ui:3000`
-  and `{SCHEME}://strut.{HOST}` → `strut:3000`. The compose file sets
+- `stack/caddy/Caddyfile`, three sites: `{SCHEME}://{HOST}` → `stadeum-ui:3000`,
+  `{SCHEME}://strut.{HOST}` → `strut:3000`, and
+  `{SCHEME}://mothership.{HOST}` → `bifrost:8181`. The compose file sets
   `SCHEME=https`, `HOST` and `ACME_EMAIL` in its environment.
 - **https:** Caddy fetches and renews the certificates (Let's Encrypt; also
   ZeroSSL when `ACME_EMAIL` is set) and redirects http to https. Ports 80
@@ -83,9 +84,16 @@ checked".
   `localhost` and `strut.localhost` are two sites (`localhost` has no
   registrable domain), and the frame's cookie would not reach strut.
 - No Docker socket: the routes are in the Caddyfile, not in labels.
-- **bifrost is not routed.** strut and stadeum-ui call it on the network and
-  nothing outside the box does. Its admin UI is reached from inside, e.g. a
-  local override that publishes `127.0.0.1:8181:8181`.
+- **bifrost's providers' endpoints alone are routed**, at
+  `mothership.{HOST}`: `/openai/*`, `/anthropic/*` and `/genai/*`, for a
+  machine outside the box that strut grants model calls (a pod's apps),
+  with a grant's key (`docs/models.md`, "A grant's key"). Everything else
+  there is a 404: strut and stadeum-ui call the rest on the network. Its
+  admin UI is reached from inside, e.g. a local override that publishes
+  `127.0.0.1:8181:8181`.
+- **Routes for the box's network alone**: the `{HOST}` site answers
+  `/api/ops/*` (ops's) and `/api/mothership/*` (strut's grant keys) with
+  404.
 
 ### neo4j
 - The stock `neo4j:5.26.32`: no APOC, no GDS, no index initializers. 5.26 is
@@ -183,6 +191,10 @@ checked".
 - `STRUT_MOTHERSHIP=1` mounts `/llm/delegations`; `STRUT_MOTHERSHIP_REQUIRED=1`
   makes a model call with nobody to bill a step error. Both are fixed on, like
   bifrost's flags.
+- `STRUT_MOTHERSHIP_GRANTS_URL=http://stadeum-ui:3000/api/mothership/keys`:
+  where strut asks for a grant's key, when a step grants model calls to a
+  machine outside strut (a pod), with the deployment key (`docs/models.md`,
+  "A grant's key"). A strut from before grants ignores it.
 - No provider keys and no `LLM_PROVIDER`: strut calls a model only through
   bifrost, on the caller's delegation, so it boots and runs with none.
 - `STRUT_HOST_CONFIG` (`stack/strut/host-config.json`) takes the model pin

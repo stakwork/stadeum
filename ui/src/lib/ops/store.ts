@@ -1,10 +1,9 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { OpsSettings as SettingsRow } from "@prisma/client";
 import { z } from "zod";
 
 import { decryptField, encryptField } from "@/lib/crypto";
 import { db } from "@/lib/db";
-import { env } from "@/lib/env";
 import type { OpsEvent, OpsSettings, OpsStatus, RequestKind } from "./contract";
 import { build, isKind, restoreKit, validate, type Kind, type Values } from "./destination";
 import { GIVEN_BACKUP_REFUSAL, givenBackup } from "./given";
@@ -19,18 +18,6 @@ import { ASKED, updatesNow, type Asked, type AskedRow, type UpdatesNow } from ".
  */
 
 const ID = "ops";
-
-// ── who may call the internal routes ────────────────────────────────────
-
-/** `Authorization: Bearer <SHARED_API_TOKEN>`, compared in constant time. */
-export function isOps(authorization: string | null): boolean {
-  const token = env.sharedToken();
-  const given = /^Bearer (.+)$/.exec(authorization ?? "")?.[1];
-  if (!token || !given) return false;
-  const a = Buffer.from(given);
-  const b = Buffer.from(token);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
 
 // ── settings ────────────────────────────────────────────────────────────
 

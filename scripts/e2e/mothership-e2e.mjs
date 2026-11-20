@@ -19,13 +19,20 @@
 //      the run it sets strut's STRUT_MODELS (strut routes a provider aieo
 //      does not know only when the host lists its model) and then removes
 //      it; stadeum-ui writes the org's list back on its next pass.
+//   7. a grant's key, as stadeum-ui makes one for a machine outside the box
+//      (a pod): through Caddy's mothership.$HOST, the joined
+//      `<virtual key>.<macaroon>` works in `x-api-key` and in
+//      `Authorization: Bearer`, billed to the person; the site has nothing
+//      but the providers' endpoints; the gateway stops the key at its own
+//      budget, after its expiry, and once it is deleted.
 //
 // Provider: real when bifrost holds an Anthropic key (set on stadeum's
 // Models page); otherwise a fake Anthropic upstream served from this
 // container, wired into bifrost's anthropic provider for the run and removed
 // afterwards. Exit code 0 only if every assertion passed.
 
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { createDecipheriv, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
@@ -63,6 +70,9 @@ const CAROL_CEILING_USD = 0.00001;
 // workflow fails with "workflow cap $100 exceeds the delegation ceiling".
 const CEILING_USD = 1000;
 const RUN_CAP_USD = 0.00001; // per-run cap on the capped workflow
+// Section 7: the gateway's public route, and the grants' keys made there.
+const MOTHERSHIP = `mothership.${must("HOST")}`;
+const grantKeys = [];
 
 function must(name) {
   const v = process.env[name]?.trim();
@@ -237,6 +247,52 @@ async function ensureCustomerAndVk(name) {
       })
     ).virtual_key;
   return { customer, vk };
+}
+
+/** A grant's key, as stadeum-ui makes one (ui/src/lib/mothership/grant-key.ts). */
+async function grantKey(customer, { capUsd = 50, seconds = 3600 } = {}) {
+  const vk = (
+    await gov("POST", "/api/governance/virtual-keys", {
+      name: `grant:e2e:${randomBytes(4).toString("hex")}`,
+      description: "stadeum grant e2e",
+      customer_id: customer.id,
+      provider_configs: [{ provider: "anthropic", allowed_models: ["*"], key_ids: ["*"] }],
+      budgets: [{ max_limit: capUsd, reset_duration: "1w" }],
+      expires_at: new Date(Date.now() + seconds * 1000).toISOString(),
+    })
+  ).virtual_key;
+  grantKeys.push(vk.id);
+  return vk;
+}
+
+/**
+ * A request to Caddy as a machine outside the box sends it: to
+ * mothership.$HOST. Plain http locally (stack/dev.yml); on a box Caddy
+ * redirects that to https, so it goes again over TLS with the name.
+ */
+function viaCaddy(method, path, headers = {}, body) {
+  const data = body === undefined ? undefined : JSON.stringify(body);
+  const opts = (port) => ({
+    host: "caddy",
+    port,
+    path,
+    method,
+    servername: MOTHERSHIP,
+    headers: { host: MOTHERSHIP, ...(data ? { "content-type": "application/json" } : {}), ...headers },
+  });
+  const send = (req, port) =>
+    new Promise((resolve, reject) => {
+      const r = req(opts(port), (res) => {
+        let text = "";
+        res.on("data", (c) => (text += c));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
+      });
+      r.on("error", reject);
+      r.setTimeout(60_000, () => r.destroy(new Error(`${method} ${path} timed out`)));
+      if (data) r.write(data);
+      r.end();
+    });
+  return send(httpRequest, 80).then((r) => (r.status >= 300 && r.status < 400 ? send(httpsRequest, 443) : r));
 }
 
 // ── macaroon (docs/mothership-spec.md §d) ───────────────────────────────
@@ -503,6 +559,64 @@ try {
   });
   show("the run's spend at the gateway", { cost_usd: xrun?.cost_usd, priced_at: xwant });
   check("the gateway priced it from its runtime price table", !!xrun && Math.abs(xrun.cost_usd - xwant) < 1e-9);
+
+  section(`6. a grant's key, from outside the box: ${MOTHERSHIP}`);
+  const gk = await grantKey(customer);
+  const joined = `${gk.value}.${del.token}`;
+  check("a virtual key holds no '.', so the gateway's split finds the macaroon", /^sk-bf-[A-Za-z0-9_-]+$/.test(gk.value) && !del.token.includes("."));
+  const anthropicCall = (key) => viaCaddy("POST", "/anthropic/v1/messages", { "x-api-key": key, "anthropic-version": "2023-06-01" }, msg);
+  const seenBefore = upstreamSeen.length;
+  const g1 = await anthropicCall(joined);
+  show("POST /anthropic/v1/messages, x-api-key: the joined key", `${g1.status} ${g1.text.slice(0, 160)}`);
+  check("the joined key in x-api-key is answered", g1.status === 200);
+  const g2 = await viaCaddy("POST", "/openai/v1/chat/completions", { authorization: `Bearer ${joined}` }, {
+    model: `anthropic/${MODEL}`,
+    max_tokens: 8,
+    messages: [{ role: "user", content: "hi" }],
+  });
+  show("POST /openai/v1/chat/completions, Authorization: Bearer the joined key", `${g2.status} ${g2.text.slice(0, 160)}`);
+  check("the joined key as a Bearer token is answered", g2.status === 200);
+  if (!REAL) {
+    const seen = upstreamSeen.slice(seenBefore);
+    check("the provider saw the gateway's key, never the grant's key or the macaroon", seen.length === 2 && seen.every((u) => u.xApiKey === FAKE_KEY && !u.macaroonForwarded));
+  }
+  const glog = await eventually(async () => ((await gov("GET", "/api/logs?limit=50")).logs ?? []).find((l) => l.virtual_key_id === gk.id));
+  show("bifrost log for the grant's call", glog && { customer: glog.customer_name, virtual_key: glog.virtual_key_name, user: glog.metadata?.["user-id"] });
+  check("bifrost logged it under alice's customer and the grant's key", !!glog && glog.customer_name === ALICE && glog.metadata?.["user-id"] === ALICE);
+
+  const shut = [];
+  for (const path of ["/", "/api/governance/virtual-keys", "/_plugin/health", "/_plugin/admin-credentials", "/openai/%2e%2e/api/governance/virtual-keys", "/anthropic/..%2f_plugin/health"]) {
+    const r = await viaCaddy("GET", path, { authorization: basic });
+    shut.push(`${path} ${r.status}`);
+  }
+  show("other paths on the site, with the admin's credentials", shut);
+  check("the site has nothing but the providers' endpoints", shut.every((l) => l.endsWith(" 404")));
+
+  const alone = await anthropicCall(gk.value);
+  show("the grant's key without the macaroon", `${alone.status} ${alone.text.slice(0, 120)}`);
+  check("the grant's key alone is refused", alone.status === 401);
+
+  const capped = await grantKey(customer, { capUsd: 0.000001 });
+  const cappedKey = `${capped.value}.${del.token}`;
+  const k1 = await anthropicCall(cappedKey);
+  const k2 = (await eventually(async () => {
+    const r = await anthropicCall(cappedKey);
+    return r.status === 200 ? null : r;
+  })) ?? { status: 200, text: "" };
+  show("a grant's key over its budget", { first: k1.status, later: `${k2.status} ${k2.text.slice(0, 160)}` });
+  check("the gateway stops a grant's key at its own budget", k1.status === 200 && k2.status === 402);
+
+  const brief = await grantKey(customer, { seconds: 3 });
+  const briefKey = `${brief.value}.${del.token}`;
+  await new Promise((r) => setTimeout(r, 5000));
+  const late = await anthropicCall(briefKey);
+  show("a grant's key past its expiry", `${late.status} ${late.text.slice(0, 160)}`);
+  check("the gateway refuses a grant's key past its expiry", late.status === 403 || late.status === 401);
+
+  await gov("DELETE", `/api/governance/virtual-keys/${gk.id}`);
+  const gone = await anthropicCall(joined);
+  show("a deleted grant's key", `${gone.status} ${gone.text.slice(0, 120)}`);
+  check("a deleted grant's key is refused", gone.status === 401);
 } catch (err) {
   check("e2e script ran to completion", false, err.stack ?? String(err));
 } finally {
@@ -513,6 +627,7 @@ try {
   if (compatAdded) await http("DELETE", `${BIFROST}/api/providers/${COMPAT}`, { headers: { Authorization: basic } }).catch(() => {});
   if (savedPricing) await http("PUT", `${BIFROST}/_plugin/pricing`, { headers: { Authorization: `Bearer ${T}` }, body: savedPricing }).catch(() => {});
   if (strutModelsSet) await http("DELETE", `${STRUT}/secrets/STRUT_MODELS`, { headers: strutAdmin }).catch(() => {});
+  for (const id of grantKeys) await http("DELETE", `${BIFROST}/api/governance/virtual-keys/${id}`, { headers: { Authorization: basic } }).catch(() => {});
   server?.close();
 }
 

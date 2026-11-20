@@ -22,7 +22,9 @@
 #      which writes them to the gateway and nowhere else (docs/models.md),
 #      unless a host that pays for them gives them (STADEUM_MODEL_PROVIDERS);
 #   4. checks that DNS points $HOST and strut.$HOST at this machine, which
-#      the certificates need, and starts nothing until it does;
+#      the certificates need, and starts nothing until it does. It says so
+#      when mothership.$HOST does not, but starts anyway: only the
+#      gateway's route for machines outside the box (pods) needs that one;
 #   5. starts the stack, checks that both names answer over https, and says
 #      what is left to do.
 #
@@ -566,10 +568,11 @@ dns_addresses() {
   fi
 }
 
-# A line for each name that does not point at this machine alone.
+# A line for each NAME that does not point at this machine alone.
 dns_problems() {
   local mine=$1 name addrs addr wrong
-  for name in "$HOST_NAME" "strut.$HOST_NAME"; do
+  shift
+  for name in "$@"; do
     addrs=$(dns_addresses "$name")
     wrong=""
     for addr in $addrs; do
@@ -593,9 +596,10 @@ check_dns() {
   public=$(public_ipv4)
   mine=$({ printf '%s\n' "$public"; hostname -I 2>/dev/null | tr ' ' '\n'; } | grep . | tr 'A-F' 'a-f' | sort -u || true)
   while :; do
-    problems=$(dns_problems "$mine")
+    problems=$(dns_problems "$mine" "$HOST_NAME" "strut.$HOST_NAME")
     if [ -z "$problems" ]; then
       say "$HOST_NAME and strut.$HOST_NAME point here${public:+ ($public)}"
+      check_mothership_dns "$mine" "$public"
       return 0
     fi
     if [ "$problems" != "$shown" ]; then
@@ -603,9 +607,10 @@ check_dns() {
       if [ -z "$shown" ]; then
         say ""
         say "The certificates need both names to point at this machine. At your DNS provider, create:"
-        say "  A  $HOST_NAME        ${public:-<the public IPv4 address of this machine>}"
-        say "  A  strut.$HOST_NAME  ${public:-<the same address>}"
-        say "and remove any other A or AAAA record on the two names."
+        say "  A  $HOST_NAME             ${public:-<the public IPv4 address of this machine>}"
+        say "  A  strut.$HOST_NAME       ${public:-<the same address>}"
+        say "  A  mothership.$HOST_NAME  ${public:-<the same address>}   (for pods' model calls)"
+        say "and remove any other A or AAAA record on the names."
         [ "$TTY" != 1 ] || say "Waiting for them, checking every 15 s (Ctrl-C stops; run this again later). Nothing starts until then."
       fi
       shown=$problems
@@ -613,6 +618,19 @@ check_dns() {
     [ "$TTY" = 1 ] || die "DNS does not point here yet, so nothing was started: run this again once it does. Behind a load balancer or proxy, STADEUM_SKIP_DNS_CHECK=1 skips the check."
     sleep 15
   done
+}
+
+# mothership.$HOST: the gateway's route for a machine outside the box that
+# strut grants model calls (a pod's apps, docs/models.md). Nothing else
+# needs it, so the box starts without it, and Caddy fetches its certificate
+# once it points here.
+check_mothership_dns() {
+  local problem
+  problem=$(dns_problems "$1" "mothership.$HOST_NAME")
+  [ -n "$problem" ] || return 0
+  say "$problem"
+  say "  Pods can't call models until it does. At your DNS provider, create:"
+  say "  A  mothership.$HOST_NAME  ${2:-<the same address as $HOST_NAME>}"
 }
 
 # --- The stack ---

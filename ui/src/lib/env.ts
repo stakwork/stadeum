@@ -35,6 +35,11 @@ export const env = {
   neo4jHttpUrl: () => stripSlash(trimmed("NEO4J_HTTP_URL") ?? "http://neo4j:7474"),
   /** stadeum-ui's own public origin: the Strut embed origin and the trust issuer URL. */
   publicUrl: () => stripSlash(trimmed("AUTH_URL") ?? "http://localhost:3000"),
+  /** The gateway's public route, for machines outside the box: `mothership.` on stadeum-ui's host (stack/caddy/Caddyfile). */
+  mothershipUrl: () => {
+    const own = new URL(env.publicUrl());
+    return `${own.protocol}//mothership.${own.host}`;
+  },
   /** The sign-in bounce's origin, https only (lib/signin-bounce.ts). */
   signinBounce: (): string | undefined => {
     const value = trimmed("STADEUM_SIGNIN_BOUNCE");

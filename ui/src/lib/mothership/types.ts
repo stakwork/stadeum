@@ -50,6 +50,10 @@ export interface BifrostVirtualKey {
   is_active?: boolean;
   customer_id?: string | null;
   provider_configs?: BifrostProviderConfig[];
+  /** The key's own budgets, beside its customer's. */
+  budgets?: BifrostBudget[];
+  /** RFC 3339. The gateway refuses the key after it; absent or null, it never expires. */
+  expires_at?: string | null;
   created_at: string;
   updated_at?: string;
 }

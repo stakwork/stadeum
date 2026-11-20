@@ -5,6 +5,9 @@
 #
 #   scripts/mothership-e2e.sh            # COMPOSE_PROJECT_NAME defaults to stadeum
 #
+# Section 6 calls Caddy as a machine outside the box would, at
+# mothership.$HOST (HOST from .env).
+#
 # A real provider call is made only if bifrost holds an Anthropic key (set on
 # stadeum's Models page). Otherwise a fake Anthropic upstream in the container
 # is wired into bifrost for the run and removed afterwards.
@@ -25,6 +28,7 @@ exec docker run --rm \
   -e SHARED_API_TOKEN="$(val SHARED_API_TOKEN)" \
   -e BIFROST_ADMIN_PASS="$(val BIFROST_ADMIN_PASS)" \
   -e STADEUM_ENCRYPTION_KEY="$(val STADEUM_ENCRYPTION_KEY)" \
+  -e HOST="$(val HOST)" \
   -e E2E_MODEL="${E2E_MODEL:-}" \
   node:22.20.0-alpine \
   sh -c 'npm ci --no-audit --no-fund --loglevel=error >/dev/null && node mothership-e2e.mjs'
