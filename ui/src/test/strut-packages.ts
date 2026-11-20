@@ -119,3 +119,72 @@ export const matches = (r: FakeRelease, q: string) => {
     .filter(Boolean)
     .every((w) => hay.includes(w));
 };
+
+/**
+ * A git repository strut can read (`git+` refs): whether it is private (read
+ * only with a token), its default branch, and each branch or tag with its
+ * commit and the package there, at the root or in `folder`.
+ */
+export interface FakeRepo {
+  private?: boolean;
+  defaultBranch: string;
+  folder?: string;
+  refs: Record<string, { commit: string; release: FakeRelease; tag?: true }>;
+}
+
+const commit = (n: string) => n.repeat(40).slice(0, 40);
+
+/** `stadeum/code`, as stakwork/strut-code holds it: the repository list, its app, `check` on a schedule. */
+export const STADEUM_CODE: FakeRelease = {
+  package: "stadeum/code",
+  publisher: "stadeum",
+  key: "",
+  urls: [],
+  version: "0.1.0",
+  digest: digest("3c"),
+  description: "The box's repositories and workspaces.",
+  detail: { apps: [{ name: "code", title: "Code", can: { spends: false, acts: true, code: true } }], workflows: 2, steps: 3, concepts: 1, secrets: [], can: { spends: false, acts: true, code: true }, readme: true },
+  items: [
+    { kind: "app", name: "code" },
+    { kind: "workflow", name: "check" },
+    { kind: "workflow", name: "ingest" },
+    { kind: "step", name: "add" },
+    { kind: "step", name: "remove" },
+    { kind: "step", name: "list" },
+    { kind: "concept", name: "Repositories" },
+  ],
+};
+
+/** A private package that requires a key: its subscription waits until the key is set. */
+export const ACME_TOOLS: FakeRelease = {
+  package: "acme/tools",
+  publisher: "acme",
+  key: "",
+  urls: [],
+  version: "1.2.0",
+  digest: digest("4d"),
+  requires: { secrets: ["ACME_API_KEY"] },
+  detail: { apps: [], workflows: 1, steps: 1, concepts: 0, secrets: ["ACME_API_KEY"], can: { spends: false, acts: true, code: true }, readme: false },
+  items: [
+    { kind: "workflow", name: "sync" },
+    { kind: "step", name: "fetch" },
+  ],
+};
+
+/** The repositories the fake strut can read, by address (lowercase, no `.git`). */
+export const STRUT_CODE_REPO = "https://github.com/stakwork/strut-code";
+export const ACME_TOOLS_REPO = "https://git.acme.test/acme/tools";
+export const fakeRepos = (): Map<string, FakeRepo> =>
+  new Map<string, FakeRepo>([
+    [
+      STRUT_CODE_REPO,
+      {
+        defaultBranch: "main",
+        refs: {
+          main: { commit: commit("a1"), release: structuredClone(STADEUM_CODE) },
+          "v0.1.0": { commit: commit("a1"), release: structuredClone(STADEUM_CODE), tag: true },
+        },
+      },
+    ],
+    [ACME_TOOLS_REPO, { private: true, defaultBranch: "main", folder: "package", refs: { main: { commit: commit("b2"), release: structuredClone(ACME_TOOLS) } } }],
+  ]);

@@ -1,4 +1,4 @@
-import type { InstalledPackage, PackageCan, PackageHit, PackageIndex, PackageInstall } from "@/lib/strut/client";
+import type { InstalledPackage, PackageCan, PackageHit, PackageIndex, PackageInstall, PackageSubscription } from "@/lib/strut/client";
 
 /**
  * The Packages page's reading of strut's packages (strut `specs/API.md`
@@ -149,9 +149,17 @@ export const shortName = (pkg: string, name: string) => (name.startsWith(`${pkg}
  */
 export const secretsNeeded = (pkg: InstalledPackage, set: ReadonlySet<string> | null) => (set ? pkg.secrets.filter((s) => !set.has(s)) : []);
 
-/** The secret names a person may set from this page: those an installed package declares, never one stadeum keeps itself. */
-export function settableSecret(name: string, installed: readonly InstalledPackage[]): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !STADEUM_SETTINGS.has(name) && installed.some((p) => p.secrets.includes(name));
+/**
+ * The secret names a person may set from this page: those an installed
+ * package declares, or one a package the box follows waits for (strut
+ * installs it once it is set), never one stadeum keeps itself.
+ */
+export function settableSecret(name: string, installed: readonly InstalledPackage[], followed: readonly Pick<PackageSubscription, "waiting">[] = []): boolean {
+  return (
+    /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) &&
+    !STADEUM_SETTINGS.has(name) &&
+    (installed.some((p) => p.secrets.includes(name)) || followed.some((s) => s.waiting?.secrets.includes(name)))
+  );
 }
 
 /** Strut settings stadeum's own pages write (the Models page). */
@@ -164,7 +172,7 @@ const LEADS: Record<string, string> = {
   package_busy: "One of its workflows is running. Try again once the run is done.",
   package_conflict: "Something on this box already uses a name the package needs.",
   package_update_not_built: "Another version of this package is installed here. Uninstall it first, then install this one.",
-  package_distro_owned: "The box’s distro installed this package: only the distro updates or removes it.",
+  package_distro_owned: "The box keeps this package up to date from what it follows, or its distro installed it: only that updates or removes it.",
   package_not_installed: "That package isn’t installed.",
   package_not_listed: "No index this box follows lists that publisher.",
   package_not_found: "The publisher’s catalog doesn’t have that package.",
@@ -176,7 +184,16 @@ const LEADS: Record<string, string> = {
   package_fetch_failed: "The publisher’s catalog isn’t answering. Try again later.",
   package_digest_mismatch: "What the publisher served doesn’t match the release. Nothing was installed.",
   bad_package: "The package doesn’t install on this box.",
+  package_repo_denied: "The repository can’t be read: it’s private and the account it’s read with can’t reach it, or it doesn’t exist.",
+  package_repo_not_found: "There’s no repository at that address.",
+  package_repo_unreachable: "The repository isn’t answering. Try again later.",
+  package_ref_not_found: "The repository has nothing by that name after @.",
+  subscription_invalid: "Strut won’t follow that.",
+  subscription_unknown: "The box doesn’t follow that any more.",
 };
+
+/** The code a refusal of strut's starts with (`package_repo_denied: …` → `package_repo_denied`). */
+export const refusalCode = (detail: string | undefined): string | undefined => /^([a-z_]+):/.exec(detail ?? "")?.[1];
 
 /**
  * A refusal of strut's, as a person reads it: a plain sentence for the
@@ -212,13 +229,16 @@ export interface InstallDone {
 export type InstallWatch = { id: string; ref: string; door: "install" | "distro" } & (
   | { status: "queued" | "running"; phase: string; package?: string; done?: number; total?: number; result?: never; error?: never }
   | { status: "done"; result: InstallDone; error?: never }
-  | { status: "failed"; error: string; result?: never }
+  | { status: "failed"; error: string; /** Strut's refusal code (`package_repo_denied`), when it gave one. */ code?: string; result?: never }
 );
 
 /** Strut's install record, as the page shows it: a refusal in plain words, a result as the 201 gave it. */
 export function installWatch(s: PackageInstall): InstallWatch {
   const base = { id: s.id, ref: s.ref, door: s.door };
-  if (s.status === "failed") return { ...base, status: "failed", error: explainRefusal(s.error, 500) };
+  if (s.status === "failed") {
+    const code = refusalCode(s.error);
+    return { ...base, status: "failed", error: explainRefusal(s.error, 500), ...(code ? { code } : {}) };
+  }
   if (s.status === "done" && s.result) {
     const r = s.result;
     const mine = r.packages.find((p) => p.package === r.package);
@@ -277,3 +297,151 @@ export function installProgressText(w: InstallWatch): { text: string; fraction?:
   if (w.total !== undefined && w.total > 0 && w.done !== undefined) return { text: `${label} ${w.done} / ${w.total}${of}`, fraction: Math.min(1, w.done / w.total) };
   return { text: `${w.phase === "types" && w.total ? `${label} (${w.total})` : label}${of}` };
 }
+
+// ── from a repository ────────────────────────────────────────────────────
+
+/** A repository's ref, checked as strut checks it (`parseGitRef`, `parseRepo`), and what the page keeps of it. */
+export interface RepositoryRef {
+  /** What strut is sent: `git+<address>[@<rev>][#<folder>]`. */
+  ref: string;
+  /** The repository's address, as given, with no trailing slash. */
+  address: string;
+  /** A branch (or, for one install, a tag or a commit); none: the default branch. */
+  rev?: string;
+  /** The folder that holds the package; none: the root. */
+  folder?: string;
+  /** Where the package is, whatever the branch: the same for every ref to it. */
+  source: string;
+  /** `rev` is a full commit, which never moves. */
+  commit: boolean;
+}
+
+// Strut's own grammar (`src/steps/lib/git/_shared.ts`, `src/packages/git-source.ts`).
+const SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const REV_RE = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
+const FOLDER_SEGMENT_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
+const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
+
+/**
+ * A package's repository as an admin gives it: `git+https://host/owner/repo
+ * [@<branch>][#<folder>]`, or the same address without `git+`. Checked as
+ * strut will check it, so what is wrong is said here, plainly, before
+ * anything is sent: an address that is not a repository's over http(s),
+ * one with a password in it, a branch or a folder that cannot be one.
+ */
+export function parseRepositoryRef(raw: string): RepositoryRef | { error: string } {
+  const given = typeof raw === "string" ? raw.trim() : "";
+  if (!given) return { error: "Give the repository’s address." };
+  if (/^(ssh:\/\/|git@|git:\/\/)/i.test(given) || /^[\w.-]+@[\w.-]+:/.test(given)) {
+    return { error: "That’s an SSH address. Give the repository’s https address: the box reads it over https, with your own account for a private one." };
+  }
+  const body = given.replace(/^git\+/i, "");
+  const hash = body.indexOf("#");
+  const beforeHash = hash < 0 ? body : body.slice(0, hash);
+  const rawFolder = hash < 0 ? undefined : body.slice(hash + 1);
+  const schemeEnd = beforeHash.indexOf("://");
+  const at = beforeHash.lastIndexOf("@");
+  const hasRev = schemeEnd >= 0 && at > schemeEnd + 2 && !beforeHash.slice(schemeEnd + 3, at).includes("@") && beforeHash.slice(schemeEnd + 3, at).includes("/");
+  const address = (hasRev ? beforeHash.slice(0, at) : beforeHash).replace(/\/+$/, "");
+  const rev = hasRev ? beforeHash.slice(at + 1) : undefined;
+
+  let url: URL;
+  try {
+    url = new URL(address);
+  } catch {
+    return { error: "That isn’t a repository’s address. It looks like https://host/owner/name." };
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return { error: "A repository’s address here starts with https://." };
+  if (url.username || url.password) return { error: "Leave the name and password out of the address: a private repository is read with your own account." };
+  if (url.search) return { error: "A repository’s address has no ?… in it." };
+  const segs = url.pathname.split("/").filter(Boolean);
+  if (segs.length < 2) return { error: "That address names no repository: it needs an owner and a name, like https://host/owner/name." };
+  const bad = segs.find((s) => !SEGMENT_RE.test(s));
+  if (bad) return { error: `“${bad}” can’t be part of a repository’s address.` };
+  if (rev !== undefined && (!rev || !REV_RE.test(rev) || rev.includes("..") || rev.includes("//") || rev.endsWith("/") || rev.endsWith(".lock"))) {
+    return { error: rev ? `“${rev}” isn’t a branch’s name.` : "Nothing follows @: name a branch, or leave @ out for the default branch." };
+  }
+  let folder: string | undefined;
+  if (rawFolder !== undefined) {
+    const parts = rawFolder.split("/").filter(Boolean);
+    if (!parts.length) return { error: "Nothing follows #: name the folder that holds the package, or leave # out for the repository’s root." };
+    if (parts.some((s) => !FOLDER_SEGMENT_RE.test(s) || s === "..")) return { error: `“${rawFolder}” isn’t a folder in the repository.` };
+    folder = parts.join("/");
+  }
+  const clean = `${url.protocol}//${url.host}/${segs.join("/")}`;
+  return {
+    ref: `git+${clean}${rev ? `@${rev}` : ""}${folder ? `#${folder}` : ""}`,
+    address: clean,
+    ...(rev ? { rev } : {}),
+    ...(folder ? { folder } : {}),
+    source: `${url.host}/${segs.join("/")}`.toLowerCase().replace(/\.git$/, "") + (folder ? `#${folder}` : ""),
+    commit: !!rev && FULL_SHA_RE.test(rev),
+  };
+}
+
+/** FNV-1a, 32 bits, as 8 hex: a short name for a place, the same everywhere. */
+function fnv1a(s: string): string {
+  let h = 0x811c9dc5;
+  for (const c of new TextEncoder().encode(s)) h = Math.imul(h ^ c, 0x01000193) >>> 0;
+  return h.toString(16).padStart(8, "0");
+}
+
+/**
+ * The id strut files a followed repository under: its name and a hash of
+ * where the package is (`source`), so following it again, on another
+ * branch or as another admin, is the same subscription. Strut's grammar:
+ * a letter or digit first, at most 64.
+ */
+export function subscriptionIdOf(r: Pick<RepositoryRef, "source">): string {
+  const name = r.source.replace(/#.*$/, "").split("/").pop()!.replace(/[^a-z0-9._-]+/g, "-").replace(/^[^a-z0-9]+/, "").slice(0, 48);
+  return `${name || "repo"}-${fnv1a(r.source)}`;
+}
+
+/** Something the box follows, as the page shows it: strut's record, and the person it is (none: nobody's). */
+export type Followed = PackageSubscription & { whose?: string; mine: boolean };
+
+/** Where it comes from: a branch's ref, or a catalog's address and channel. */
+export const followedFrom = (f: Pick<PackageSubscription, "id" | "ref" | "url" | "channel">) =>
+  f.ref ?? (f.url ? `${hostOf(f.url)}${f.channel ? `, channel ${f.channel}` : ""}` : f.id);
+
+/** How it stands, as a dot and a word: its last read failed, a package of it waits for keys, it hasn't been read, or it's at the newest release. */
+export function followedState(f: Pick<PackageSubscription, "checkedAt" | "error" | "waiting">): { tone: "ok" | "attention" | "pending"; label: string } {
+  if (f.error) return { tone: "attention", label: "Last check failed" };
+  if (f.waiting) return { tone: "attention", label: "Waiting for keys" };
+  if (!f.checkedAt) return { tone: "pending", label: "Not read yet" };
+  return { tone: "ok", label: "Up to date" };
+}
+
+/** A provider the connect seam has (`lib/connect.ts`): its id and name, and the secrets it writes. */
+export interface ConnectOffer {
+  id: string;
+  name: string;
+  secrets: string[];
+}
+
+/**
+ * When strut could not read a repository, the account to connect: the
+ * seam's provider for the secret strut reads it with (a subscription's
+ * `tokenSecret`), or one its words name. Nothing for any other refusal.
+ */
+export function connectFor(code: string | undefined, words: string, providers: readonly ConnectOffer[], tokenSecret?: string): ConnectOffer | undefined {
+  if (code !== "package_repo_denied") return undefined;
+  const named = (s: string) => s === tokenSecret || new RegExp(`\\b${s}\\b`).test(words);
+  return providers.find((p) => p.secrets.some(named));
+}
+
+/** The seam's link for a person to connect their own account, back to this page. */
+export const connectHref = (p: Pick<ConnectOffer, "id">) => `/api/connect/${encodeURIComponent(p.id)}?${new URLSearchParams({ return: "/packages" })}`;
+
+/** A subscription's id, as strut takes it (`peerIdProblem`). */
+export const SUBSCRIPTION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/** Strut's subscriptions as the page shows them: each with whose it is, by name, and whether it is this admin's. */
+export const followedOf = (subs: readonly PackageSubscription[], names: ReadonlyMap<string, string>, me: string): Followed[] =>
+  subs.map((s) => ({ ...s, ...(s.actor ? { whose: names.get(s.actor) ?? s.actor } : {}), mine: !!s.actor && s.actor === me }));
+
+/** What strut files a subscription's installs, and the packages they wrote, under: `subscription:<id>`. */
+export const subscriptionInstallRef = (id: string) => `subscription:${id}`;
+
+/** The subscription an install or an installed package's source belongs to, if one does. */
+export const followedIdOf = (ref: string | undefined): string | undefined => (ref?.startsWith("subscription:") ? ref.slice("subscription:".length) : undefined);

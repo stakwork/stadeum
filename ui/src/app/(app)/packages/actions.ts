@@ -2,33 +2,46 @@
 
 import { revalidatePath } from "next/cache";
 
+import { namesOf } from "@/lib/members";
 import {
   DIGEST_RE,
   explainRefusal,
+  followedOf,
   hostOf,
   INDEX_ID_RE,
   indexIdOf,
   INSTALL_ID_RE,
   installWatch,
   PACKAGE_NAME_RE,
+  parseRepositoryRef,
   settableSecret,
+  SUBSCRIPTION_ID_RE,
+  subscriptionIdOf,
+  subscriptionInstallRef,
   Z32_KEY_RE,
+  type Followed,
   type InstallWatch,
 } from "@/lib/packages";
 import { requireAdmin } from "@/lib/session";
 import {
   followPackageIndex,
+  followPackageRef,
   getPackageInstall,
   listPackageIndexes,
+  listPackageInstalls,
   listPackages,
+  listPackageSubscriptions,
   putDeploymentSetting,
   searchPackages,
   startPackageInstall,
   StrutHttpError,
+  syncPackageSubscription,
   uninstallPackage,
   unfollowPackageIndex,
+  unfollowPackageSubscription,
   type PackageHit,
   type PackageIndex,
+  type PackageSubscription,
   type UninstallResult,
 } from "@/lib/strut/client";
 
@@ -172,7 +185,9 @@ export async function unfollowIndex(id: string): Promise<{ error?: string }> {
 /**
  * `PUT /secrets/:name { value }`: a key an installed package's steps read,
  * in strut's deployment store, for every run. Only a name an installed
- * package declares; the value goes to strut and nowhere else.
+ * package declares, or one a package the box follows waits for; the value
+ * goes to strut and nowhere else. What waited for it is read again now, so
+ * it installs without waiting for strut's next look.
  */
 export async function setSecret(name: string, value: string): Promise<{ error?: string }> {
   await requireAdmin();
@@ -180,11 +195,138 @@ export async function setSecret(name: string, value: string): Promise<{ error?: 
   if (!value) return { error: "Paste the value first." };
   if (value.length > 64 * 1024) return { error: "That is longer than any key." };
   try {
-    if (typeof name !== "string" || !settableSecret(name, await listPackages())) return { error: "No package installed here reads that secret." };
+    const [installed, followed] = await Promise.all([listPackages(), listPackageSubscriptions().catch(() => [])]);
+    if (typeof name !== "string" || !settableSecret(name, installed, followed)) return { error: "No package installed here reads that secret." };
     await putDeploymentSetting(name, value);
+    for (const s of followed.filter((f) => f.waiting?.secrets.includes(name))) readInBackground(s.id);
   } catch (err) {
     return { error: refusal(err) };
   }
   revalidatePath("/packages");
   return {};
+}
+
+// ── from a repository ───────────────────────────────────────────────────
+
+/** Strut's subscriptions, each with whose it is: the page's Followed list. */
+async function followedAs(subs: PackageSubscription[], me: { actor: string }): Promise<Followed[]> {
+  return followedOf(subs, await namesOf(subs.map((s) => s.actor)), me.actor);
+}
+
+/**
+ * A subscription read now, the page not waiting on it: strut answers only
+ * once the read is done, an install it makes included, so the page follows
+ * it with `followedProgress` instead.
+ */
+function readInBackground(id: string) {
+  void syncPackageSubscription(id).catch((err) => console.warn(`[packages] reading ${id} failed: ${err instanceof Error ? err.message : String(err)}`));
+}
+
+/** Following started: what strut answered, and when it was last read before (none: never), so the page knows when the new read is done. */
+export type FollowRepoOutcome = { followed: Followed; before?: string; error?: never } | (Failed & { followed?: never });
+
+/**
+ * From a repository, kept up to date: `PUT /packages/subscriptions/:id
+ * { ref }` as this admin, who is then its person (strut `specs/API.md`
+ * §16, "Whose a subscription is"): what it installs is theirs, and a
+ * private repository is read with their own account alone. The body never
+ * names a person. The repository's package already followed (on any
+ * branch, by anyone) is the same subscription, so following it again
+ * moves it to this branch and makes it this admin's. Strut answers at
+ * once and reads it behind the answer.
+ */
+export async function followRepository(raw: string): Promise<FollowRepoOutcome> {
+  const me = await requireAdmin();
+  const r = parseRepositoryRef(raw);
+  if ("error" in r) return { error: r.error };
+  if (r.commit) return { error: "A commit never moves, so there is nothing to keep up to date. Name a branch, or turn Keep it up to date off to install that commit once." };
+  try {
+    const same = (await listPackageSubscriptions()).find((s) => {
+      const theirs = s.ref ? parseRepositoryRef(s.ref) : null;
+      return !!theirs && !("error" in theirs) && theirs.source === r.source;
+    });
+    const sub = await followPackageRef(same?.id ?? subscriptionIdOf(r), r.ref, me.actor);
+    revalidatePath("/packages");
+    const [followed] = await followedAs([sub], me);
+    return { followed: followed!, ...(same?.ref === r.ref && same.checkedAt ? { before: same.checkedAt } : {}) };
+  } catch (err) {
+    return { error: refusal(err) };
+  }
+}
+
+/**
+ * From a repository, once: `POST /packages/install { ref, wait: false }`
+ * as this admin, followed as any install is (`installProgress`). A private
+ * repository is read with this admin's own account; a tag or a commit
+ * after @ is fine here.
+ */
+export async function installFromRepository(raw: string): Promise<InstallOutcome> {
+  const me = await requireAdmin();
+  const r = parseRepositoryRef(raw);
+  if ("error" in r) return { error: r.error };
+  try {
+    const watch = installWatch(await startPackageInstall(r.ref, {}, me.actor));
+    if (watch.status === "done") changed();
+    return watch;
+  } catch (err) {
+    return { error: refusal(err) };
+  }
+}
+
+/** Check now: strut reads it again (`POST /packages/subscriptions/:id/sync`) behind the answer. `before`: when it was last read. */
+export async function checkFollowed(id: string): Promise<{ before?: string; error?: never } | Failed> {
+  await requireAdmin();
+  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t something the box follows." };
+  try {
+    const sub = (await listPackageSubscriptions()).find((s) => s.id === id);
+    if (!sub) return { error: "The box doesn’t follow that any more." };
+    readInBackground(id);
+    return sub.checkedAt ? { before: sub.checkedAt } : {};
+  } catch (err) {
+    return { error: refusal(err) };
+  }
+}
+
+/** A followed thing as it stands, and the install it is making now. `followed: null`: the box no longer follows it. `retry`: strut didn't answer this time. */
+export type FollowedProgress = { followed: Followed | null; install?: InstallWatch; error?: never } | (Failed & { retry: boolean; followed?: never });
+
+/**
+ * How a read is going: strut's record of the subscription, and its
+ * install while one runs. Once its last read is newer than `before`, the
+ * read is done, and every page reads the box again.
+ */
+export async function followedProgress(id: string, before?: string): Promise<FollowedProgress> {
+  const me = await requireAdmin();
+  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t something the box follows.", retry: false };
+  try {
+    const [subs, installs] = await Promise.all([listPackageSubscriptions(), listPackageInstalls()]);
+    const sub = subs.find((s) => s.id === id);
+    if (!sub) return { followed: null };
+    const running = installs.find((i) => i.ref === subscriptionInstallRef(id) && i.finishedAt === undefined);
+    if (sub.checkedAt && sub.checkedAt !== before && !running) changed();
+    const [followed] = await followedAs([sub], me);
+    return { followed: followed!, ...(running ? { install: installWatch(running) } : {}) };
+  } catch (err) {
+    console.warn(`[packages] reading ${id}: ${err instanceof Error ? err.message : String(err)}`);
+    return { error: "Strut isn’t answering just now. Still trying.", retry: true };
+  }
+}
+
+/**
+ * Stop following: `DELETE /packages/subscriptions/:id?uninstall=1`. What
+ * it installed goes too, as an uninstall does (what people edited here is
+ * kept): strut installed it through the distro's door, which alone updates
+ * and removes it, so left behind it would be a package nothing updates and
+ * no admin can uninstall here.
+ */
+export async function unfollow(id: string): Promise<{ uninstalled: string[]; error?: never } | (Failed & { uninstalled?: never })> {
+  await requireAdmin();
+  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t something the box follows." };
+  try {
+    const r = await unfollowPackageSubscription(id);
+    changed();
+    return r ?? { uninstalled: [] };
+  } catch (err) {
+    return { error: refusal(err) };
+  }
 }

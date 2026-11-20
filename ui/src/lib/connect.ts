@@ -80,6 +80,14 @@ export function connectable(id: string): Connectable | undefined {
   return { ...PROVIDERS[id]!(), id, clientId, clientSecret };
 }
 
+/** Every provider a person can connect on this box: its id, its name and the secrets it writes to strut. */
+export function connectOffers(): Array<{ id: string; name: string; secrets: string[] }> {
+  return Object.keys(PROVIDERS)
+    .map(connectable)
+    .filter((p): p is Connectable => !!p)
+    .map((p) => ({ id: p.id, name: p.name, secrets: Object.keys(p.secrets) }));
+}
+
 const at = (p: Provider, url: string) => (p.base ? `${p.base.replace(/\/+$/, "")}${url}` : url);
 
 /** The box's own origin, stadeum's: the only one a connect's Continue may come from. */
