@@ -1,7 +1,6 @@
 import type { NextRequest } from "next/server";
 
 import { connectable, exchange, goTo, keep, refusal, verifyState } from "@/lib/connect";
-import { isAdmin } from "@/lib/roles";
 import { currentUser } from "@/lib/session";
 
 /**
@@ -9,8 +8,8 @@ import { currentUser } from "@/lib/session";
  * person back here, through the bounce on a box that has one
  * (lib/connect.ts). It refuses a state this box didn't sign for this
  * provider and this person within the hour, trades the code, writes the
- * tokens to strut, and sends the person to the state's `return`. It keeps
- * nothing, and logs no code or token.
+ * tokens to strut as the person's own, and sends them to the state's
+ * `return`. It keeps nothing, and logs no code or token.
  */
 export const dynamic = "force-dynamic";
 
@@ -30,28 +29,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ prov
   const checked = verifyState(q.get("state"), { provider: p.id, actor: user.actor });
   if (!checked.ok) return refusal(400, WHY[checked.why]);
   const s = checked.state;
-  if (s.for === "box" && !isAdmin(user.role)) return refusal(403, "Only an admin connects for the box.", s.return);
   const error = q.get("error");
   if (error) return refusal(400, `The provider did not authorize it (${error.slice(0, 64)}).`, s.return);
   const code = q.get("code");
   if (!code) return refusal(400, "The provider sent no code.", s.return);
 
-  const whose = s.for === "box" ? "the box" : user.actor;
   let got;
   try {
     got = await exchange(p, code);
   } catch (err) {
-    console.warn(`[connect] ${p.id}: the token URL did not answer for ${whose}: ${err instanceof Error ? err.name : "error"}`);
+    console.warn(`[connect] ${p.id}: the token URL did not answer for ${user.actor}: ${err instanceof Error ? err.name : "error"}`);
     return refusal(502, "The provider did not answer. Try again.", s.return);
   }
   if (!got.ok) {
-    console.warn(`[connect] ${p.id}: the code was not traded for ${whose}: ${got.error}`);
+    console.warn(`[connect] ${p.id}: the code was not traded for ${user.actor}: ${got.error}`);
     return refusal(502, `The provider gave no token (${got.error}). Connect again.`, s.return);
   }
   try {
-    await keep(got.secrets, s);
+    await keep(got.secrets, user.actor);
   } catch (err) {
-    console.warn(`[connect] ${p.id}: strut did not keep the token for ${whose}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+    console.warn(`[connect] ${p.id}: strut did not keep the token for ${user.actor}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     return refusal(502, "Strut did not keep the token. Try again.", s.return);
   }
   return goTo(s.return);

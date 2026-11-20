@@ -1,14 +1,13 @@
 import { createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { env } from "@/lib/env";
-import { isAdmin } from "@/lib/roles";
 import { bounce, label, unlabel } from "@/lib/signin-bounce";
-import { pushActorSecret, putDeploymentSetting } from "@/lib/strut/client";
+import { pushActorSecret } from "@/lib/strut/client";
 
 /**
  * The connect seam (plans/software.md §2.1; docs/stack-spec.md, "The connect
  * seam"): a person connects an OAuth provider, and the tokens it gives go to
- * strut, as their secrets or, for an admin's `for=box`, the deployment's.
+ * strut as their own secrets. Every token the seam writes is a person's.
  * Trading the code needs the provider's client secret, which only stadeum-ui
  * holds, so this is stadeum's; everything else is a package's.
  *
@@ -38,8 +37,6 @@ export interface Provider {
   token: string;
   /** Every scope a package may ask for. */
   scopes: string[];
-  /** Where scopes go on the authorize URL: `scope` for both by default. */
-  scopeParam?: { person: string; box: string };
   /** Fixed extras on the authorize URL. */
   params?: Record<string, string>;
   /** Each secret strut gets, by name: its paths in the token response, the first present wins. */
@@ -124,28 +121,24 @@ export function askedScopes(p: Provider, raw: string | null): string[] | null {
   return asked.every((s) => p.scopes.includes(s)) ? asked : null;
 }
 
-/** What a connect asks for, checked: where it comes back to, its scopes, whether it is the box's, whether it installs. */
+/** What a connect asks for, checked: where it comes back to, its scopes, whether it installs. */
 export interface Ask {
   back: string;
   scopes: string[];
-  box: boolean;
   install: boolean;
 }
 
 export type AskCheck = { ok: true; ask: Ask } | { ok: false; status: number; message: string; back?: string };
 
 /**
- * `return`, `scope`, `install=1` and `for=box`, as the confirm page and its
- * Continue read them alike: `return` on the box's own origins, each scope one
- * the provider lists, an install page only if it has one, the box's only for
- * an admin.
+ * `return`, `scope` and `install=1`, as the confirm page and its Continue
+ * read them alike: `return` on the box's own origins, each scope one the
+ * provider lists, an install page only if it has one. Any other parameter
+ * is ignored: a connect is always the signed-in person's own.
  */
-export function readAsk(p: Connectable, who: { role: string }, q: URLSearchParams): AskCheck {
+export function readAsk(p: Connectable, q: URLSearchParams): AskCheck {
   const back = safeReturn(q.get("return"));
   if (!back) return { ok: false, status: 400, message: "The page to come back to is not on this box." };
-  const forBox = q.get("for");
-  if (forBox !== null && forBox !== "box") return { ok: false, status: 400, message: "for can only be box.", back };
-  if (forBox && !isAdmin(who.role)) return { ok: false, status: 403, message: "Only an admin connects for the box.", back };
   const scopes = askedScopes(p, q.get("scope"));
   if (!scopes) {
     const message = p.scopes.length ? `A scope asked for is not one of ${p.scopes.join(", ")}.` : `${p.name} takes no scope here.`;
@@ -153,11 +146,11 @@ export function readAsk(p: Connectable, who: { role: string }, q: URLSearchParam
   }
   const install = q.get("install") === "1";
   if (install && !p.install) return { ok: false, status: 400, message: `${p.name} has no install page here.`, back };
-  return { ok: true, ask: { back, scopes, box: !!forBox, install } };
+  return { ok: true, ask: { back, scopes, install } };
 }
 
 /** Where Continue sends the person: the provider's install page, or its authorize page. */
-export function startUrl(p: Connectable, ask: Pick<Ask, "scopes" | "box" | "install"> & { state: string }): string {
+export function startUrl(p: Connectable, ask: Pick<Ask, "scopes" | "install"> & { state: string }): string {
   if (ask.install) {
     if (!p.install) throw new Error(`${p.id} has no install page`);
     const url = new URL(at(p, p.install));
@@ -169,20 +162,17 @@ export function startUrl(p: Connectable, ask: Pick<Ask, "scopes" | "box" | "inst
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", p.clientId);
   url.searchParams.set("redirect_uri", redirectUri(p.id));
-  if (ask.scopes.length) {
-    url.searchParams.set((ask.box ? p.scopeParam?.box : p.scopeParam?.person) ?? "scope", ask.scopes.join(" "));
-  }
+  if (ask.scopes.length) url.searchParams.set("scope", ask.scopes.join(" "));
   url.searchParams.set("state", ask.state);
   return url.toString();
 }
 
 // ── the state ──────────────────────────────────────────────────────────
 
-/** What the state carries: whose connect it is, for whom, and where it goes back to. */
+/** What the state carries: whose connect it is, and where it goes back to. */
 export interface ConnectState {
   provider: string;
   actor: string;
-  for?: "box";
   return: string;
   nonce: string;
   /** When it was signed, ms. */
@@ -205,7 +195,7 @@ const sign = (body: string) => createHmac("sha256", stateKey()).update(body).dig
  * JSON, the signature HMAC-SHA256 under a key derived from `AUTH_SECRET`.
  * The label, the box's first name in clear for the bounce, only with one.
  */
-export function signState(s: Pick<ConnectState, "provider" | "actor" | "for" | "return">, now = Date.now()): string {
+export function signState(s: Pick<ConnectState, "provider" | "actor" | "return">, now = Date.now()): string {
   const state: ConnectState = { ...s, nonce: randomBytes(16).toString("base64url"), iat: now };
   const body = Buffer.from(JSON.stringify(state)).toString("base64url");
   return label(`${body}.${sign(body).toString("base64url")}`);
@@ -288,14 +278,10 @@ export async function exchange(p: Connectable, code: string): Promise<Exchanged>
   return { ok: false, error: errorCode(data) ?? `HTTP ${res.status}` };
 }
 
-/** Writes each secret to strut: the person's, or the deployment's for `for=box`. Throws when strut doesn't take one. */
-export async function keep(secrets: Record<string, string>, s: Pick<ConnectState, "actor" | "for">): Promise<void> {
+/** Writes each secret to strut as the person's own. Throws when strut doesn't take one. */
+export async function keep(secrets: Record<string, string>, actor: string): Promise<void> {
   for (const [name, value] of Object.entries(secrets)) {
-    if (s.for === "box") {
-      await putDeploymentSetting(name, value);
-      continue;
-    }
-    const status = await pushActorSecret(s.actor, name, value);
+    const status = await pushActorSecret(actor, name, value);
     if (status !== "pushed") throw new Error(`strut's PUT /actors/:actor/secrets/${name} was ${status}`);
   }
 }

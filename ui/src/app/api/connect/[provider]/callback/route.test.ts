@@ -67,12 +67,15 @@ describe("GET /api/connect/:provider/callback", () => {
     expect(fake.state.requests).toContain("PUT /strut/actors/ada-c1/secrets/GITHUB_TOKEN");
   });
 
-  it("makes an admin's for=box the deployment's GITHUB_TOKEN, and no person's", async () => {
+  it("gives an admin's token to strut as their own, and a for=box link writes nothing to the deployment", async () => {
     who.user = { actor: "root-a1", role: "admin" };
+    const deploymentWrites = () => fake.state.requests.filter((r) => r.startsWith("PUT /strut/secrets/")).length;
+    const before = deploymentWrites();
     const res = await land(await authorize("?for=box&return=" + encodeURIComponent("https://strut.acme.example.com/?app=stadeum/github")));
     expect(res.headers.get("location")).toBe("https://strut.acme.example.com/?app=stadeum/github");
-    expect(fake.state.deploymentSecrets.get("GITHUB_TOKEN")).toBe(fake.state.github.tokens.at(-1));
-    expect(fake.state.secrets.size).toBe(0);
+    expect([...fake.state.secrets]).toEqual([["root-a1/GITHUB_TOKEN", fake.state.github.tokens.at(-1)]]);
+    expect(fake.state.deploymentSecrets.size).toBe(0);
+    expect(deploymentWrites()).toBe(before);
   });
 
   it("takes an install's return as a connect, and ignores its installation_id", async () => {
@@ -123,14 +126,6 @@ describe("GET /api/connect/:provider/callback", () => {
     // The code was never spent: the right person, with the state as it came, still connects.
     expect((await land(back)).status).toBe(302);
     expect(fake.state.secrets.has("ada-c1/GITHUB_TOKEN")).toBe(true);
-  });
-
-  it("refuses a box's connect from someone who is no longer an admin", async () => {
-    who.user = { actor: "root-a1", role: "admin" };
-    const back = await authorize("?for=box");
-    who.user = { actor: "root-a1", role: "member" };
-    expect((await land(back)).status).toBe(403);
-    expect(fake.state.deploymentSecrets.size).toBe(0);
   });
 
   it("needs a signed-in person", async () => {

@@ -41,7 +41,6 @@ const slackLike: Connectable = {
   authorize: "https://slack.example/oauth/v2/authorize",
   token: "https://slack.example/api/oauth.v2.access",
   scopes: ["chat:write", "channels:read", "search:read"],
-  scopeParam: { person: "user_scope", box: "scope" },
   params: { team: "T1" },
   secrets: { SLACK_TOKEN: ["authed_user.access_token", "access_token"] },
 };
@@ -75,13 +74,8 @@ describe("the state", () => {
     expect(raw.split(".")).toHaveLength(2);
     const back = verifyState(raw, ada);
     expect(back.ok && back.state).toMatchObject({ ...ada, return: "https://acme.example.com/" });
-    expect(back.ok && back.state.for).toBeUndefined();
+    expect(back.ok && Object.keys(back.state).sort()).toEqual(["actor", "iat", "nonce", "provider", "return"]);
     expect(back.ok && back.state.nonce).toMatch(/^[\w-]{22}$/);
-  });
-
-  it("carries for=box", () => {
-    const back = verifyState(signState({ ...ada, for: "box", return: "https://acme.example.com/" }), ada);
-    expect(back.ok && back.state.for).toBe("box");
   });
 
   it("is new each time, from the same ask", () => {
@@ -160,19 +154,15 @@ describe("return", () => {
 });
 
 describe("what a connect asks for", () => {
-  const member = { role: "member" };
-  const admin = { role: "admin" };
-  const ask = (query: string, who = member) => readAsk(github(), who, new URLSearchParams(query));
+  const ask = (query: string) => readAsk(github(), new URLSearchParams(query));
 
   it("is the person's own, back home, with nothing asked", () => {
-    expect(ask("")).toEqual({ ok: true, ask: { back: "https://acme.example.com/", scopes: [], box: false, install: false } });
+    expect(ask("")).toEqual({ ok: true, ask: { back: "https://acme.example.com/", scopes: [], install: false } });
     expect(ask("return=/apps/x")).toMatchObject({ ok: true, ask: { back: "https://acme.example.com/apps/x" } });
   });
 
-  it("is the box's only for an admin", () => {
-    expect(ask("for=box")).toEqual({ ok: false, status: 403, message: "Only an admin connects for the box.", back: "https://acme.example.com/" });
-    expect(ask("for=box", admin)).toMatchObject({ ok: true, ask: { box: true } });
-    expect(ask("for=me", admin)).toMatchObject({ ok: false, status: 400 });
+  it("is always the person's own: a for=box from before the box token went is ignored", () => {
+    expect(ask("for=box&return=/apps/x")).toEqual(ask("return=/apps/x"));
   });
 
   it("comes back only to the box's own origins, and offers no way back otherwise", () => {
@@ -208,7 +198,7 @@ describe("scopes", () => {
 
 describe("where a connect starts", () => {
   it("is GitHub's authorize page, back to the box's own callback", () => {
-    const url = new URL(startUrl(github(), { state: "s.t", scopes: [], box: false, install: false }));
+    const url = new URL(startUrl(github(), { state: "s.t", scopes: [], install: false }));
     expect(url.origin + url.pathname).toBe("https://github.com/login/oauth/authorize");
     expect(Object.fromEntries(url.searchParams)).toEqual({
       response_type: "code",
@@ -220,26 +210,23 @@ describe("where a connect starts", () => {
 
   it("is GitHub's install page with install, carrying the state alone", () => {
     process.env.CONNECT_GITHUB_SLUG = "stadeum";
-    const url = new URL(startUrl(github(), { state: "s.t", scopes: [], box: true, install: true }));
+    const url = new URL(startUrl(github(), { state: "s.t", scopes: [], install: true }));
     expect(url.toString()).toBe("https://github.com/apps/stadeum/installations/new?state=s.t");
   });
 
   it("comes back through the bounce when the box has one", () => {
     process.env.STADEUM_SIGNIN_BOUNCE = "https://auth.example.com/";
     expect(redirectUri("github")).toBe("https://auth.example.com/api/connect/github/callback");
-    expect(new URL(startUrl(github(), { state: "acme.s.t", scopes: [], box: false, install: false })).searchParams.get("redirect_uri")).toBe(
+    expect(new URL(startUrl(github(), { state: "acme.s.t", scopes: [], install: false })).searchParams.get("redirect_uri")).toBe(
       "https://auth.example.com/api/connect/github/callback",
     );
   });
 
-  it("puts a provider's fixed extras on, and its scopes where it wants them for a person or the box", () => {
-    const person = new URL(startUrl(slackLike, { state: "s.t", scopes: ["chat:write", "search:read"], box: false, install: false }));
-    expect(person.searchParams.get("user_scope")).toBe("chat:write search:read");
-    expect(person.searchParams.get("scope")).toBeNull();
-    expect(person.searchParams.get("team")).toBe("T1");
-    const box = new URL(startUrl(slackLike, { state: "s.t", scopes: ["chat:write"], box: true, install: false }));
-    expect(box.searchParams.get("scope")).toBe("chat:write");
-    expect(box.searchParams.get("redirect_uri")).toBe("https://acme.example.com/api/connect/slack/callback");
+  it("puts a provider's fixed extras and the scopes asked for on", () => {
+    const url = new URL(startUrl(slackLike, { state: "s.t", scopes: ["chat:write", "search:read"], install: false }));
+    expect(url.searchParams.get("scope")).toBe("chat:write search:read");
+    expect(url.searchParams.get("team")).toBe("T1");
+    expect(url.searchParams.get("redirect_uri")).toBe("https://acme.example.com/api/connect/slack/callback");
   });
 });
 
