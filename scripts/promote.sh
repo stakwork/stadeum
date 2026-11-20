@@ -188,6 +188,11 @@ if [ -z "$run" ]; then
   exit 0
 fi
 echo "promoting: https://github.com/$repo/actions/runs/$run"
+# A run just dispatched can answer 404 for a few seconds: wait until it shows.
+for _ in $(seq 30); do
+  gh run view "$run" -R "$repo" --json status > /dev/null 2>&1 && break
+  sleep 2
+done
 if ! gh run watch "$run" -R "$repo" --exit-status --compact; then
   echo "the promote failed: https://github.com/$repo/actions/runs/$run" >&2
   exit 1
