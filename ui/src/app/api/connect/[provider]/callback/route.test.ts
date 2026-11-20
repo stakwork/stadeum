@@ -7,7 +7,7 @@ import { startFakeStack, type FakeStack } from "@/test/fake-stack";
 const who = vi.hoisted(() => ({ user: null as null | { actor: string; role: string } }));
 vi.mock("@/lib/session", () => ({ currentUser: async () => who.user }));
 
-const { GET: start } = await import("../route");
+const { POST: start } = await import("../route");
 const { GET: callback } = await import("./route");
 
 let fake: FakeStack;
@@ -44,10 +44,10 @@ afterEach(() => {
 
 const unescape = (s: string) => s.replace(/&#(\d+);/g, (_, n: string) => String.fromCharCode(Number(n)));
 
-/** The start route, then the person clicks the fake GitHub's button: where GitHub sends the browser back. */
+/** The confirm page's Continue, then the person clicks the fake GitHub's button: where GitHub sends the browser back. */
 async function authorize(query: string, button: "go" | "cancel" = "go"): Promise<URL> {
-  const started = await start(new NextRequest(`${BOX}/api/connect/github${query}`), { params });
-  expect(started.status).toBe(302);
+  const started = await start(new NextRequest(`${BOX}/api/connect/github${query}`, { method: "POST", headers: { origin: BOX } }), { params });
+  expect(started.status).toBe(303);
   const page = await (await fetch(started.headers.get("location")!)).text();
   const links = [...page.matchAll(/<a (class="go" )?href="([^"]+)"/g)].map((m) => unescape(m[2]!));
   return new URL(button === "go" ? links[0]! : links[1]!);

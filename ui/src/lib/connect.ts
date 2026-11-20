@@ -1,6 +1,7 @@
 import { createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { env } from "@/lib/env";
+import { isAdmin } from "@/lib/roles";
 import { bounce, label, unlabel } from "@/lib/signin-bounce";
 import { pushActorSecret, putDeploymentSetting } from "@/lib/strut/client";
 
@@ -11,16 +12,22 @@ import { pushActorSecret, putDeploymentSetting } from "@/lib/strut/client";
  * Trading the code needs the provider's client secret, which only stadeum-ui
  * holds, so this is stadeum's; everything else is a package's.
  *
- * Two routes, one path for every provider: `GET /api/connect/:provider`
- * signs a state and sends the person to the provider, and its `/callback`
- * checks the state, trades the code and writes the tokens to strut. The
- * seam keeps nothing and logs no code or token.
+ * One path for every provider. `GET /api/connect/:provider` shows the
+ * person a page on the box (`/connect/:provider`) saying what they are about
+ * to connect, and for whom; its Continue posts back to `/api/connect/:provider`
+ * from the box's own origin, which signs a state and sends them to the
+ * provider. A connect is always a person's click on the box's own page,
+ * never a link they followed: the provider may skip its own consent page.
+ * The `/callback` checks the state, trades the code and writes the tokens to
+ * strut. The seam keeps nothing and logs no code or token.
  *
  * The table below is the only place that names a provider.
  */
 
 /** One provider: data, read from .env when used. */
 export interface Provider {
+  /** Its name, as the confirm page says it. */
+  name: string;
   /** The provider's address, from .env: the URLs below are paths under it. */
   base?: string;
   /** The authorize URL. */
@@ -56,6 +63,7 @@ const PROVIDERS: Record<string, () => Provider> = {
   github: () => {
     const slug = env.connect("github", "SLUG");
     return {
+      name: "GitHub",
       base: env.connect("github", "URL") ?? "https://github.com",
       authorize: "/login/oauth/authorize",
       ...(slug ? { install: `/apps/${encodeURIComponent(slug)}/installations/new` } : {}),
@@ -76,6 +84,11 @@ export function connectable(id: string): Connectable | undefined {
 }
 
 const at = (p: Provider, url: string) => (p.base ? `${p.base.replace(/\/+$/, "")}${url}` : url);
+
+/** The box's own origin, stadeum's: the only one a connect's Continue may come from. */
+export function fromTheBox(origin: string | null): boolean {
+  return !!origin && origin === new URL(env.publicUrl()).origin;
+}
 
 /** Where the provider sends the person back: the bounce's callback when the box has one, else its own. */
 export function redirectUri(id: string): string {
@@ -111,8 +124,40 @@ export function askedScopes(p: Provider, raw: string | null): string[] | null {
   return asked.every((s) => p.scopes.includes(s)) ? asked : null;
 }
 
-/** Where the start route sends the person: the provider's install page, or its authorize page. */
-export function startUrl(p: Connectable, ask: { state: string; scopes: string[]; box: boolean; install: boolean }): string {
+/** What a connect asks for, checked: where it comes back to, its scopes, whether it is the box's, whether it installs. */
+export interface Ask {
+  back: string;
+  scopes: string[];
+  box: boolean;
+  install: boolean;
+}
+
+export type AskCheck = { ok: true; ask: Ask } | { ok: false; status: number; message: string; back?: string };
+
+/**
+ * `return`, `scope`, `install=1` and `for=box`, as the confirm page and its
+ * Continue read them alike: `return` on the box's own origins, each scope one
+ * the provider lists, an install page only if it has one, the box's only for
+ * an admin.
+ */
+export function readAsk(p: Connectable, who: { role: string }, q: URLSearchParams): AskCheck {
+  const back = safeReturn(q.get("return"));
+  if (!back) return { ok: false, status: 400, message: "The page to come back to is not on this box." };
+  const forBox = q.get("for");
+  if (forBox !== null && forBox !== "box") return { ok: false, status: 400, message: "for can only be box.", back };
+  if (forBox && !isAdmin(who.role)) return { ok: false, status: 403, message: "Only an admin connects for the box.", back };
+  const scopes = askedScopes(p, q.get("scope"));
+  if (!scopes) {
+    const message = p.scopes.length ? `A scope asked for is not one of ${p.scopes.join(", ")}.` : `${p.name} takes no scope here.`;
+    return { ok: false, status: 400, message, back };
+  }
+  const install = q.get("install") === "1";
+  if (install && !p.install) return { ok: false, status: 400, message: `${p.name} has no install page here.`, back };
+  return { ok: true, ask: { back, scopes, box: !!forBox, install } };
+}
+
+/** Where Continue sends the person: the provider's install page, or its authorize page. */
+export function startUrl(p: Connectable, ask: Pick<Ask, "scopes" | "box" | "install"> & { state: string }): string {
   if (ask.install) {
     if (!p.install) throw new Error(`${p.id} has no install page`);
     const url = new URL(at(p, p.install));
@@ -273,7 +318,7 @@ export function refusal(status: number, message: string, back?: string): Respons
   );
 }
 
-/** A redirect that carries a state or ends a connect: never cached. */
-export function goTo(url: string): Response {
-  return new Response(null, { status: 302, headers: { location: url, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
+/** A redirect that carries a state or ends a connect: never cached. 303 after a POST. */
+export function goTo(url: string, status: 302 | 303 = 302): Response {
+  return new Response(null, { status, headers: { location: url, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
 }

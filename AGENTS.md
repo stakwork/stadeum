@@ -33,7 +33,8 @@ work on it. Read the rules before adding anything.
 
 2. **Stadeum never draws an app.** An app runs in strut's own host page,
    framed, signed in as the person. Stadeum's own pages are sign-in, the
-   person, Calls, the members and the admin pages. The list of apps comes
+   person, Calls, the connect seam's confirm page, the members and the
+   admin pages. The list of apps comes
    from strut, never from a list in this repo.
    - **Admin-only apps** (`admin: true`, strut `specs/API.md` §14.14)
      sit among the org's admin pages, for an admin alone, framed and
@@ -211,7 +212,7 @@ order of the work, each step its own PR:
 | `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the brand, the frame's sign-in ticket, a call's room |
 | `ui/src/app/(app)/apps/` | A strut app framed for the person (`strut-frame.tsx`) and its one-use ticket (`open.ts`); the assistant's frame is the `(app)` layout's (`home-frame.tsx`), kept open across stadeum's pages. `ui/src/app/(app)/earnings/` frames strut's Earnings the same way, for an admin |
 | `ui/src/components/call.tsx`, `ui/src/lib/call*.ts` | A call: held by the `(app)` layout, its key and its checks, its LiveKit room (loaded only on a call), its transcript and artifacts; `ui/src/app/api/calls/` hands it to strut, `ui/src/app/(app)/calls/` draws it |
-| `ui/src/lib/connect.ts`, `ui/src/app/api/connect/` | The connect seam: the provider table (GitHub's entry), the signed state, and its two routes, which send a person to the provider and trade the code it sends back for tokens written to strut |
+| `ui/src/lib/connect.ts`, `ui/src/app/api/connect/`, `ui/src/app/connect/` | The connect seam: the provider table (GitHub's entry), the signed state, the confirm page whose Continue sends a person to the provider, and the callback that trades the code it sends back for tokens written to strut |
 | `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
 | `ui/src/lib/models/` | The Models page's work: each provider's key in the gateway, the org's model list and default, carried to every person's virtual key and to strut |
 | `ui/src/app/(app)/packages/`, `ui/src/lib/packages.ts` | The Packages page: strut's packages installed, searched, installed and uninstalled, their missing secrets set, the indexes followed, and the store's Install link (`?install=`) read |

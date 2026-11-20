@@ -1,6 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { askedScopes, connectable, pickSecrets, redirectUri, safeReturn, signState, startUrl, STATE_TTL_MS, verifyState, type Connectable } from "./connect";
+import {
+  askedScopes,
+  connectable,
+  fromTheBox,
+  pickSecrets,
+  readAsk,
+  redirectUri,
+  safeReturn,
+  signState,
+  startUrl,
+  STATE_TTL_MS,
+  verifyState,
+  type Connectable,
+} from "./connect";
 
 const saved = { ...process.env };
 const ada = { provider: "github", actor: "ada-c1" };
@@ -22,6 +35,7 @@ const github = () => connectable("github")!;
 /** A provider shaped like Slack's (plans/software.md §2.1), to show the table's other fields at work. */
 const slackLike: Connectable = {
   id: "slack",
+  name: "Slack",
   clientId: "s-client",
   clientSecret: "s-secret",
   authorize: "https://slack.example/oauth/v2/authorize",
@@ -141,6 +155,43 @@ describe("return", () => {
       `/${"x".repeat(2000)}`,
     ]) {
       expect(safeReturn(raw), raw).toBeNull();
+    }
+  });
+});
+
+describe("what a connect asks for", () => {
+  const member = { role: "member" };
+  const admin = { role: "admin" };
+  const ask = (query: string, who = member) => readAsk(github(), who, new URLSearchParams(query));
+
+  it("is the person's own, back home, with nothing asked", () => {
+    expect(ask("")).toEqual({ ok: true, ask: { back: "https://acme.example.com/", scopes: [], box: false, install: false } });
+    expect(ask("return=/apps/x")).toMatchObject({ ok: true, ask: { back: "https://acme.example.com/apps/x" } });
+  });
+
+  it("is the box's only for an admin", () => {
+    expect(ask("for=box")).toEqual({ ok: false, status: 403, message: "Only an admin connects for the box.", back: "https://acme.example.com/" });
+    expect(ask("for=box", admin)).toMatchObject({ ok: true, ask: { box: true } });
+    expect(ask("for=me", admin)).toMatchObject({ ok: false, status: 400 });
+  });
+
+  it("comes back only to the box's own origins, and offers no way back otherwise", () => {
+    expect(ask("return=https%3A%2F%2Fevil.example%2F")).toEqual({ ok: false, status: 400, message: "The page to come back to is not on this box." });
+  });
+
+  it("asks for no scope GitHub doesn't list, and installs only with an install page", () => {
+    expect(ask("scope=repo")).toMatchObject({ ok: false, status: 400, message: "GitHub takes no scope here." });
+    expect(ask("install=1")).toMatchObject({ ok: false, status: 400, message: "GitHub has no install page here." });
+    process.env.CONNECT_GITHUB_SLUG = "stadeum";
+    expect(ask("install=1")).toMatchObject({ ok: true, ask: { install: true } });
+  });
+});
+
+describe("Continue's origin", () => {
+  it("is stadeum's own, never strut's, another box's, another site's or none", () => {
+    expect(fromTheBox("https://acme.example.com")).toBe(true);
+    for (const origin of ["https://strut.acme.example.com", "https://other.example.com", "https://evil.example", "http://acme.example.com", "null", "", null]) {
+      expect(fromTheBox(origin), String(origin)).toBe(false);
     }
   });
 });
