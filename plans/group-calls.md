@@ -10,9 +10,9 @@
 > **Revised the same day** after a check against the code: meeting mode's
 > captions are not covered by LiveKit's encryption, meet encrypts only
 > the media, the streaming recognizer finalizes only on silence it is fed,
-> and nothing downloaded the model (§3, §5). **One point needs Evan's
-> ruling:** a group call's turn is never an admin's, as a tribe's is not
-> (§7).
+> and nothing downloaded the model (§3, §5). **Ruled 2026-11-21 (Evan):**
+> a group call's turn may be an admin's, for now: it runs as 1:1 calls'
+> do, and an admin starting a job from a call is fine (§7).
 >
 > **Replaces** the first version (stakwork/stadeum#75), which heard and
 > spoke with Deepgram because group calls were not encrypted anyway. Evan
@@ -287,25 +287,14 @@ As Hive does it (hive#5699, the call ticket), and as tribes do (strut
 - The call's conversation is the host's, `host/voice/<call>`, like a
   tribe's (jamie-in-tribes decision 3), since several people speak in it.
 
-**Never an admin's (needs Evan's ruling).** Anyone who can read the chat
-can speak in the call, so a turn there is never an admin's, linked or not,
-as a tribe's is not (jamie-in-tribes ruling 8). A step only an admin
-accepts (`approver: "admin"`: installing a package) then proposes
-nothing, fails with `admin_required:`, and Jamie says an admin does that
-in the Jamie app. Without this, a turn launched with the deployment key
-leaves strut not knowing (`adminStanding` is undefined), and the step
-makes a card an admin may accept, from a request anyone in the call made.
-
-How strut knows: voice launches a group call's turns with
-`STRUT_VOICE_TOKEN`, the secret strut and voice already share, instead of
-the deployment key. Strut takes that token as host `voice`: it may name
-the person a turn runs as (`x-strut-actor`: the speaker's for an identity
-the service minted, else the starter's) and launch on `host/voice/…`, and
-nothing else; everything else voice asks
-of strut (audio, the gate, following a run) stays on the deployment key,
-as now. Its runs record `origin: "host"`, `host: "voice"`, which
-`personIsAdmin` already answers false for. 1:1 calls are unchanged: the
-person speaking is the one who started the call through strut.
+**A turn may be an admin's (ruled 2026-11-21, for now).** Voice launches
+a group call's turns as it launches 1:1 calls': the deployment key, with
+`x-strut-actor` naming the speaker for an identity the service minted,
+else the starter. The deployment key may launch on `host/voice/…`, as on
+any id. Strut does not know whether that person is an admin
+(`adminStanding` is undefined), so what they may do runs, a job included,
+and a step only an admin accepts (`approver: "admin"`) makes a card an
+admin may accept. Evan: an admin starting a job from a call is fine.
 
 ## 8. Stadeum
 
@@ -318,8 +307,8 @@ call, or an encrypted group call it is asked into").
 
 | # | Repo | What | Needs |
 |---|---|---|---|
-| 1 | sphinx-voice | `CallBackend` with its four calls; strut's backend (requests kept for history, no transcript); the streaming STT plugin over `/audio/stream`, padding silence after speech; captions on `lk.transcription`; `StrutTTS` without DTX or RED, and the gate through strut in meeting mode; a group session in the 1:1 process, joined on request with the call's key; the model loaded at start and `GET /calls` `{ group, livekit }`; `box_` identities on the ticket, recorded for the call; group turns with `STRUT_VOICE_TOKEN` (§3, §4, §5, §7); `scripts/e2ee-call.ts` with a meet browser in the room | 4 for the meet check |
-| 2 | strut | `GET /voice/calls` and `POST /voice/calls/ticket`, forwarded to the service as `POST /voice/calls` is; `STRUT_VOICE_TOKEN` taken as host `voice`: names the person, launches only on `host/voice/…`, runs `origin: "host"` (§7) | 1 for an end-to-end test |
+| 1 | sphinx-voice | `CallBackend` with its four calls; strut's backend (requests kept for history, no transcript); the streaming STT plugin over `/audio/stream`, padding silence after speech; captions on `lk.transcription`; `StrutTTS` without DTX or RED, and the gate through strut in meeting mode; a group session in the 1:1 process, joined on request with the call's key; the model loaded at start and `GET /calls` `{ group, livekit }`; `box_` identities on the ticket, recorded for the call; group turns on `host/voice/<call>` as the speaker or the starter (§3, §4, §5, §7); `scripts/e2ee-call.ts` with a meet browser in the room | 4 for the meet check |
+| 2 | strut | `GET /voice/calls` and `POST /voice/calls/ticket`, forwarded to the service as `POST /voice/calls` is (§5, §7) | 1 for an end-to-end test |
 | 3 | peel, peel-android | Boxes in the call menu (`group` and the call server's `livekit` only); the key in the link; `CallLink` with a fragment; group calls joined with the key; the box's ticket for the person's own join | 2 |
 | 4 | meet | `livekit-client` new enough for data encryption; the room page joined with `encryption`, not `e2ee`; captions from `lk.transcription` text streams (§2, §3) | — |
 | 5 | stadeum | Docs only (§8), with the release that carries 1 and 2 | 1, 2 |
@@ -341,6 +330,8 @@ call, or an encrypted group call it is asked into").
 - **A `flush` message on `/audio/stream`** that ends a phrase without
   closing the stream. Padding silence from voice does the same with no new
   protocol (§3).
-- **Group turns with the deployment key and `x-strut-actor`,** as 1:1
-  calls launch. Strut cannot tell them from a person's own, so an
-  admin-only step asks an admin on behalf of whoever spoke (§7).
+- **A group call's turn never an admin's,** as a tribe's is not
+  (jamie-in-tribes ruling 8): voice would launch group turns with
+  `STRUT_VOICE_TOKEN`, taken by strut as host `voice`, so their runs were
+  `origin: "host"`. Not for now (Evan, 2026-11-21): an admin starting a
+  job from a call is fine (§7).
