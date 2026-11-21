@@ -17,9 +17,12 @@
  * (a made-up key), listing openlaw/legal-desk: the store's Install link it
  * prints opens the Packages page on following it. A package install takes
  * FAKE_INSTALL_MS (default 8000) and walks strut's phases meanwhile, so the
- * page's progress can be seen. From a repository, it reads two: stadeum/code's
+ * page's progress can be seen. From a repository, it reads stadeum/code's
  * (public) and acme/tools's (private, so read only once the admin connects
- * the fake GitHub; its package then waits for ACME_API_KEY).
+ * the fake GitHub; its package then waits for ACME_API_KEY). The Software
+ * card's bundle is there too, as stakwork/strut-software is to hold it
+ * (made up: the real one does not exist yet): three parts on `stable`,
+ * one of which waits for PODS_URL and PODS_TOKEN.
  *
  * A fake GitHub App answers the connect seam (`/api/connect/github`): it
  * prints the CONNECT_GITHUB_* lines for ui/.env. Its one callback URL is
@@ -27,7 +30,7 @@
  * to a bounce's to see the bounce's redirect URI accepted.
  */
 import { DEV_LIVEKIT, FAKE_GITHUB_APP, startFakeStack } from "../src/test/fake-stack";
-import { ACME_TOOLS_REPO, STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL, STRUT_CODE_REPO } from "../src/test/strut-packages";
+import { ACME_TOOLS_REPO, STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL, STRUT_CODE_REPO, STRUT_SOFTWARE_REPO } from "../src/test/strut-packages";
 
 const port = Number(process.env.FAKE_STACK_PORT ?? 4555);
 const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, FAKE_VOICE, FAKE_READY_AFTER, STRUT_VOICE_URL, STRUT_VOICE_TOKEN, FAKE_GITHUB_CALLBACK_URL } = process.env;
@@ -52,7 +55,7 @@ console.log(`fake stack on ${fake.base}  (bifrost ${fake.bifrostUrl}, strut ${fa
 console.log(
   `the store's Install link: /packages?install=openlaw/legal-desk&index=${STAKWORK_INDEX_KEY}&index_url=${encodeURIComponent(STAKWORK_INDEX_URL)}`,
 );
-console.log(`from a repository: git+${STRUT_CODE_REPO}@main (public), git+${ACME_TOOLS_REPO}#package (private)`);
+console.log(`from a repository: git+${STRUT_CODE_REPO}@main (public), git+${ACME_TOOLS_REPO}#package (private); Software: git+${STRUT_SOFTWARE_REPO}@stable (a bundle)`);
 console.log(`calls: ${STRUT_VOICE_URL ? `handed to ${STRUT_VOICE_URL}` : `tokens for ${livekit.url}`}${FAKE_VOICE ? `, FAKE_VOICE=${FAKE_VOICE}` : ""}`);
 const app = fake.state.github.app;
 console.log(

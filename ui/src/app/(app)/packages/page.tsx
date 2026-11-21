@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
 import { connectOffers } from "@/lib/connect";
 import { namesOf } from "@/lib/members";
-import { followedIdOf, followedOf, installWatch, parseInstallLink, secretsNeeded } from "@/lib/packages";
+import { followedActors, followedIdOf, followedOf, installWatch, parseInstallLink, secretsNeeded } from "@/lib/packages";
 import { requireAdmin } from "@/lib/session";
 import { listDeploymentSecretNames, listPackageIndexes, listPackageInstalls, listPackages, listPackageSubscriptions, searchPackages } from "@/lib/strut/client";
 import { PackagesView } from "./view";
@@ -19,9 +19,10 @@ const warn = (what: string) => (err: unknown) => {
 /**
  * Strut's packages on this box, for an admin: the installs going on (any
  * door's: this page, a proposal someone accepted, the boot list, the
- * distro), what is installed and the keys it still needs, a package from a
- * repository and the repositories the box follows, a search over the
- * indexes the box follows, and those indexes. The store's Install link lands here
+ * distro), what is installed and the keys it still needs, the Software
+ * card, a package from a repository and what the box follows (a bundle
+ * with its parts), a search over the indexes the box follows, and those
+ * indexes. The store's Install link lands here
  * (`?install=<publisher/name>&index=<key>&index_url=<url>`): it opens the
  * package's confirmation, after following its index when the box does not
  * yet, and nothing installs until the admin says so. Strut keeps all of it.
@@ -38,8 +39,8 @@ export default async function PackagesPage({ searchParams }: { searchParams: Pro
     listPackageSubscriptions().catch(warn("GET /packages/subscriptions")),
   ]);
   const set = secretNames ? new Set(secretNames) : null;
-  const followed = subscriptions ? followedOf(subscriptions, await namesOf(subscriptions.map((s) => s.actor)), me.actor) : null;
-  // A followed repository's install shows in its own row under Followed, not under Installing.
+  const followed = subscriptions ? followedOf(subscriptions, await namesOf(followedActors(subscriptions)), me.actor) : null;
+  // A followed repository's install (a bundle's part's too) shows in its own row under Followed, not under Installing.
   const running = (installs ?? []).filter((i) => i.finishedAt === undefined);
   const reading = running.map((i) => followedIdOf(i.ref)).filter((id): id is string => !!id);
 

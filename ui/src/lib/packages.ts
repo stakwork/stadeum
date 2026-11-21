@@ -397,17 +397,27 @@ export function subscriptionIdOf(r: Pick<RepositoryRef, "source">): string {
   return `${name || "repo"}-${fnv1a(r.source)}`;
 }
 
-/** Something the box follows, as the page shows it: strut's record, and the person it is (none: nobody's). */
-export type Followed = PackageSubscription & { whose?: string; mine: boolean };
+/** Something the box follows, as the page shows it: strut's record, and the person it is (none: nobody's); a bundle's parts the same. */
+export type Followed = Omit<PackageSubscription, "parts"> & { whose?: string; mine: boolean; parts?: Followed[] };
 
 /** Where it comes from: a branch's ref, or a catalog's address and channel. */
 export const followedFrom = (f: Pick<PackageSubscription, "id" | "ref" | "url" | "channel">) =>
   f.ref ?? (f.url ? `${hostOf(f.url)}${f.channel ? `, channel ${f.channel}` : ""}` : f.id);
 
-/** How it stands, as a dot and a word: its last read failed, a package of it waits for keys, it hasn't been read, or it's at the newest release. */
-export function followedState(f: Pick<PackageSubscription, "checkedAt" | "error" | "waiting">): { tone: "ok" | "attention" | "pending"; label: string } {
+/**
+ * How it stands, as a dot and a word: its last read failed (a bundle's
+ * own, or one of its parts'), a package of it waits for keys, another
+ * subscription holds one of its packages, it hasn't been read, or it's
+ * at the newest release.
+ */
+export function followedState(f: Pick<PackageSubscription, "checkedAt" | "error" | "waiting" | "held"> & { parts?: ReadonlyArray<Pick<PackageSubscription, "error">> }): {
+  tone: "ok" | "attention" | "pending";
+  label: string;
+} {
   if (f.error) return { tone: "attention", label: "Last check failed" };
+  if (f.parts?.some((p) => p.error)) return { tone: "attention", label: "A part’s last check failed" };
   if (f.waiting) return { tone: "attention", label: "Waiting for keys" };
+  if (f.held) return { tone: "attention", label: "Held by another" };
   if (!f.checkedAt) return { tone: "pending", label: "Not read yet" };
   return { tone: "ok", label: "Up to date" };
 }
@@ -422,7 +432,9 @@ export interface ConnectOffer {
 /**
  * When strut could not read a repository, the account to connect: the
  * seam's provider for the secret strut reads it with (a subscription's
- * `tokenSecret`), or one its words name. Nothing for any other refusal.
+ * `tokenSecret`, the one that serves the repository's host), or one strut's
+ * words name ("set the secret GITHUB_TOKEN …"). Nothing for any other
+ * refusal, nor for a host no secret serves: no account would be read.
  */
 export function connectFor(code: string | undefined, words: string, providers: readonly ConnectOffer[], tokenSecret?: string): ConnectOffer | undefined {
   if (code !== "package_repo_denied") return undefined;
@@ -436,12 +448,81 @@ export const connectHref = (p: Pick<ConnectOffer, "id">) => `/api/connect/${enco
 /** A subscription's id, as strut takes it (`peerIdProblem`). */
 export const SUBSCRIPTION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-/** Strut's subscriptions as the page shows them: each with whose it is, by name, and whether it is this admin's. */
+/** Strut's subscriptions as the page shows them: each with whose it is, by name, and whether it is this admin's; a bundle's parts the same. */
 export const followedOf = (subs: readonly PackageSubscription[], names: ReadonlyMap<string, string>, me: string): Followed[] =>
-  subs.map((s) => ({ ...s, ...(s.actor ? { whose: names.get(s.actor) ?? s.actor } : {}), mine: !!s.actor && s.actor === me }));
+  subs.map(({ parts, ...s }) => ({
+    ...s,
+    ...(s.actor ? { whose: names.get(s.actor) ?? s.actor } : {}),
+    mine: !!s.actor && s.actor === me,
+    ...(parts ? { parts: followedOf(parts, names, me) } : {}),
+  }));
 
-/** What strut files a subscription's installs, and the packages they wrote, under: `subscription:<id>`. */
-export const subscriptionInstallRef = (id: string) => `subscription:${id}`;
+/** Everyone whose something the box follows is, a bundle's parts' included: the names `followedOf` needs. */
+export const followedActors = (subs: readonly PackageSubscription[]): Array<string | undefined> => subs.flatMap((s) => [s.actor, ...followedActors(s.parts ?? [])]);
 
-/** The subscription an install or an installed package's source belongs to, if one does. */
-export const followedIdOf = (ref: string | undefined): string | undefined => (ref?.startsWith("subscription:") ? ref.slice("subscription:".length) : undefined);
+/**
+ * What a `subscription:<id>` source names (strut files a subscription's
+ * installs, and the packages they wrote, under it): the subscription, and
+ * when it is a bundle's part (`subscription:<id>/<part>`), that part's id.
+ * A subscription's own id has no `/`.
+ */
+export function followedSourceOf(ref: string | undefined): { id: string; part?: string } | undefined {
+  if (!ref?.startsWith("subscription:")) return undefined;
+  const full = ref.slice("subscription:".length);
+  const id = full.split("/")[0]!;
+  return full === id ? { id } : { id, part: full };
+}
+
+/** The subscription an install or an installed package's source belongs to, if one does: a bundle's, for one of its parts. */
+export const followedIdOf = (ref: string | undefined): string | undefined => followedSourceOf(ref)?.id;
+
+/** What the box follows that a `subscription:<id>` source names: the subscription, and its part when a bundle's part holds it. */
+export function followedBySource<T extends { id: string; parts?: T[] }>(subs: readonly T[], ref: string | undefined): { sub: T; part?: T } | undefined {
+  const at = followedSourceOf(ref);
+  const sub = at && subs.find((s) => s.id === at.id);
+  if (!sub) return undefined;
+  const part = at.part ? sub.parts?.find((p) => p.id === at.part) : undefined;
+  return part ? { sub, part } : { sub };
+}
+
+/**
+ * What the box follows from the same place as `ref`, on any branch: a
+ * subscription to it, or a bundle's part (`part`, with the bundle as
+ * `sub`). Nothing for a ref that isn't a repository's.
+ */
+export function followingFrom<T extends { ref?: string; parts?: T[] }>(subs: readonly T[], ref: string): { sub: T; part?: T } | undefined {
+  const source = sourceOf(ref);
+  if (!source) return undefined;
+  // A subscription of its own first: a bundle's part from the same place is held by it.
+  const own = subs.find((s) => sourceOf(s.ref) === source);
+  if (own) return { sub: own };
+  for (const sub of subs) {
+    const part = sub.parts?.find((p) => sourceOf(p.ref) === source);
+    if (part) return { sub, part };
+  }
+  return undefined;
+}
+
+/** Where a ref's package is, the same for every branch (`RepositoryRef.source`). */
+function sourceOf(ref: string | undefined): string | undefined {
+  const r = ref ? parseRepositoryRef(ref) : undefined;
+  return r && !("error" in r) ? r.source : undefined;
+}
+
+// ── the Software card ───────────────────────────────────────────────────
+
+/**
+ * The bundle the Software card follows (`plans/software.md` §4): one
+ * subscription to its repository, through From a repository's path. What
+ * it brings is its `strut.yaml`'s to say, never stadeum's.
+ */
+export const SOFTWARE_REF = "git+https://github.com/stakwork/strut-software@stable";
+
+/** What the Software card says the bundle does. */
+export const SOFTWARE_WORDS = "Your repositories, known to the box and in its graph, and a machine of its own for every coding job.";
+
+/** Software as the box follows it: the subscription to its repository (on any branch, anyone's), or none. */
+export function softwareOf<T extends { ref?: string; parts?: T[] }>(followed: readonly T[]): T | undefined {
+  const f = followingFrom(followed, SOFTWARE_REF);
+  return f && !f.part ? f.sub : undefined;
+}

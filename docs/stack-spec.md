@@ -614,34 +614,61 @@ checked".
   `x-strut-actor`, never a person in the body. That admin is then the
   subscription's person (strut `specs/API.md` §16, "Whose a subscription
   is"): what it installs is theirs, its schedules run as them, and a
-  private repository is read with their own token alone. The id is the
-  repository's name and a hash of where the package is (host, path,
+  private repository is read with their own token for its host alone
+  (strut's `github.com` → `GITHUB_TOKEN`, "Git credentials by host"; the
+  request names no secret, and strut refuses a `tokenSecret`). The id is
+  the repository's name and a hash of where the package is (host, path,
   folder), and a subscription already following that package (on any
   branch, made by anyone) is reused, so following it again moves it to
-  this branch and makes it this admin's. Strut answers at once and reads
-  the branch behind the answer; the row under **Followed** reads `GET
-  /packages/subscriptions` and the install strut files under
-  `subscription:<id>` every second until the read is done. Off, it is one
+  this branch and makes it this admin's. A package a followed bundle
+  lists is refused: strut would leave it to the bundle's part (`held`),
+  so a second subscription would do nothing. Strut answers at once and
+  reads the branch behind the answer; the row under **Followed** reads
+  `GET /packages/subscriptions` and the install strut files under
+  `subscription:<id>` (a bundle's part's under `subscription:<id>/<part>`)
+  every second until the read is done. Off, it is one
   install, `POST /packages/install { ref, wait: false }` as the admin,
   followed as any install is (a tag or a commit after @ is fine there; a
   commit is refused for following, as strut refuses it). Followed lists
   every subscription strut has: where it comes from, whose it is, when it
   was last checked, the commit and the packages it is at, the keys a
   package waits for (each settable there; setting one reads it again at
-  once) and the last error. A followed repository's install shows in its
-  row, not under Installing, and Installed says "Kept up to date from"
-  it. **Check now** is `POST /packages/subscriptions/:id/sync`, which
-  strut answers once the read is done: the action starts it and the row
-  follows it, so the page never waits on it. **Stop following** is
-  `DELETE /packages/subscriptions/:id?uninstall=1`, which uninstalls what
-  it brought (what people edited here is kept), and the page says so
-  first: strut installed it through the distro's door, which alone
-  updates and removes it, so left behind it would be a package nothing
-  updates and no admin can uninstall here. When strut can't read a
-  private repository (`package_repo_denied`), the row shows strut's
-  words, and for the admin whose subscription it is, **Connect** for the
-  connect seam's provider whose secret strut named (`connectOffers`,
-  `ui/src/lib/connect.ts`): the Packages page names no forge.
+  once), a package another subscription holds (`held`: left to it, and
+  that row named) and the last error. A bundle (strut `specs/API.md` §16,
+  "Bundles") is one row: its name and version (`applied.bundle`), whose
+  it is, and beneath it each of its `parts` as strut reports it, drawn as
+  a followed repository is: where it comes from, the commit and packages
+  it is at, the keys it waits for, what another subscription holds, its
+  last error. The part strut is installing says so. The page knows no
+  bundle's contents. A followed repository's install (a part's too)
+  shows in its row, not under Installing, and Installed says "Kept up to
+  date from" it, and for a part, of which bundle. **Check now** is `POST
+  /packages/subscriptions/:id/sync`, which strut answers once the read is
+  done (a bundle's, once every part is read): the action starts it and
+  the row follows it, so the page never waits on it. **Stop following**
+  is `DELETE /packages/subscriptions/:id?uninstall=1`, which uninstalls
+  what it brought (a bundle's: every part's; what people edited here is
+  kept), and the page says so first: strut installed it through the
+  distro's door, which alone updates and removes it, so left behind it
+  would be a package nothing updates and no admin can uninstall here.
+  When strut can't read a private repository (`package_repo_denied`), the
+  row (or the part) shows strut's words, and for the admin whose
+  subscription it is, **Connect** for the connect seam's provider whose
+  secret serves the repository's host (`tokenSecret`, as strut reports
+  it, or the secret its words name; none for a host no secret serves)
+  (`connectOffers`, `ui/src/lib/connect.ts`): the Packages page names no
+  forge.
+- **The Software card** (the Packages page, admins; `plans/software.md`
+  §4). One sentence, and **Add Software**: From a repository's follow of
+  one constant ref, `SOFTWARE_REF` in `ui/src/lib/packages.ts`
+  (`git+https://github.com/stakwork/strut-software@stable`, the
+  `stadeum/software` bundle). That is one `PUT
+  /packages/subscriptions/<its id> { ref }` as the admin, who is then the
+  person of everything the bundle brings. Once the box follows that
+  repository (on any branch, by anyone), the card says it is on and
+  whose, and links to the bundle's row under Followed; **Remove
+  Software** opens that row's Stop following, with its warning. What the
+  bundle holds is its own `strut.yaml`'s: stadeum names none of it.
 - **The store's Install link.** The store (`https://index.stakwork.ai/?store=1`)
   opens `<the address a visitor saved>/?install=<publisher/name>&index=<z-base-32 key>&index_url=<its card>`,
   keeping the saved path: an admin who saves `https://<HOST>/packages`

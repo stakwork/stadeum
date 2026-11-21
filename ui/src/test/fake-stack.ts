@@ -14,8 +14,9 @@
  *               that walks strut's phases over `state.installMs`, read at
  *               /packages/installs[/:id] — uninstall, the indexes followed,
  *               over the indexes in `state.indexes`; `git+` installs and the
- *               subscriptions that follow a branch, over the repositories in
- *               `state.repos`), /voice/calls (strut
+ *               subscriptions that follow a branch or a bundle's parts,
+ *               over the repositories in `state.repos`, each read with the
+ *               token for its host), /voice/calls (strut
  *               specs/API.md): a call's answer carries a real LiveKit token
  *               for `livekit` (default `livekit-server --dev`), but no agent
  *               joins the room, unless the call is forwarded to a voice
@@ -29,7 +30,7 @@
  * Strut's own shape check and verifies the macaroon against the org key
  * the trust registry holds, like the real gateway would.
  */
-import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { decodeMacaroon, verify } from "gatekey";
@@ -37,8 +38,12 @@ import { decodeMacaroon, verify } from "gatekey";
 import { brandStyles } from "@/lib/brand";
 import type { StrutBrand } from "@/lib/strut/client";
 import { brandProblem, normalizeBrand } from "./strut-brand";
-import { fakeIndexes, fakeRepos, indexSubscriptionProblem, matches, type FakeIndex, type FakeRelease, type FakeRepo } from "./strut-packages";
+import { fakeIndexes, fakeRepos, indexSubscriptionProblem, matches, secretOfHost, type FakeIndex, type FakeRelease, type FakeRepo } from "./strut-packages";
 import { checkDelegationShape } from "./strut-shape";
+
+/** Strut's answer to a `tokenSecret` in a request (`src/packages/git-source.ts`, gone 2026-11-20). */
+const TOKEN_SECRET_GONE =
+  "tokenSecret is gone: a git+ ref is read with the run's token for its host — the secret that serves the host (GITHUB_TOKEN for github.com; a package's provides.git for another), its person's own first";
 
 export interface FakeStackOptions {
   token?: string;
@@ -282,7 +287,7 @@ export interface FakeState {
   installed: Array<{ release: FakeRelease; door: "install" | "distro"; actor?: string; source?: { ref: string }; commit?: string; modified: string[] }>;
   /** The git repositories strut can read, by address: `git+` installs and subscriptions. */
   repos: Map<string, FakeRepo>;
-  /** `GET /packages/subscriptions`: each git branch strut follows, whose it is, and its last read. */
+  /** `GET /packages/subscriptions`: each git branch strut follows, whose it is, and its last read; a bundle's parts on it. */
   subscriptions: FakeSubscription[];
   /** Each `PUT /packages/subscriptions/:id` as it came: the actor beside the key, and the body. */
   subscriptionPuts: Array<{ id: string; actor?: string; body: unknown }>;
@@ -346,13 +351,22 @@ type FakePlan = ({ status: 201; result: unknown; error?: never } | { status: num
 export interface FakeSubscription {
   id: string;
   ref: string;
-  tokenSecret?: string;
   actor?: string;
-  applied?: { ref: string; commit: string; digest: string; at: string; packages: Array<{ package: string; version: string; digest: string }> };
+  applied?: {
+    ref: string;
+    commit: string;
+    digest: string;
+    at: string;
+    packages: Array<{ package: string; version: string; digest: string }>;
+    bundle?: { package: string; version: string; refs: string[] };
+  };
   checkedAt?: string;
   error?: string;
   waiting?: { secrets: string[] };
+  held?: Array<{ package: string; by: string }>;
   warnings: string[];
+  /** A bundle's: what each part's last read left (strut keeps a file each), never listed beside it. */
+  parts?: FakeSubscription[];
 }
 
 /** A fake install's record: when it started and how long it takes. */
@@ -912,9 +926,12 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
   function planInstall(ref: string, body: any, actor: string | undefined): FakePlan {
     const no = (status: number, error: string): FakePlan => ({ status, error, steps: [] });
     if (ref.startsWith("git+")) {
-      // A person's install reads the repository with their own token, then the deployment's (strut's `forPrincipal(actor).get`).
+      // A person's install reads the repository with their own token for its host, then the deployment's (strut's `forPrincipal(actor).get`).
       const got = readRepo(ref, { token: (name) => (actor ? state.secrets.get(`${actor}/${name}`) : undefined) ?? state.deploymentSecrets.get(name) });
       if ("error" in got) return no(got.status, got.error);
+      if (got.release.bundle) {
+        return no(400, `package_is_bundle: ${got.release.package} is a bundle of ${got.release.bundle.length} package(s), followed by their branches, not installed — subscribe to its repository (PUT /packages/subscriptions/:id { ref }), or install a package it lists`);
+      }
       return planRelease(got.release, { ref, commit: got.commit }, actor, "install");
     }
     if (!/^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/.test(ref)) return no(400, `package_source_unsupported: the fake installs names and git+ refs only, not ${ref}`);
@@ -950,7 +967,8 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     if (door === "install" && here && here.release.digest !== release.digest) {
       return no(409, `package_update_not_built: ${ref} is installed here at ${here.release.digest}; updating it to ${release.digest} asks first, which is not built yet`);
     }
-    const same = here?.release.digest === release.digest;
+    // The distro's door takes a package nobody follows even at the same release: it is the subscription's from then on.
+    const same = here?.release.digest === release.digest && (door === "install" || here.source?.ref === from?.ref);
     const secrets = release.requires?.secrets ?? release.detail?.secrets ?? [];
     const kinds = (k: string) => release.items.filter((i) => i.kind === k && !i.helper).length;
     const concepts = Math.max(kinds("concept"), release.detail?.concepts ?? 0);
@@ -1127,6 +1145,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     if (path === "/packages/install" && m === "POST") {
       const ref = body?.ref;
       // What strut refuses before anything starts: a body that is not one.
+      if (body?.tokenSecret !== undefined) return send(res, 400, { error: TOKEN_SECRET_GONE });
       if (typeof ref !== "string" || !ref) return send(res, 400, { error: "ref is required" });
       if (body.digest !== undefined && !/^sha256:[0-9a-f]{64}$/.test(body.digest)) return send(res, 400, { error: "digest is sha256:<64 hex>" });
       if (body.wait !== undefined && typeof body.wait !== "boolean") return send(res, 400, { error: "wait is a boolean" });
@@ -1175,10 +1194,12 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
    * A `git+` ref read as strut reads it (`src/packages/git-source.ts`): the
    * repository by its address, the branch (or, outside a subscription, a
    * tag) after @, the package at the root or in the folder after #. A
-   * private repository is read only with a token; `token` is how this
-   * read finds one. Strut's refusals, word for word where it matters.
+   * private repository is read only with the token for its host (strut
+   * `src/git-hosts.ts`: the secret that serves it); `token` is how this
+   * read finds that secret's value. Strut's refusals, word for word where
+   * it matters.
    */
-  function readRepo(ref: string, opts: { token: (name: string) => string | undefined; tokenSecret?: string; branch?: boolean }):
+  function readRepo(ref: string, opts: { token: (name: string) => string | undefined; branch?: boolean }):
     | { release: FakeRelease; commit: string }
     | { status: number; error: string } {
     const m = /^git\+(https?:\/\/[^@#?]+?)\/*(?:@([^#]+))?(?:#(.+))?$/.exec(ref);
@@ -1186,9 +1207,15 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     const [, url, rev, folder] = m as unknown as [string, string, string | undefined, string | undefined];
     const repo = state.repos.get(url.toLowerCase().replace(/\.git$/, ""));
     if (!repo) return { status: 404, error: `package_repo_not_found: ${ref}: no repository at ${url}` };
-    const secret = opts.tokenSecret ?? "GITHUB_TOKEN";
-    if (repo.private && !opts.token(secret)) {
-      return { status: 403, error: `package_repo_denied: ${ref}: ${url} asked for credentials — the repository is private or does not exist; set the secret ${secret} to a token that can read it` };
+    const secret = secretOfHost(url);
+    if (repo.private && !(secret && opts.token(secret))) {
+      const host = new URL(url).host.toLowerCase();
+      return {
+        status: 403,
+        error: secret
+          ? `package_repo_denied: ${ref}: ${url} asked for credentials — the repository is private or does not exist; set the secret ${secret} to a token that can read it`
+          : `package_repo_denied: ${ref}: ${url} asked for credentials — the repository is private or does not exist, and no secret serves ${host} here: a package declares the one that does (provides.git in its strut.yaml)`,
+      };
     }
     const name = rev ?? repo.defaultBranch;
     const at = repo.refs[name];
@@ -1207,57 +1234,125 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     return { release: at.release, commit: at.commit };
   }
 
-  /** A subscription as `GET /packages/subscriptions` answers it: never a token, the packages it installed as the box has them. */
-  function subscriptionInfo(s: FakeSubscription) {
-    const { tokenSecret, ...rest } = s;
-    return {
-      ...rest,
-      tokenSecret: tokenSecret ?? "GITHUB_TOKEN",
-      packages: state.installed
-        .filter((p) => p.source?.ref === `subscription:${s.id}`)
-        .map((p) => ({
-          package: p.release.package,
-          version: p.release.version,
-          digest: p.release.digest,
-          diverged: p.modified,
-        })),
-    };
+  /** A bundle's part's id (strut `partIdOf`): the bundle's, a `/`, the repository's name and a hash of where the package is, the same at any branch. */
+  function partIdOf(bundle: string, ref: string): string {
+    const m = /^git\+https?:\/\/([^@#?]+?)\/*(?:@[^#]+)?(?:#(.+))?$/.exec(ref);
+    const path = (m?.[1] ?? ref).toLowerCase().replace(/\.git$/, "");
+    const name = path.split("/").pop()!.replace(/[^a-z0-9._-]+/g, "-");
+    return `${bundle}/${name}-${createHash("sha256").update(path + (m?.[2] ? `#${m[2]}` : "")).digest("hex").slice(0, 8)}`;
   }
+
+  /** Every subscription here, and every part of a bundle among them: who may hold a package (strut's `holders`). */
+  function holders(): Set<string> {
+    const out = new Set<string>();
+    for (const s of state.subscriptions) {
+      out.add(s.id);
+      for (const r of s.applied?.bundle?.refs ?? []) out.add(partIdOf(s.id, r));
+    }
+    return out;
+  }
+
+  /** A bundle's part as strut reads it: at the ref the bundle lists, and the bundle's person's (strut's `partOf`). */
+  function partAs(bundle: FakeSubscription, part: FakeSubscription, ref: string): FakeSubscription {
+    const out: FakeSubscription = { ...part, ref };
+    delete out.actor;
+    return bundle.actor ? { ...out, actor: bundle.actor } : out;
+  }
+
+  /** What strut files under `subscription:<id>`, and a bundle's parts' under `subscription:<id>/…`. */
+  const under = (id: string, p: { source?: { ref: string } }) => p.source?.ref === `subscription:${id}` || !!p.source?.ref.startsWith(`subscription:${id}/`);
+
+  /**
+   * A subscription as `GET /packages/subscriptions` answers it: never a
+   * token (a branch shows the secret that serves its host, when one does),
+   * the packages it installed as the box has them. A bundle's has its
+   * parts, each as a subscription to its ref alone reports, and their
+   * packages, waits and holds together.
+   */
+  function subscriptionInfo(s: FakeSubscription): any {
+    const { parts, ...rest } = s;
+    const secret = secretOfHost(s.ref.replace(/^git\+/, "").replace(/[@#].*$/, ""));
+    const base = { ...rest, ...(secret ? { tokenSecret: secret } : {}) };
+    const refs = s.applied?.bundle?.refs;
+    if (!refs) {
+      return {
+        ...base,
+        packages: state.installed
+          .filter((p) => p.source?.ref === `subscription:${s.id}`)
+          .map((p) => ({ package: p.release.package, version: p.release.version, digest: p.release.digest, diverged: p.modified })),
+      };
+    }
+    const infos = refs.map((ref) => {
+      const id = partIdOf(s.id, ref);
+      return subscriptionInfo(partAs(s, parts?.find((p) => p.id === id) ?? { id, ref, warnings: [] }, ref));
+    });
+    const secrets = [...new Set(infos.flatMap((p) => p.waiting?.secrets ?? []))].sort();
+    const held = infos.flatMap((p) => p.held ?? []);
+    return { ...base, packages: infos.flatMap((p) => p.packages), ...(secrets.length ? { waiting: { secrets } } : {}), ...(held.length ? { held } : {}), parts: infos };
+  }
+
+  /** The most pressing of several reads' statuses (strut's `pressing`). */
+  const pressing = (all: string[]) => {
+    const order = ["current", "applied", "held", "waiting", "error"];
+    return all.reduce((a, b) => (order.indexOf(b) > order.indexOf(a) ? b : a), "current");
+  };
 
   /**
    * One read of a subscription (strut `syncGit`): the branch read with its
-   * person's own token alone (nobody's: the deployment's), the secrets gate
+   * person's own token for its host alone (nobody's: the deployment's),
+   * then a package another subscription holds left to it, the secrets gate
    * on what its runs would read, then one install through the distro's
-   * door, as its person, walking strut's phases over `installMs`. Answers
-   * once it is done.
+   * door, as its person, walking strut's phases over `installMs`. A
+   * bundle's reads each part in turn (`syncBundle`). Answers once done.
    */
-  async function syncSubscription(s: FakeSubscription) {
+  async function syncSubscription(s: FakeSubscription): Promise<any> {
     const at = () => new Date().toISOString();
     const from = s.applied?.commit;
     const own = (name: string) => (s.actor ? state.secrets.get(`${s.actor}/${name}`) : state.deploymentSecrets.get(name));
-    const got = readRepo(s.ref, { token: own, ...(s.tokenSecret ? { tokenSecret: s.tokenSecret } : {}), branch: true });
+    const got = readRepo(s.ref, { token: own, branch: true });
+    const fail = (error: string, to?: string) => {
+      Object.assign(s, { error, checkedAt: at() });
+      return { id: s.id, status: "error", ...(from ? { from } : {}), ...(to ? { to } : {}), error };
+    };
     if ("error" in got) {
-      const name = s.tokenSecret ?? "GITHUB_TOKEN";
-      s.error =
-        s.actor && got.error.startsWith("package_repo_denied:")
-          ? `${got.error} — this subscription is ${s.actor}'s, and is read with their own ${name} alone (never the deployment's), which they have not set: they set it (PUT /actors/${encodeURIComponent(s.actor)}/secrets/${name}), or a person who has one makes the subscription again (PUT /packages/subscriptions/${encodeURIComponent(s.id)}) and it is theirs`
-          : got.error;
-      s.checkedAt = at();
-      return { id: s.id, status: "error", ...(from ? { from } : {}), error: s.error };
+      const name = secretOfHost(s.ref.replace(/^git\+/, "").replace(/[@#].*$/, ""));
+      return fail(
+        s.actor && name && got.error.startsWith("package_repo_denied:")
+          ? `${got.error} — this subscription is ${s.actor}'s, and is read with their own ${name} alone (never the deployment's), which they have not set: they set it (PUT /actors/${encodeURIComponent(s.actor)}/secrets/${name}), or a person who has one makes the subscription again (PUT /packages/subscriptions/${encodeURIComponent(s.id.split("/")[0]!)}) and it is theirs`
+          : got.error,
+      );
     }
     const { release, commit: to } = got;
+    if (release.bundle) {
+      if (s.id.includes("/")) return fail(`package_is_bundle: ${s.ref} holds the bundle ${release.package}, and a bundle lists packages, not bundles — list the packages it lists instead`, to);
+      return syncBundle(s, release, to);
+    }
+    const mine = state.installed.filter((p) => p.source?.ref === `subscription:${s.id}`);
+    // What its last read left stays until this one ends, as strut writes its state once done.
+    const left = () => {
+      delete s.error;
+      delete s.held;
+      delete s.waiting;
+    };
+    // One package, one subscription: one another subscription here holds is left to it.
+    const here = state.installed.find((p) => p.release.package === release.package);
+    const holder = here?.source?.ref.startsWith("subscription:") ? here.source.ref.slice("subscription:".length) : undefined;
+    if (holder && holder !== s.id && holders().has(holder)) {
+      left();
+      Object.assign(s, { held: [{ package: release.package, by: `subscription:${holder}` }], applied: { ref: s.ref, commit: to, digest: release.digest, at: at(), packages: [] }, checkedAt: at() });
+      return { id: s.id, status: "held", ...(from ? { from } : {}), to, held: s.held };
+    }
     const read = (name: string) => (s.actor ? state.secrets.get(`${s.actor}/${name}`) : undefined) ?? state.deploymentSecrets.get(name);
     const missing = (release.requires?.secrets ?? []).filter((n) => !read(n)).sort();
-    const mine = state.installed.filter((p) => p.source?.ref === `subscription:${s.id}`);
-    delete s.error;
     if (missing.length) {
       // It waits: nothing of it is installed, and what it installed before goes out.
       state.installed = state.installed.filter((p) => !mine.includes(p));
+      left();
       Object.assign(s, { waiting: { secrets: missing }, applied: { ref: s.ref, commit: to, digest: release.digest, at: at(), packages: [] }, checkedAt: at() });
       return { id: s.id, status: "waiting", ...(from ? { from } : {}), to, waiting: s.waiting };
     }
-    delete s.waiting;
     if (s.applied?.digest === release.digest && mine.some((p) => p.release.digest === release.digest)) {
+      left();
       Object.assign(s, { applied: { ...s.applied, commit: to }, checkedAt: at() });
       return { id: s.id, status: "current", ...(from ? { from } : {}), to };
     }
@@ -1267,10 +1362,8 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       const wait = () => (rec.ended ? resolve() : setTimeout(wait, 20).unref());
       wait();
     });
-    if (plan.status !== 201) {
-      Object.assign(s, { error: plan.error, checkedAt: at() });
-      return { id: s.id, status: "error", ...(from ? { from } : {}), to, error: plan.error };
-    }
+    if (plan.status !== 201) return fail(plan.error!, to);
+    left();
     Object.assign(s, {
       applied: { ref: s.ref, commit: to, digest: release.digest, at: at(), packages: [{ package: release.package, version: release.version, digest: release.digest }] },
       checkedAt: at(),
@@ -1280,10 +1373,62 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
   }
 
   /**
-   * `PUT /packages/subscriptions/:id { ref, tokenSecret? }` (the request's
-   * actor is its person; an `actor` in the body is refused), `POST …/sync`
-   * and `DELETE …[?uninstall=1]`, as strut answers them. The fake follows
-   * git branches only.
+   * A bundle's read (strut `syncBundle`): the list first, so its parts show
+   * while they are read; a part it no longer lists stops, and what it
+   * installed goes; then each part is read as a subscription to its ref
+   * alone, as the bundle's person, one after another. `checkedAt` moves once
+   * every part is read. Nothing of the bundle itself is installed.
+   */
+  async function syncBundle(s: FakeSubscription, release: FakeRelease, to: string) {
+    const from = s.applied?.commit;
+    const refs = release.bundle!;
+    const ids = refs.map((r) => partIdOf(s.id, r));
+    for (const old of s.parts ?? []) {
+      if (!ids.includes(old.id)) uninstallUnder(old.id);
+    }
+    const moved = s.applied?.digest !== release.digest;
+    delete s.error;
+    s.applied = moved
+      ? { ref: s.ref, commit: to, digest: release.digest, at: new Date().toISOString(), packages: [], bundle: { package: release.package, version: release.version, refs } }
+      : { ...s.applied!, commit: to };
+    s.parts = refs.map((ref, i) => partAs(s, s.parts?.find((p) => p.id === ids[i]) ?? { id: ids[i]!, ref, warnings: [] }, ref));
+    const outcomes = [];
+    for (const part of s.parts) outcomes.push(await syncSubscription(part));
+    s.checkedAt = new Date().toISOString();
+    const secrets = [...new Set(outcomes.flatMap((o) => o.waiting?.secrets ?? []))].sort();
+    const held = outcomes.flatMap((o) => o.held ?? []);
+    return {
+      id: s.id,
+      status: pressing([moved ? "applied" : "current", ...outcomes.map((o) => o.status)]),
+      ...(from ? { from } : {}),
+      to,
+      ...(secrets.length ? { waiting: { secrets } } : {}),
+      ...(held.length ? { held } : {}),
+      parts: outcomes,
+    };
+  }
+
+  /** Uninstall, through the distro's door, what a subscription (a bundle's parts with it) installed: the packages that went. Forks are kept. */
+  function uninstallUnder(id: string): string[] {
+    const uninstalled: string[] = [];
+    for (const p of state.installed.filter((p) => under(id, p))) {
+      uninstalled.push(p.release.package);
+      for (const app of p.release.detail?.apps ?? []) {
+        const name = `${p.release.package}/${app.name}`;
+        if (p.modified.includes(name)) continue;
+        state.apps = state.apps.filter((a) => a.name !== name);
+        state.appRecords.delete(name);
+      }
+    }
+    state.installed = state.installed.filter((p) => !uninstalled.includes(p.release.package));
+    return uninstalled;
+  }
+
+  /**
+   * `PUT /packages/subscriptions/:id { ref }` (the request's actor is its
+   * person; an `actor` or a `tokenSecret` in the body is refused), `POST
+   * …/sync` and `DELETE …[?uninstall=1]`, as strut answers them. The fake
+   * follows git branches only: a package's, or a bundle's.
    */
   function subscriptionRoute(res: ServerResponse, m: string | undefined, id: string, sync: boolean, url: URL, body: any, actor: string | undefined) {
     const at = state.subscriptions.findIndex((s) => s.id === id);
@@ -1299,18 +1444,13 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       const bad = (why: string) => send(res, 400, { error: `subscription_invalid: ${why}` });
       if (body && typeof body === "object" && "actor" in body) return bad("a subscription's person is whoever makes the PUT (the request's actor), never a field of its body");
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id)) return bad(`id "${id}" is not a peer id (letters, digits, ". _ -" inside, a letter or digit first, at most 64)`);
+      if (body && typeof body === "object" && body.tokenSecret !== undefined) return bad(TOKEN_SECRET_GONE);
       if (typeof body?.ref !== "string" || !body.ref.startsWith("git+")) return bad("ref is git+https://host/org/repo[@<branch>][#<folder>] (the fake follows git branches only)");
       if (/@[0-9a-f]{40}(#|$)/i.test(body.ref)) return bad(`ref ${body.ref}: names a commit, which does not move — a subscription follows a branch`);
-      if (body.tokenSecret !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(body.tokenSecret)) return bad("tokenSecret is the NAME of a secret (letters, digits, underscore), never the token");
-      const next: FakeSubscription = {
-        id,
-        ref: body.ref,
-        ...(body.tokenSecret ? { tokenSecret: body.tokenSecret } : {}),
-        ...(actor ? { actor } : {}),
-        warnings: [],
-      };
-      // The same ref keeps what its reads left; another starts over.
-      if (s && s.ref === next.ref) Object.assign(next, { ...(s.applied ? { applied: s.applied } : {}), ...(s.checkedAt ? { checkedAt: s.checkedAt } : {}), ...(s.error ? { error: s.error } : {}), ...(s.waiting ? { waiting: s.waiting } : {}), warnings: s.warnings });
+      const next: FakeSubscription = { id, ref: body.ref, ...(actor ? { actor } : {}), warnings: [] };
+      // The same ref keeps what its reads left; another starts over. A bundle's parts keep theirs.
+      if (s && s.ref === next.ref) Object.assign(next, { ...(s.applied ? { applied: s.applied } : {}), ...(s.checkedAt ? { checkedAt: s.checkedAt } : {}), ...(s.error ? { error: s.error } : {}), ...(s.waiting ? { waiting: s.waiting } : {}), ...(s.held ? { held: s.held } : {}), warnings: s.warnings });
+      if (s?.parts) next.parts = s.parts;
       if (s) state.subscriptions[at] = next;
       else state.subscriptions.push(next);
       void syncSubscription(next);
@@ -1318,19 +1458,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     }
     if (m === "DELETE") {
       if (!s) return send(res, 404, { error: `no subscription "${id}" here` });
-      const uninstalled: string[] = [];
-      if (url.searchParams.get("uninstall") === "1") {
-        for (const p of state.installed.filter((p) => p.source?.ref === `subscription:${id}`)) {
-          uninstalled.push(p.release.package);
-          for (const app of p.release.detail?.apps ?? []) {
-            const name = `${p.release.package}/${app.name}`;
-            if (p.modified.includes(name)) continue;
-            state.apps = state.apps.filter((a) => a.name !== name);
-            state.appRecords.delete(name);
-          }
-        }
-        state.installed = state.installed.filter((p) => !uninstalled.includes(p.release.package));
-      }
+      const uninstalled = url.searchParams.get("uninstall") === "1" ? uninstallUnder(id) : [];
       state.subscriptions.splice(at, 1);
       return send(res, 200, { ok: true, removed: true, uninstalled });
     }

@@ -6,7 +6,11 @@ import { namesOf } from "@/lib/members";
 import {
   DIGEST_RE,
   explainRefusal,
+  followedActors,
+  followedFrom,
+  followedIdOf,
   followedOf,
+  followingFrom,
   hostOf,
   INDEX_ID_RE,
   indexIdOf,
@@ -17,7 +21,6 @@ import {
   settableSecret,
   SUBSCRIPTION_ID_RE,
   subscriptionIdOf,
-  subscriptionInstallRef,
   Z32_KEY_RE,
   type Followed,
   type InstallWatch,
@@ -210,7 +213,7 @@ export async function setSecret(name: string, value: string): Promise<{ error?: 
 
 /** Strut's subscriptions, each with whose it is: the page's Followed list. */
 async function followedAs(subs: PackageSubscription[], me: { actor: string }): Promise<Followed[]> {
-  return followedOf(subs, await namesOf(subs.map((s) => s.actor)), me.actor);
+  return followedOf(subs, await namesOf(followedActors(subs)), me.actor);
 }
 
 /**
@@ -232,7 +235,10 @@ export type FollowRepoOutcome = { followed: Followed; before?: string; error?: n
  * private repository is read with their own account alone. The body never
  * names a person. The repository's package already followed (on any
  * branch, by anyone) is the same subscription, so following it again
- * moves it to this branch and makes it this admin's. Strut answers at
+ * moves it to this branch and makes it this admin's. A package a followed
+ * bundle lists is that bundle's: strut would leave a second subscription
+ * nothing to do. A bundle's repository is followed the same way, every
+ * package it lists with it (the Software card is one). Strut answers at
  * once and reads it behind the answer.
  */
 export async function followRepository(raw: string): Promise<FollowRepoOutcome> {
@@ -241,10 +247,11 @@ export async function followRepository(raw: string): Promise<FollowRepoOutcome> 
   if ("error" in r) return { error: r.error };
   if (r.commit) return { error: "A commit never moves, so there is nothing to keep up to date. Name a branch, or turn Keep it up to date off to install that commit once." };
   try {
-    const same = (await listPackageSubscriptions()).find((s) => {
-      const theirs = s.ref ? parseRepositoryRef(s.ref) : null;
-      return !!theirs && !("error" in theirs) && theirs.source === r.source;
-    });
+    const found = followingFrom(await listPackageSubscriptions(), r.ref);
+    if (found?.part) {
+      return { error: `The box follows that already, as part of ${followedFrom(found.sub)}, and keeps it up to date with it. To follow it on its own, stop following that first.` };
+    }
+    const same = found?.sub;
     const sub = await followPackageRef(same?.id ?? subscriptionIdOf(r), r.ref, me.actor);
     revalidatePath("/packages");
     const [followed] = await followedAs([sub], me);
@@ -292,8 +299,9 @@ export type FollowedProgress = { followed: Followed | null; install?: InstallWat
 
 /**
  * How a read is going: strut's record of the subscription, and its
- * install while one runs. Once its last read is newer than `before`, the
- * read is done, and every page reads the box again.
+ * install while one runs (a bundle's: the part strut is installing now).
+ * Once its last read is newer than `before`, the read is done (a
+ * bundle's, once every part is read), and every page reads the box again.
  */
 export async function followedProgress(id: string, before?: string): Promise<FollowedProgress> {
   const me = await requireAdmin();
@@ -302,7 +310,7 @@ export async function followedProgress(id: string, before?: string): Promise<Fol
     const [subs, installs] = await Promise.all([listPackageSubscriptions(), listPackageInstalls()]);
     const sub = subs.find((s) => s.id === id);
     if (!sub) return { followed: null };
-    const running = installs.find((i) => i.ref === subscriptionInstallRef(id) && i.finishedAt === undefined);
+    const running = installs.find((i) => followedIdOf(i.ref) === id && i.finishedAt === undefined);
     if (sub.checkedAt && sub.checkedAt !== before && !running) changed();
     const [followed] = await followedAs([sub], me);
     return { followed: followed!, ...(running ? { install: installWatch(running) } : {}) };
@@ -313,11 +321,12 @@ export async function followedProgress(id: string, before?: string): Promise<Fol
 }
 
 /**
- * Stop following: `DELETE /packages/subscriptions/:id?uninstall=1`. What
- * it installed goes too, as an uninstall does (what people edited here is
- * kept): strut installed it through the distro's door, which alone updates
- * and removes it, so left behind it would be a package nothing updates and
- * no admin can uninstall here.
+ * Stop following: `DELETE /packages/subscriptions/:id?uninstall=1`, a
+ * bundle's parts with it. What it installed goes too, every part's, as an
+ * uninstall does (what people edited here is kept): strut installed it
+ * through the distro's door, which alone updates and removes it, so left
+ * behind it would be a package nothing updates and no admin can uninstall
+ * here. Remove Software is this, on the bundle's row.
  */
 export async function unfollow(id: string): Promise<{ uninstalled: string[]; error?: never } | (Failed & { uninstalled?: never })> {
   await requireAdmin();

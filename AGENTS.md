@@ -190,8 +190,11 @@ order of the work, each step its own PR:
 7. Software: GitHub access, repositories and pods, as strut packages an
    admin turns on, with stadeum keeping only generic seams
    (`plans/software.md`). The connect seam: a person connects GitHub and
-   strut gets their own `GITHUB_TOKEN`. (Done.)
-   Sign-in with GitHub is deferred.
+   strut gets their own `GITHUB_TOKEN`. (Done.) The Software button: an
+   admin follows one strut bundle, `stadeum/software`
+   (stakwork/strut-software), and the Packages page shows it with its
+   parts. Stadeum knows its ref and one sentence, never what it holds.
+   (Done.) Sign-in with GitHub is deferred.
 8. Calls: a Calls page in stadeum-ui, where a person talks to the
    assistant by voice. The browser makes a fresh key per call;
    stadeum-ui hands it to strut's `POST /voice/calls` as the person; the
@@ -224,7 +227,7 @@ order of the work, each step its own PR:
 | `ui/src/lib/connect.ts`, `ui/src/app/api/connect/`, `ui/src/app/connect/` | The connect seam: the provider table (GitHub's entry), the signed state, the confirm page whose Continue sends a person to the provider, and the callback that trades the code it sends back for tokens written to strut |
 | `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
 | `ui/src/lib/models/` | The Models page's work: each provider's key in the gateway, the org's model list and default, carried to every person's virtual key and to strut |
-| `ui/src/app/(app)/packages/`, `ui/src/lib/packages.ts` | The Packages page: strut's packages installed, searched, installed and uninstalled, their missing secrets set, a package from a repository (followed, as the admin's subscription, or installed once) and what the box follows (checked now, stopped), the indexes followed, and the store's Install link (`?install=`) read |
+| `ui/src/app/(app)/packages/`, `ui/src/lib/packages.ts` | The Packages page: strut's packages installed, searched, installed and uninstalled, their missing secrets set, the Software card (one bundle followed by its ref, `SOFTWARE_REF`), a package from a repository (followed, as the admin's subscription, or installed once) and what the box follows (a bundle as one row with its parts; checked now, stopped), the indexes followed, and the store's Install link (`?install=`) read |
 | `ops/` | stadeum-ops: the update and backup loop, driving `docker compose` and restic, and the release (`src/release.ts`): its image carries `stack/`, built from the repository's root. No runtime dependencies |
 | `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |
 | `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the release's stack files from stadeum-ops's image, `.env`, the DNS check, the stack; or a restore), `install-test.sh` (the install's answers on a re-run, kept or replaced), `init-env.sh` (generates `.env`'s secrets), `promote.sh` (moves strut's or stadeum's `stable` to main's newest images, the Sphinx daemon's to stakwork/sphinx master's newest, or sphinx-voice's to its newest release), the gateway end-to-end check, the backup-and-restore proof, the release proof |

@@ -65,6 +65,12 @@
 > with no stopgap: stadeum never holds a list of the packages (row 7,
 > §3.3, §12 step 7). §5 gained items 16 to 22, what the first package
 > and the Packages page found lacking in strut.
+>
+> **Built (2026-11-20):** bundles and git credentials by host in strut
+> (§5, items 5 and 9; stakwork/strut#803, #798), the bundle
+> `stadeum/software` in stakwork/strut-software, and the Software button
+> on the Packages page, which follows it as the admin who presses it and
+> shows its parts under Followed (§4; §12, step 7).
 
 ## Problem
 
@@ -91,7 +97,7 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 4 | How a person connects | **The web flow, through a connect seam in stadeum:** two routes, and a third to refresh tokens that expire, that any OAuth provider's package can use. The client secret stays in stadeum-ui. The token goes to strut as the person's secret. Everything else is the package's (§2). | **owner** (2026-11-19: web flow over device flow); the seam's shape is proposed |
 | 5 | Which repositories the box works on | **`stadeum/code` keeps the list,** with its workspaces, in one app, Code. A repository is added by its address, or picked in the GitHub package from what the App's installations grant. `stadeum/code` checks them for new commits and is where the parser plugs in (§3.1, §14.4). | proposed (revised 2026-11-20: the list was the GitHub package's) |
 | 6 | Unattended work: ingestion, subscriptions to private packages, a job with no person | **It runs as a person. There is no box token.** By default the person is whoever set up GitHub on the box, and changing who is for later. A run nobody launched acts as the owner of the workflow it runs: whoever installed the package or subscribed to it. An admin changes who by giving the workflow another owner, which strut has today (§3.1, §14.4; §5, item 15). | **owner** (2026-11-20: no box token, everything is a person, and the default); that the person is the workflow's owner is proposed (revised 2026-11-20: it was a person on each repository) |
-| 7 | A `software` package that requires the others | **No.** Strut pins a required package by digest, and a `git+` subscription doesn't gate a required package on its own secrets (§3.3). Software is a **bundle**, a strut capability to add (§5). The Software button waits for bundles: stadeum never holds a list of the packages. | proposed; **owner** (2026-11-20): no stopgap, bundles come first |
+| 7 | A `software` package that requires the others | **No.** Strut pins a required package by digest, and a `git+` subscription doesn't gate a required package on its own secrets (§3.3). Software is a **bundle** (§5, item 5): stadeum never holds a list of the packages. | proposed; **owner** (2026-11-20): no stopgap, bundles come first. Built 2026-11-20 |
 | 8 | Repositories and pods: one package or two? | **Two:** `stadeum/github` and `stadeum/pods`. Pods reads the repositories through the graph, not by requiring the package (§3.4). | proposed |
 | 9 | Fleet boots a box with Software | **First-boot subscriptions** (`STRUT_SUBSCRIPTIONS`), a strut capability to add, not `STRUT_PACKAGES`, which never moves (§6). | proposed |
 | 10 | Real-time updates | **Repository webhooks, straight to each box's strut.** The GitHub package creates one on each repository the box works on, and strut receives it on a webhook route the package declares, a capability to add (§5). Polling stays as the fallback. The App's own webhook is inactive, so nothing central relays events (§7). | **owner** (2026-11-19) |
@@ -508,10 +514,11 @@ strut today, for two reasons:
   with no pods service, which the gate was built to stop (strut
   `plans/followed-repos.md` §2).
 
-The fix belongs in strut, as a **bundle** (§5): a package that lists other
-packages by the ref it follows, with no pins. A subscription to it gates
-each listed package on its own secrets, and each moves on its own branch.
-Software is then one bundle, `stadeum/software`, one subscription:
+The fix is in strut, as a **bundle** (§5, item 5; stakwork/strut#803): a
+package that lists other packages by the ref it follows, with no pins. A
+subscription to it gates each listed package on its own secrets, and
+each moves on its own branch. Software is one bundle,
+`stadeum/software`, one subscription:
 
 ```yaml
 # strut.yaml of stakwork/strut-software
@@ -519,13 +526,14 @@ package: stadeum/software
 version: 0.1.0
 bundle:
   - git+https://github.com/stakwork/strut-github@stable
-  - git+https://github.com/stakwork/strut-pods@stable
+  - git+https://github.com/stakwork/strut-pods@main
+  - git+https://github.com/stakwork/strut-code@stable
 ```
 
-The button waits for bundles (owner, 2026-11-20: skip the stopgap), so
-stadeum never holds a list of the packages. Until then an admin follows
-each package's repository by hand, with From a repository (§4). §14.4
-proposes a third package in the bundle, `stadeum/code`.
+The button came after bundles (owner, 2026-11-20: skip the stopgap), so
+stadeum never holds a list of the packages: what the bundle lists is its
+`strut.yaml`'s, and a release of it changes what every box that follows
+it has.
 
 ### 3.4 Separate packages, and where repositories go
 
@@ -568,15 +576,22 @@ GitHub:
   **Check now** syncs one, and **Stop following** uninstalls what it
   brought, since strut lets only the distro's door remove it
   (`docs/stack-spec.md`, "From a repository").
-- **The Software button.** A card on the Packages page, "Your
-  repositories, known to the box and in its graph, and a machine of its
-  own for every coding job." It makes one subscription to the bundle
-  (it is built once bundles are: no stopgap), syncs it, and shows each package's state:
-  installed at which commit, waiting for which secrets, or the last
-  error. **Remove Software** deletes the subscription and uninstalls what
-  it brought. The ref is one constant in `ui/src/lib/packages.ts`. It
-  moves to the followed index's featured list once an index can carry
-  one.
+- **The Software button** (built 2026-11-20). A card on the Packages
+  page, "Your repositories, known to the box and in its graph, and a
+  machine of its own for every coding job." **Add Software** follows the
+  bundle's repository through From a repository's path: one subscription,
+  made as the admin who presses it, who is then the person of everything
+  it brings. The card then says it is on, and whose, and links to the
+  bundle's row under **Followed**. That row shows each part as strut
+  reports it (strut `specs/API.md` §16, "Bundles"): where it comes from,
+  installed at which commit, waiting for which secrets (set in place),
+  left to another subscription that holds its package, or the last
+  error, with Connect when a private repository can't be read. **Check
+  now** reads every part. **Remove Software** opens that row's Stop
+  following, which deletes the subscription and uninstalls what every
+  part brought. The ref is one constant in `ui/src/lib/packages.ts`, and
+  stadeum names none of the packages. It moves to the followed index's
+  featured list once an index can carry one.
 - **A person leaves.** Removing a member deletes their delegation today
   (`ui/src/app/(app)/members/actions.ts:48-55`). It also calls strut's
   `DELETE /actors/:actor`, a capability to add (§5). Strut then runs
@@ -624,11 +639,11 @@ manifest, and gains no new kind of thing.
 | 2 | **An admin's call from a package's app:** a package's `admin: true` app, shown to an admin, gets the admin's scope for its own steps | The box's repositories and its webhook secret are an admin's to set | The admin door serves only strut's first-party pages (`specs/API.md` §14.14, `src/steps/lib/earnings/_door.ts:1-15`) |
 | 3 | **Schedules a package ships:** a default automation on a workflow, installed with it and dropped with it. Built (stakwork/strut#791): `schedules:` in `strut.yaml`, each entry an automation's draft with the automations' own `trigger`. Its run acts as its workflow's owner (item 15) | `check` runs every 15 minutes with nobody setting it up | Automations are workflow metadata, never in the package's YAML (`docs/automations.md`, "Key concepts") |
 | 4 | **Events a package's workflow runs on:** `actor.removed`, run as that actor, with `DELETE /actors/:actor`, which then drops the actor's secrets; `retire`, with `POST /retire`, which runs `actor.removed` for every actor first | Revoking a leaver's token, and every token at teardown, from the package that holds them | The actor secret routes delete one name at a time (`src/createStrut.ts:7569`). There are no events |
-| 5 | **Bundles:** `bundle:` in `strut.yaml`, refs followed by branch, each package gated on its own secrets | Software as one subscription, with no pins (§3.3) | `requires.packages` pins a digest, and a `git+` subscription gates only its own package |
+| 5 | **Bundles:** `bundle:` in `strut.yaml`, refs followed by branch, each package gated on its own secrets | Software as one subscription, with no pins (§3.3) | Built (stakwork/strut#803): a subscription to a bundle follows each ref as a part, and a package another subscription holds is left to it |
 | 6 | **First-boot subscriptions:** `STRUT_SUBSCRIPTIONS`, the twin of `STRUT_PACKAGES`, each made once and never remade after an admin deletes it | Fleet boots a box with Software (§6) | `STRUT_PACKAGES` installs once and never moves (`src/packages/boot.ts`) |
 | 7 | **Webhook routes for packages:** `hooks:` in `strut.yaml`. Each is served at `POST /hooks/<publisher>/<package>/<name>` on strut's public origin. Before anything runs, strut checks the delivery in constant time, against a secret the package names, by a `scheme` it knows: **`hmac-sha256`**, of the raw body, in a header the package names, with an optional prefix and hex or base64 (GitHub's `X-Hub-Signature-256`, Forgejo's `X-Forgejo-Signature`, Linear's, Shopify's); **`standard-webhooks`**, HMAC-SHA256 over the id, timestamp and body in `webhook-signature`, refusing old timestamps (GitLab's signing token, and others on that spec); **`token`**, a header that holds the secret itself (GitLab's older `X-Gitlab-Token`). It caps the body's size and the rate, answers 202 at once, and runs the package's workflow detached with the event. With no secret set, the route answers 404. Uninstalling the package removes the route | Real-time events from repositories, delivered to the box (§7), from any forge. A package names a scheme and writes no checking code | Strut has no route a package can declare |
 | 8 | **Secrets that refresh themselves:** the connect seam's callback writes a secret with its expiry and refresh token. When a step reads it near its expiry, strut calls the seam's refresh route (§2.1) with `CONNECT_URL` and `CONNECT_TOKEN`, stores the new pair, and hands over the new value. It refreshes one secret at a time. When the provider refuses the refresh token, strut drops the secret, so the step finds it missing and says to connect again | Google, Microsoft, GitLab and Forgejo tokens last an hour or two. Every reader gets a live token without code of its own, and two runs never spend one refresh token | A secret is a plain value, with no expiry |
-| 9 | **Git credentials by host:** a package declares the hosts its token serves, `provides: git: [{ host, secret }]`. The host can come from a setting, for a company's own forge. Any step asks strut for a repository URL's credentials and gets the run's token for that host, which is its person's, refreshed if need be (item 8). Strut's own git steps and `git+` installs use the same lookup | Pods' `claim` and `git`, `git/checkout` and `git+` installs reach GitHub, GitLab and Forgejo repositories with the right token, and none of them names a forge | Each reads `GITHUB_TOKEN` by name (§2). A subscription can name one `tokenSecret` |
+| 9 | **Git credentials by host:** a package declares the hosts its token serves, `provides: git: [{ host, secret }]`. The host can come from a setting, for a company's own forge. Any step asks strut for a repository URL's credentials and gets the run's token for that host, which is its person's, refreshed if need be (item 8). Strut's own git steps and `git+` installs use the same lookup | Pods' `claim` and `git`, `git/checkout` and `git+` installs reach GitHub, GitLab and Forgejo repositories with the right token, and none of them names a forge | Built (stakwork/strut#798): no request names the secret, and a subscription reports the one that serves its host as `tokenSecret` |
 | 10 | **A dream source a package ships:** `dream:` in `strut.yaml`. Each entry names a page the package carries under `Dream` (the rules), a step it carries (the material), the tree they tend and how often (§14.2). Strut makes the automation on `dream` for the entry. The dream calls the step in place of `dream/turns`, with the cursor it kept, and gets `{ count, text, cursor }`. Strut keeps a cursor for each tree and source. A lesson says where in the material it came from, and its claim is optional | The Codebase tree, kept by the dream from merged changes (§14.2). Any package can feed a tree the same way: tickets, mail, a wiki | The dream reads `dream/turns` by name (`src/workflows/system/dream/workflow.yaml:117`). Its marks are a conversation and a turn, one file for each tree (`src/steps/lib/dream/_state.ts`). A lesson requires `session`, `turn`, `said` and `claim` (`workflow.yaml:180`). The page can't name the step itself: a page carries only the fields `Concept` declares (`docs/knowledge.md:593`) |
 | 11 | **A tender tests its change:** where a page's claims carry cases, the dream runs a test of the page as it is against the page with its change. The verdicts go with the change: on the proposal where the tree is reviewed, in the history where it isn't | "When an update is proposed, run a bunch of previous tasks against it" (§14.3) | `knowledge/test` answers strut's own page shown to an admin, never a workflow (`docs/knowledge.md:429-437`) |
 | 12 | **A package's pages' claims, recorded at install** and dropped with it | A package ships its pages with their checks and cases, so `Repository Changes` is measured from the first day | The install's outcome carries them, and nothing records them (`docs/knowledge.md:400`) |
@@ -845,7 +860,7 @@ Each is its own PR.
    - unattended work that runs as a person (item 15). Built;
    - events, `DELETE /actors/:actor` and `POST /retire` (item 4);
    - webhook routes for packages, with the three schemes (item 7);
-   - git credentials by host (item 9).
+   - git credentials by host (item 9). Built.
 
    Secrets that refresh themselves (item 8) wait for the first provider
    whose tokens expire.
@@ -864,10 +879,11 @@ Each is its own PR.
    - ops syncing every subscription;
    - strut's poll off.
 6. **Pods:** `claim` clones the workspace (stakwork/pods).
-7. **Strut:** bundles and `STRUT_SUBSCRIPTIONS` (§5, items 5-6). Then
-   `stadeum/software` and the Software button, one subscription to it
-   (there is no button before this: owner, 2026-11-20), and fleet's
-   Software answer and `POST /retire` at teardown.
+7. **Strut:** bundles (§5, item 5; built) and `STRUT_SUBSCRIPTIONS`
+   (item 6). Then `stadeum/software` (stakwork/strut-software; built)
+   and the Software button, one subscription to it (built 2026-11-20:
+   there was no button before bundles, owner), and fleet's Software
+   answer and `POST /retire` at teardown.
 8. **Ingestion** folds into `ingest` (the owner's).
 9. **Code** (§14), on the list of step 4:
    - `explore` and the pages under `Job`. They need nothing from strut.

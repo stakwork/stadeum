@@ -588,36 +588,58 @@ export async function uninstallPackage(pkg: string, actor: string): Promise<Unin
  * What the box follows (strut `src/packages/subscriptions.ts`,
  * `SubscriptionInfo`): a git branch (`ref`) or a publisher's catalog
  * (`url`), whose it is, what strut last read and applied, and what it
- * installed. Never a token: a branch shows the NAME of the secret it is
- * read with.
+ * installed. A bundle's (strut `specs/API.md` §16, "Bundles") is one
+ * record with its `parts`, each reported as a subscription to that ref
+ * alone. Never a token: a branch shows the NAME of the secret it is read
+ * with.
  */
 export interface PackageSubscription {
   id: string;
   /** A git branch's package: `git+https://host/org/repo[@<branch>][#<folder>]`. */
   ref?: string;
-  /** The secret's name the branch is read with (strut's default when the PUT named none). */
+  /**
+   * A branch's: the secret that serves its repository's host, which strut
+   * reads it with (strut's `github.com` → `GITHUB_TOKEN`, or one a package
+   * provides for another host). Absent when none serves it. Strut works it
+   * out; nobody names it in a request any more.
+   */
   tokenSecret?: string;
   /** A publisher's catalog: the strut that serves it, and the channel. */
   url?: string;
   channel?: string;
-  /** The person who made it: what it installs is theirs, and a private branch is read with their own secret. None: nobody's. */
+  /** The person who made it: what it installs is theirs, and a private branch is read with their own secret. None: nobody's. A bundle's parts are its person's. */
   actor?: string;
-  /** The release last applied: a branch's commit (or a catalog's seq), and what of it went in. */
-  applied?: { commit?: string; seq?: number; digest: string; at: string; packages: Array<{ package: string; version?: string; digest?: string }> };
-  /** The last read, and what stopped it. */
+  /**
+   * The release last applied: a branch's commit (or a catalog's seq), and
+   * what of it went in. A bundle's installs nothing of its own: `bundle`
+   * is its name, its version and the refs it lists.
+   */
+  applied?: {
+    commit?: string;
+    seq?: number;
+    digest: string;
+    at: string;
+    packages: Array<{ package: string; version?: string; digest?: string }>;
+    bundle?: { package: string; version?: string; refs: string[] };
+  };
+  /** The last read, and what stopped it (a bundle's: its own read; a part's is on the part). */
   checkedAt?: string;
   error?: string;
-  /** The secrets a package of it waits for: nothing of it is installed until they are set. */
+  /** The secrets a package of it waits for: nothing of it is installed until they are set. A bundle's: its parts', together. */
   waiting?: { secrets: string[] };
+  /** The packages another subscription here holds (`by`: `subscription:<its id>`), left to it. A bundle's: its parts', together. */
+  held?: Array<{ package: string; by: string }>;
   warnings: string[];
-  /** Each package it installed, as the box has it now, and its items edited here. */
+  /** Each package it installed, as the box has it now, and its items edited here. A bundle's: its parts', together. */
   packages: Array<{ package: string; version?: string; diverged: string[] }>;
+  /** A bundle's: each package it lists, in its order, as a subscription to that ref alone. */
+  parts?: PackageSubscription[];
 }
 
-/** One read of a subscription (`SyncOutcome`): `applied`, `current`, `waiting` or `error`. */
+/** One read of a subscription (`SyncOutcome`): `applied`, `current`, `waiting`, `held` or `error`; a bundle's is its parts' most pressing. */
 export interface SubscriptionSync {
   id: string;
-  status: "applied" | "current" | "waiting" | "error";
+  status: "applied" | "current" | "waiting" | "held" | "error";
   /** A branch's: the commit applied before, and the one it is at. */
   from?: string;
   to?: string;
@@ -629,7 +651,9 @@ const records = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is Record<st
 
 function readSubscription(s: Record<string, unknown>): PackageSubscription {
   const applied = s.applied as Record<string, unknown> | undefined;
+  const bundle = applied && typeof applied === "object" ? (applied.bundle as Record<string, unknown> | undefined) : undefined;
   const waiting = s.waiting as { secrets?: unknown } | undefined;
+  const held = records(s.held).filter((h) => typeof h.package === "string" && typeof h.by === "string");
   return {
     id: String(s.id),
     ...(str(s.ref) ? { ref: s.ref as string } : {}),
@@ -647,16 +671,21 @@ function readSubscription(s: Record<string, unknown>): PackageSubscription {
             packages: records(applied.packages)
               .filter((p) => typeof p.package === "string")
               .map((p) => ({ package: p.package as string, ...(str(p.version) ? { version: p.version as string } : {}), ...(str(p.digest) ? { digest: p.digest as string } : {}) })),
+            ...(bundle && typeof bundle === "object" && str(bundle.package)
+              ? { bundle: { package: bundle.package as string, ...(str(bundle.version) ? { version: bundle.version as string } : {}), refs: strings(bundle.refs) } }
+              : {}),
           },
         }
       : {}),
     ...(str(s.checkedAt) ? { checkedAt: s.checkedAt as string } : {}),
     ...(str(s.error) ? { error: s.error as string } : {}),
     ...(waiting && typeof waiting === "object" && strings(waiting.secrets).length ? { waiting: { secrets: strings(waiting.secrets) } } : {}),
+    ...(held.length ? { held: held.map((h) => ({ package: h.package as string, by: h.by as string })) } : {}),
     warnings: strings(s.warnings),
     packages: records(s.packages)
       .filter((p) => typeof p.package === "string")
       .map((p) => ({ package: p.package as string, ...(str(p.version) ? { version: p.version as string } : {}), diverged: strings(p.diverged) })),
+    ...(Array.isArray(s.parts) ? { parts: records(s.parts).filter((p) => typeof p.id === "string").map(readSubscription) } : {}),
   };
 }
 
@@ -673,10 +702,12 @@ export async function listPackageSubscriptions(): Promise<PackageSubscription[]>
 
 /**
  * `PUT /packages/subscriptions/:id { ref }` as `actor`: follow a git
- * branch's package. The request's actor is its person, never a field of
- * the body: what it installs is theirs, and a private repository is read
- * with their own secret alone. A later PUT by another person hands it to
- * them. Strut answers at once and starts the first read behind it.
+ * branch's package, or every package a bundle there lists. The request's
+ * actor is its person, never a field of the body, and the body names no
+ * secret: what it installs is theirs, and a private repository is read
+ * with their own token for its host alone. A later PUT by another person
+ * hands it to them. Strut answers at once and starts the first read
+ * behind it.
  */
 export async function followPackageRef(id: string, ref: string, actor: string): Promise<PackageSubscription> {
   const path = subscriptionPath(id);
@@ -695,7 +726,7 @@ export async function syncPackageSubscription(id: string): Promise<SubscriptionS
   const waiting = d.waiting as { secrets?: unknown } | undefined;
   return {
     id,
-    status: d.status === "applied" || d.status === "current" || d.status === "waiting" ? d.status : "error",
+    status: d.status === "applied" || d.status === "current" || d.status === "waiting" || d.status === "held" ? d.status : "error",
     ...(str(d.from) ? { from: d.from as string } : {}),
     ...(str(d.to) ? { to: d.to as string } : {}),
     ...(str(d.error) ? { error: d.error as string } : {}),
@@ -704,9 +735,10 @@ export async function syncPackageSubscription(id: string): Promise<SubscriptionS
 }
 
 /**
- * `DELETE /packages/subscriptions/:id?uninstall=1`: stop following, and
- * uninstall what it installed through the distro's door (what people
- * edited here is kept). `null`: strut follows no such thing.
+ * `DELETE /packages/subscriptions/:id?uninstall=1`: stop following (a
+ * bundle's parts with it), and uninstall what it installed through the
+ * distro's door, every part's (what people edited here is kept). `null`:
+ * strut follows no such thing.
  */
 export async function unfollowPackageSubscription(id: string): Promise<{ uninstalled: string[] } | null> {
   const path = `${subscriptionPath(id)}?uninstall=1`;

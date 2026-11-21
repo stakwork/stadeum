@@ -14,8 +14,8 @@ import {
   connectFor,
   connectHref,
   explainRefusal,
+  followedBySource,
   followedFrom,
-  followedIdOf,
   followedState,
   hitSecrets,
   hostOf,
@@ -25,6 +25,9 @@ import {
   refusalCode,
   shortKey,
   shortName,
+  SOFTWARE_REF,
+  SOFTWARE_WORDS,
+  softwareOf,
   type ConnectOffer,
   type Followed,
   type InstallLink,
@@ -77,8 +80,22 @@ export function PackagesView(props: {
   initial: Found | null;
 }) {
   const { link, installed, indexes } = props;
-  // Followed here and not yet in the page's reading of strut, each with the read it started.
+  // Followed here and not yet in the page's reading of strut, each with the read it started;
+  // stopped here, and gone from it; and the row the Software card asked to stop (`n`: which ask).
   const [followedNow, setFollowedNow] = useState<Started[]>([]);
+  const [gone, setGone] = useState<ReadonlySet<string>>(new Set());
+  const [stopAsk, setStopAsk] = useState<{ id: string; n: number } | null>(null);
+  const known = new Set((props.followed ?? []).map((f) => f.id));
+  const followed =
+    props.followed && [...props.followed, ...followedNow.filter((s) => !known.has(s.f.id)).map((s) => s.f)].filter((f) => !gone.has(f.id));
+  const onFollowed = (f: Followed, before?: string) => {
+    setFollowedNow((now) => [...now.filter((x) => x.f.id !== f.id), { f, n: now.length + 1, ...(before ? { before } : {}) }]);
+    setGone((now) => {
+      const next = new Set(now);
+      next.delete(f.id);
+      return next;
+    });
+  };
   const byName = useMemo(() => new Map(installed.map((p) => [p.package, p])), [installed]);
   const indexLabel = (id: string) => indexes.find((i) => i.id === id)?.label ?? id;
 
@@ -131,12 +148,18 @@ export function PackagesView(props: {
 
       <InstalledList installed={installed} secretsKnown={props.secretsKnown} followed={props.followed ?? []} />
 
-      <FromRepository
-        connect={props.connect}
-        onFollowed={(f, before) => setFollowedNow((now) => [...now.filter((x) => x.f.id !== f.id), { f, n: now.length + 1, ...(before ? { before } : {}) }])}
-      />
+      {followed && <SoftwareCard software={softwareOf(followed)} onFollowed={onFollowed} onRemove={(id) => setStopAsk((now) => ({ id, n: (now?.n ?? 0) + 1 }))} />}
 
-      <FollowedList followed={props.followed} reading={props.reading} started={followedNow} connect={props.connect} />
+      <FromRepository connect={props.connect} onFollowed={onFollowed} />
+
+      <FollowedList
+        followed={followed}
+        reading={props.reading}
+        started={followedNow}
+        connect={props.connect}
+        ask={stopAsk}
+        onGone={(id) => setGone((now) => new Set(now).add(id))}
+      />
 
       <Find
         initialQuery={link?.pkg ?? ""}
@@ -292,18 +315,20 @@ function KeyBlock({ value, label = "Its key" }: { value: string; label?: string 
 
 // ── installed ───────────────────────────────────────────────────────────
 
-/** Where an installed package came from, in a few words: what the box follows, a repository, a publisher's catalog. */
-function cameFrom(p: Installed, followed: Map<string, Followed>): string {
-  const id = followedIdOf(p.source?.ref);
-  const sub = id ? followed.get(id) : undefined;
-  if (sub) return `Kept up to date from ${followedFrom(sub)}${sub.actor ? `, ${sub.mine ? "yours" : `${sub.whose}’s`}` : ""}. Stop following it below to remove it`;
+/** Where an installed package came from, in a few words: what the box follows (a bundle's part), a repository, a publisher's catalog. */
+function cameFrom(p: Installed, followed: readonly Followed[]): string {
+  const at = followedBySource(followed, p.source?.ref);
+  if (at) {
+    const { sub, part } = at;
+    const from = part ? `${followedFrom(part)}, part of ${followedFrom(sub)}` : followedFrom(sub);
+    return `Kept up to date from ${from}${sub.actor ? `, ${sub.mine ? "yours" : `${sub.whose}’s`}` : ""}. Stop following ${part ? "the bundle" : "it"} below to remove it`;
+  }
   if (p.door === "distro") return "Installed by the box’s distro, which updates and removes it";
   if (p.source?.ref.startsWith("git+")) return `From ${p.source.ref}${p.commit ? ` at ${p.commit.slice(0, 7)}` : ""}`;
   return p.source?.url ? `From ${hostOf(p.source.url)}` : "Installed";
 }
 
 function InstalledList({ installed, secretsKnown, followed }: { installed: Installed[]; secretsKnown: boolean; followed: Followed[] }) {
-  const byId = useMemo(() => new Map(followed.map((f) => [f.id, f])), [followed]);
   const [removing, setRemoving] = useState<Installed | null>(null);
   const [notice, setNotice] = useState<{ pkg: string; kept: UninstallResult["kept"] } | null>(null);
   return (
@@ -329,7 +354,7 @@ function InstalledList({ installed, secretsKnown, followed }: { installed: Insta
                     {p.package}
                     {p.version && <span className="ml-2 font-sans text-[13px] font-normal text-ink-3">{p.version}</span>}
                   </span>
-                  <span className="text-[13px] break-words text-ink-3">{cameFrom(p, byId)}</span>
+                  <span className="text-[13px] break-words text-ink-3">{cameFrom(p, followed)}</span>
                 </div>
                 {p.door !== "distro" && (
                   <button type="button" onClick={() => setRemoving(p)} className={small}>
@@ -463,6 +488,64 @@ function SecretField({ name, onSaved }: { name: string; onSaved?: () => void }) 
       </div>
       {state.error && <p className="text-[13px] text-warn">{state.error}</p>}
     </form>
+  );
+}
+
+// ── Software ────────────────────────────────────────────────────────────
+
+/**
+ * The Software card (`plans/software.md` §4): one button that follows one
+ * bundle's repository, as this admin, through From a repository's path.
+ * What the bundle brings, and how each part stands, is its row under
+ * Followed: the card knows the bundle's ref and one sentence, nothing it
+ * holds. Remove Software is that row's Stop following.
+ */
+function SoftwareCard({ software, onFollowed, onRemove }: { software?: Followed; onFollowed: (f: Followed, before?: string) => void; onRemove: (id: string) => void }) {
+  const [error, setError] = useState<string>();
+  const [pending, start] = useTransition();
+  const add = () =>
+    start(async () => {
+      setError(undefined);
+      const out = await followRepository(SOFTWARE_REF);
+      if (out.error !== undefined) return setError(out.error);
+      onFollowed(out.followed, out.before);
+    });
+  return (
+    <section aria-labelledby="software" className="flex flex-col gap-3">
+      <SectionLabel id="software">Software</SectionLabel>
+      <div className={`${card} flex flex-col gap-3 p-5`}>
+        <p className="text-[14.5px] text-ink">{SOFTWARE_WORDS}</p>
+        {software ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="min-w-0 text-[13.5px] text-ink-2">
+              <Dot tone="ok" label="On" />
+              <span className="text-ink-3"> · {whoseWords(software)}.</span> What it brings, and the keys any of it waits for, are in{" "}
+              <a href={`#${rowAnchor(software.id)}`} className="text-ink underline decoration-rule-strong underline-offset-2 hover:decoration-ink-3">
+                its row under Followed
+              </a>
+              .
+            </p>
+            <button type="button" onClick={() => onRemove(software.id)} className={small}>
+              Remove Software
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="min-w-0 text-[13px] text-ink-3">
+              It’s yours: what it brings runs as you, and a private repository is read with your own account.
+            </p>
+            <button type="button" disabled={pending} onClick={add} className={`${buttonClass.secondary} h-10 px-4 text-[14px]`}>
+              {pending ? "Adding…" : "Add Software"}
+            </button>
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="text-[13.5px] break-words text-warn">
+            {error}
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -613,20 +696,29 @@ function ConnectLine({ offer, then }: { offer: ConnectOffer; then: string }) {
 /** How often a read of something the box follows is looked at again. */
 const READ_POLL_MS = 1000;
 
+/** A Followed row's anchor, which the Software card links to. */
+const rowAnchor = (id: string) => `followed-${id}`;
+
 /**
  * What the box follows (strut's subscriptions), each with what strut last
- * read and installed, whose it is, and Check now and Stop following.
- * `started`: followed from this page, and the read each started;
- * `reading`: those strut was installing a release of when the page loaded.
+ * read and installed, whose it is, and Check now and Stop following; a
+ * bundle as one row, its parts beneath it. `started`: followed from this
+ * page, and the read each started; `reading`: those strut was installing
+ * a release of when the page loaded; `ask`: the row whose Stop following
+ * the Software card opened.
  */
-function FollowedList(props: { followed: Followed[] | null; reading: string[]; started: Started[]; connect: ConnectOffer[] }) {
-  const { followed, started, connect } = props;
-  const [gone, setGone] = useState<ReadonlySet<string>>(new Set());
+function FollowedList(props: {
+  followed: Followed[] | null;
+  reading: string[];
+  started: Started[];
+  connect: ConnectOffer[];
+  ask: { id: string; n: number } | null;
+  onGone: (id: string) => void;
+}) {
+  const { followed: list, started, connect, ask } = props;
   const [notice, setNotice] = useState<string>();
-  const known = new Set((followed ?? []).map((f) => f.id));
-  const list = [...(followed ?? []), ...started.filter((s) => !known.has(s.f.id)).map((s) => s.f)].filter((f) => !gone.has(f.id));
   const reads = new Map(started.map((s) => [s.f.id, s]));
-  if (followed === null) return <p className={empty}>Strut isn’t answering, so what the box follows can’t be read right now.</p>;
+  if (list === null) return <p className={empty}>Strut isn’t answering, so what the box follows can’t be read right now.</p>;
   if (list.length === 0 && !notice) return null;
 
   return (
@@ -643,10 +735,12 @@ function FollowedList(props: { followed: Followed[] | null; reading: string[]; s
             <FollowedRow
               key={`${f.id}:${reads.get(f.id)?.n ?? 0}`}
               first={f}
+              all={list}
               read={reads.get(f.id) ?? (props.reading.includes(f.id) ? { ...(f.checkedAt ? { before: f.checkedAt } : {}) } : undefined)}
               connect={connect}
+              {...(ask?.id === f.id ? { ask: ask.n } : {})}
               onGone={(uninstalled) => {
-                setGone((now) => new Set(now).add(f.id));
+                props.onGone(f.id);
                 setNotice(
                   `Stopped following ${followedFrom(f)}.${uninstalled.length ? ` Uninstalled ${uninstalled.join(", ")}; what people edited here is kept.` : ""}`,
                 );
@@ -662,7 +756,16 @@ function FollowedList(props: { followed: Followed[] | null; reading: string[]; s
 /** Whose it is, in a word or two. */
 const whoseWords = (f: Followed) => (!f.actor ? "Nobody’s" : f.mine ? "Yours" : `${f.whose}’s`);
 
-function FollowedRow(props: { first: Followed; read?: { before?: string }; connect: ConnectOffer[]; onGone: (uninstalled: string[]) => void }) {
+function FollowedRow(props: {
+  first: Followed;
+  /** Everything the box follows: who holds a package this one leaves alone. */
+  all: Followed[];
+  read?: { before?: string };
+  connect: ConnectOffer[];
+  /** Asked, by the Software card, to stop following: open the question here. */
+  ask?: number;
+  onGone: (uninstalled: string[]) => void;
+}) {
   const { first, connect } = props;
   // While a read goes on: strut's record as the page last looked, and its install.
   const [live, setLive] = useState<Followed | null>(null);
@@ -678,6 +781,16 @@ function FollowedRow(props: { first: Followed; read?: { before?: string }; conne
     setSeen(first);
     if (!read) setLive(null);
   }
+  // Each ask from the card opens the question, and brings the row into view.
+  const [asked, setAsked] = useState(props.ask);
+  if (asked !== props.ask) {
+    setAsked(props.ask);
+    if (props.ask) setAsking(true);
+  }
+  const row = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (props.ask) row.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [props.ask]);
   const f = live ?? first;
 
   useEffect(() => {
@@ -724,17 +837,26 @@ function FollowedRow(props: { first: Followed; read?: { before?: string }; conne
       if (r.error !== undefined) return setError(r.error);
       props.onGone(r.uninstalled);
     });
+  // A key set here: the read it starts is followed in this row (a bundle's, once every part is read).
+  const reread = () => setRead({ ...(f.checkedAt ? { before: f.checkedAt } : {}) });
 
   const state = followedState(f);
-  const offer = f.error ? connectFor(refusalCode(f.error), f.error, connect, f.tokenSecret) : undefined;
-  const at = f.applied?.commit?.slice(0, 7);
+  const bundle = f.applied?.bundle;
+  // A bundle installs a part at a time: the one going now, by the install's source.
+  const installing = install && f.parts ? followedBySource([f], install.ref)?.part : undefined;
 
   return (
-    <li className="flex flex-col gap-3 px-5 py-4">
+    <li ref={row} id={rowAnchor(f.id)} className="flex scroll-mt-6 flex-col gap-3 px-5 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-0.5">
           <code className="font-mono text-[14px] break-all text-ink">{followedFrom(f)}</code>
           <span className="text-[13px] text-ink-3">
+            {bundle && (
+              <>
+                Bundle <span className="font-mono text-[12.5px]">{bundle.package}</span>
+                {bundle.version ? ` ${bundle.version}` : ""} ·{" "}
+              </>
+            )}
             {whoseWords(f)}
             {f.checkedAt ? ` · checked ${relativeTime(f.checkedAt)}` : ""}
           </span>
@@ -742,57 +864,37 @@ function FollowedRow(props: { first: Followed; read?: { before?: string }; conne
         <span className="text-[13px]">{read ? <Dot tone="pending" label="Reading…" /> : <Dot tone={state.tone} label={state.label} />}</span>
       </div>
 
-      {read && (install ? <InstallBar watch={install} label={`Installing ${followedFrom(f)}`} /> : <p className="text-[13px] text-ink-3">Strut is reading it now.</p>)}
+      {read &&
+        (install ? (
+          <InstallBar watch={install} label={`Installing ${followedFrom(installing ?? f)}`} />
+        ) : (
+          <p className="text-[13px] text-ink-3">Strut is reading it now.</p>
+        ))}
       {note && <p className="text-[13px] text-ink-3">{note}</p>}
 
-      {f.packages.length > 0 && (
-        <p className="text-[13.5px] text-ink-2">
-          {at ? `At ${at}: ` : ""}
-          {f.packages.map((p, i) => (
-            <span key={p.package}>
-              {i > 0 && ", "}
-              <code className="font-mono text-[13px] text-ink">{p.package}</code>
-              {p.version && <span className="text-ink-3"> {p.version}</span>}
-              {p.diverged.length > 0 && <span className="text-[12px] text-warn"> · {p.diverged.length} edited here</span>}
-            </span>
-          ))}
-        </p>
-      )}
-      {f.packages.length === 0 && at && !f.waiting && !f.error && !read && <p className="text-[13.5px] text-ink-3">At {at}: nothing of it is installed.</p>}
-
-      {f.waiting && (
-        <div className="flex flex-col gap-3 rounded-[12px] bg-warn-soft px-4 py-3.5">
-          <p className="text-[13.5px] text-ink-2">
-            Its package waits for {f.waiting.secrets.length === 1 ? "a key" : "keys"} before it installs. Each goes to strut and is never shown again; the box
-            installs it once they’re set.
-          </p>
-          {f.waiting.secrets.map((name) => (
-            <SecretField key={name} name={name} onSaved={() => setRead({ ...(f.checkedAt ? { before: f.checkedAt } : {}) })} />
-          ))}
-        </div>
-      )}
-
-      {f.error && !read && (
-        <div className="flex flex-col gap-2">
-          <p className="text-[13.5px] break-words text-warn">{explainRefusal(f.error, 500)}</p>
-          {offer &&
-            (f.mine ? (
-              <ConnectLine offer={offer} then="check it now" />
-            ) : (
-              <p className="text-[13.5px] text-ink-2">
-                {f.actor
-                  ? `It’s read with ${f.whose}’s own account alone: they connect theirs, or you follow it again above and it’s yours.`
-                  : "Follow it again above, and it’s yours: read with your own account."}
-              </p>
-            ))}
-        </div>
-      )}
-      {f.warnings.length > 0 && (
-        <ul className="flex flex-col gap-1 text-[13px] text-ink-3">
-          {f.warnings.map((w) => (
-            <li key={w}>{w}</li>
-          ))}
-        </ul>
+      {f.parts ? (
+        <>
+          <Problems f={f} read={!!read} connect={connect} again="you follow it again above" />
+          {f.parts.length > 0 && (
+            <ul aria-label="Its parts" className="flex flex-col gap-3 border-l-2 border-rule-soft pl-4">
+              {f.parts.map((p) => (
+                <li key={p.id} className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                    <code className="min-w-0 font-mono text-[13px] break-all text-ink-2">{followedFrom(p)}</code>
+                    <span className="text-[12.5px]">{installing?.id === p.id ? <Dot tone="pending" label="Installing…" /> : <Dot {...followedState(p)} />}</span>
+                  </div>
+                  <Release f={p} all={props.all} read={!!read} onSaved={reread} />
+                  <Problems f={p} read={!!read} connect={connect} again="you follow the bundle again above" />
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      ) : (
+        <>
+          <Release f={f} all={props.all} read={!!read} onSaved={reread} />
+          <Problems f={f} read={!!read} connect={connect} again="you follow it again above" />
+        </>
       )}
 
       {asking && (
@@ -828,6 +930,94 @@ function FollowedRow(props: { first: Followed; read?: { before?: string }; conne
         )}
       </div>
     </li>
+  );
+}
+
+/**
+ * What a followed repository (or a bundle's part) is at: the commit and
+ * the packages it installed, the keys a package waits for (each settable
+ * here, and the read it starts followed), and a package another
+ * subscription holds, left to it.
+ */
+function Release({ f, all, read, onSaved }: { f: Followed; all: Followed[]; read: boolean; onSaved: () => void }) {
+  const at = f.applied?.commit?.slice(0, 7);
+  return (
+    <>
+      {f.packages.length > 0 && (
+        <p className="text-[13.5px] text-ink-2">
+          {at ? `At ${at}: ` : ""}
+          {f.packages.map((p, i) => (
+            <span key={p.package}>
+              {i > 0 && ", "}
+              <code className="font-mono text-[13px] text-ink">{p.package}</code>
+              {p.version && <span className="text-ink-3"> {p.version}</span>}
+              {p.diverged.length > 0 && <span className="text-[12px] text-warn"> · {p.diverged.length} edited here</span>}
+            </span>
+          ))}
+        </p>
+      )}
+      {f.packages.length === 0 && at && !f.waiting && !f.held && !f.error && !read && <p className="text-[13.5px] text-ink-3">At {at}: nothing of it is installed.</p>}
+
+      {f.waiting && (
+        <div className="flex flex-col gap-3 rounded-[12px] bg-warn-soft px-4 py-3.5">
+          <p className="text-[13.5px] text-ink-2">
+            Its package waits for {f.waiting.secrets.length === 1 ? "a key" : "keys"} before it installs. Each goes to strut and is never shown again; the box
+            installs it once they’re set.
+          </p>
+          {f.waiting.secrets.map((name) => (
+            <SecretField key={name} name={name} onSaved={onSaved} />
+          ))}
+        </div>
+      )}
+
+      {f.held?.map((h) => {
+        // Who holds it: what the box follows that installed it, a bundle's part named with its bundle; none, once stopped.
+        const at = followedBySource(all, h.by);
+        return (
+          <p key={h.package} className="text-[13.5px] text-ink-2">
+            <code className="font-mono text-[13px] text-ink">{h.package}</code>{" "}
+            {at
+              ? `is left to ${at.part ? `${followedFrom(at.part)}, part of ${followedFrom(at.sub)}` : followedFrom(at.sub)}, which keeps it up to date here. Stop following that, and this takes it at its next check.`
+              : `was left to ${h.by.replace(/^subscription:/, "")}, which the box no longer follows: check now, and this takes it.`}
+          </p>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * What stopped its last read, in plain words, and the account to connect
+ * when strut couldn't read a private repository: this admin's own, or
+ * whose it is. `again`: how this admin makes it theirs instead.
+ */
+function Problems({ f, read, connect, again }: { f: Followed; read: boolean; connect: ConnectOffer[]; again: string }) {
+  const offer = f.error ? connectFor(refusalCode(f.error), f.error, connect, f.tokenSecret) : undefined;
+  return (
+    <>
+      {f.error && !read && (
+        <div className="flex flex-col gap-2">
+          <p className="text-[13.5px] break-words text-warn">{explainRefusal(f.error, 500)}</p>
+          {offer &&
+            (f.mine ? (
+              <ConnectLine offer={offer} then="check it now" />
+            ) : (
+              <p className="text-[13.5px] text-ink-2">
+                {f.actor
+                  ? `It’s read with ${f.whose}’s own account alone: they connect theirs, or ${again}, and it’s yours.`
+                  : `${again.charAt(0).toUpperCase()}${again.slice(1)}, and it’s yours: read with your own account.`}
+              </p>
+            ))}
+        </div>
+      )}
+      {f.warnings.length > 0 && (
+        <ul className="flex flex-col gap-1 text-[13px] text-ink-3">
+          {f.warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 

@@ -1,12 +1,42 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { admit } from "@/lib/access";
 import { db } from "@/lib/db";
 import { connectOffers } from "@/lib/connect";
-import { connectFor, installProgressText, installWatch, linkIndexState, parseInstallLink, parseRepositoryRef, refusalCode, secretsNeeded, subscriptionIdOf } from "@/lib/packages";
-import { listApps, listDeploymentSecretNames, listPackageIndexes, listPackageInstalls, listPackages, startPackageInstall } from "@/lib/strut/client";
+import {
+  connectFor,
+  followedBySource,
+  followedIdOf,
+  followedSourceOf,
+  followedState,
+  installProgressText,
+  installWatch,
+  linkIndexState,
+  parseInstallLink,
+  parseRepositoryRef,
+  refusalCode,
+  secretsNeeded,
+  SOFTWARE_REF,
+  SOFTWARE_WORDS,
+  softwareOf,
+  subscriptionIdOf,
+  type Followed,
+} from "@/lib/packages";
+import { listApps, listDeploymentSecretNames, listPackageIndexes, listPackageInstalls, listPackages, listPackageSubscriptions, startPackageInstall } from "@/lib/strut/client";
 import { startFakeStack, type FakeStack } from "@/test/fake-stack";
-import { ACME_TOOLS_REPO, DOCS_DIGEST, fakeRepos, LEGAL_DESK, STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL, STRUT_CODE_REPO } from "@/test/strut-packages";
+import {
+  ACME_TOOLS_REPO,
+  DOCS_DIGEST,
+  fakeRepos,
+  LEGAL_DESK,
+  STAKWORK_INDEX_KEY,
+  STAKWORK_INDEX_URL,
+  STRUT_CODE_REPO,
+  STRUT_GITHUB_REPO,
+  STRUT_PODS_REPO,
+  STRUT_SOFTWARE_REPO,
+} from "@/test/strut-packages";
 
 // Who is signed in: the real role check runs (lib/session.ts) on the person this email names.
 const who = vi.hoisted(() => ({ email: null as string | null }));
@@ -15,6 +45,10 @@ vi.mock("next/cache", () => ({ revalidatePath: () => undefined }));
 
 const { checkFollowed, findPackages, followedProgress, followIndex, followRepository, install, installFromRepository, installProgress, setSecret, uninstall, unfollow, unfollowIndex } =
   await import("./actions");
+const { default: PackagesPage } = await import("./page");
+
+/** The Packages page as the admin signed in gets it, rendered. */
+const page = async () => renderToStaticMarkup(await PackagesPage({ searchParams: Promise.resolve({}) }));
 
 let fake: FakeStack;
 const saved = { ...process.env };
@@ -339,6 +373,9 @@ describe("who may", () => {
     await expect(checkFollowed("strut-code-00000000")).rejects.toEqual(home);
     await expect(followedProgress("strut-code-00000000")).rejects.toEqual(home);
     await expect(unfollow("strut-code-00000000")).rejects.toEqual(home);
+    // Nor the Software card, nor the page it is on.
+    await expect(followRepository(SOFTWARE_REF)).rejects.toEqual(home);
+    await expect(PackagesPage({ searchParams: Promise.resolve({}) })).rejects.toEqual(home);
     expect(packageCalls()).toEqual([]);
     expect(fake.state.installed).toEqual([]);
     expect(fake.state.subscriptionPuts).toEqual([]);
@@ -482,6 +519,14 @@ describe("from a repository", () => {
     expect(installed.waiting).toBeUndefined();
   });
 
+  it("offers no account to connect for a host no secret serves, as strut says it", async () => {
+    Object.assign(process.env, { CONNECT_GITHUB_CLIENT_ID: "Iv23.test", CONNECT_GITHUB_CLIENT_SECRET: "test-secret" });
+    // Strut's words (src/packages/git-source.ts), with no `tokenSecret` on the subscription: no account would be read.
+    const words =
+      "package_repo_denied: git+https://git.acme.test/acme/tools: https://git.acme.test/acme/tools asked for credentials — the repository is private or does not exist, and no secret serves git.acme.test here: a package declares the one that does (provides.git in its strut.yaml)";
+    expect(connectFor(refusalCode(words), words, connectOffers(), undefined)).toBeUndefined();
+  });
+
   it("checks it now, and stops following it: what it installed is uninstalled with it", async () => {
     fake.state.installMs = 30;
     const r = await followRepository(CODE);
@@ -510,5 +555,174 @@ describe("from a repository", () => {
     expect(await followedProgress(r.followed.id)).toEqual({ followed: null });
     expect((await checkFollowed(r.followed.id)).error).toMatch(/doesn’t follow that any more/);
     expect((await unfollow("../../secrets")).error).toBe("That isn’t something the box follows.");
+  });
+});
+
+describe("a bundle, and the Software card", () => {
+  const PARTS = [`git+${STRUT_GITHUB_REPO}@stable`, `git+${STRUT_PODS_REPO}@stable`, `git+${STRUT_CODE_REPO}@stable`];
+  const idOf = (ref: string) => {
+    const r = parseRepositoryRef(ref);
+    if ("error" in r) throw new Error(r.error);
+    return subscriptionIdOf(r);
+  };
+  const SOFTWARE = idOf(SOFTWARE_REF);
+  /** A bundle's three parts, in its order. */
+  const partsOf = (f: Followed) => {
+    expect(f.parts).toHaveLength(3);
+    return f.parts as [Followed, Followed, Followed];
+  };
+  /** What the box follows, as the page reads it. */
+  const followedNow = async () => {
+    const r = await followedProgress(SOFTWARE);
+    if (r.error !== undefined) throw new Error(r.error);
+    return r.followed;
+  };
+
+  it("follows the bundle as the admin who adds Software: one PUT of its ref alone, and every part it brings is theirs", async () => {
+    expect(SOFTWARE_REF).toBe(`git+${STRUT_SOFTWARE_REPO}@stable`);
+    let html = await page();
+    expect(html).toContain(SOFTWARE_WORDS);
+    expect(html).toContain("Add Software");
+    expect(html).not.toContain("Remove Software");
+
+    const r = await followRepository(SOFTWARE_REF);
+    if (r.error !== undefined) throw new Error(r.error);
+    expect(r.followed).toMatchObject({ id: SOFTWARE, ref: SOFTWARE_REF, actor: adminActor, whose: "ada@acme.test", mine: true });
+    // One subscription, as this admin beside the key: no person, no secret, no package named.
+    expect(fake.state.subscriptionPuts).toEqual([{ id: SOFTWARE, actor: adminActor, body: { ref: SOFTWARE_REF } }]);
+
+    const done = await readEnds(SOFTWARE, r.before);
+    expect(done.applied?.bundle).toEqual({ package: "stadeum/software", version: "0.1.0", refs: PARTS });
+    expect(done.parts?.map((p) => [p.ref, p.actor, p.whose, p.mine])).toEqual(PARTS.map((ref) => [ref, adminActor, "ada@acme.test", true]));
+    const [github, pods, code] = partsOf(done);
+    expect(github).toMatchObject({ applied: { commit: "d4".repeat(20) }, packages: [{ package: "stadeum/github", version: "0.1.0" }], tokenSecret: "GITHUB_TOKEN" });
+    expect(pods).toMatchObject({ waiting: { secrets: ["PODS_TOKEN", "PODS_URL"] }, packages: [] });
+    expect(code).toMatchObject({ packages: [{ package: "stadeum/code", version: "0.1.0" }] });
+    // The bundle's own: nothing installed of it, and its parts' packages and waits together.
+    expect(done.applied?.packages).toEqual([]);
+    expect(done.packages.map((p) => p.package)).toEqual(["stadeum/github", "stadeum/code"]);
+    expect(done.waiting).toEqual({ secrets: ["PODS_TOKEN", "PODS_URL"] });
+    expect(followedState(done)).toEqual({ tone: "attention", label: "Waiting for keys" });
+    // Each package went in as this admin's, under its part, which names the bundle.
+    expect(fake.state.installed.map((p) => [p.release.package, p.door, p.actor, followedIdOf(p.source?.ref), followedBySource([done], p.source?.ref)?.part?.ref])).toEqual([
+      ["stadeum/github", "distro", adminActor, SOFTWARE, PARTS[0]],
+      ["stadeum/code", "distro", adminActor, SOFTWARE, PARTS[2]],
+    ]);
+    expect(followedSourceOf(fake.state.installed[0]!.source?.ref)).toEqual({ id: SOFTWARE, part: github.id });
+
+    // The card is on, and points at the bundle's row, which lists its parts.
+    expect(softwareOf([done])).toBe(done);
+    html = await page();
+    expect(html).toContain("Remove Software");
+    expect(html).not.toContain("Add Software");
+    expect(html).toContain(`href="#followed-${SOFTWARE}"`);
+    expect(html).toContain(`id="followed-${SOFTWARE}"`);
+    expect(html).toMatch(/Bundle <span[^>]*>stadeum\/software<\/span> 0\.1\.0/);
+    for (const ref of PARTS) expect(html).toContain(ref);
+    expect(html).toContain('for="secret-PODS_TOKEN"');
+    expect(html).toContain(`Kept up to date from ${PARTS[2]}, part of ${SOFTWARE_REF}, yours. Stop following the bundle below to remove it`);
+
+    // A key a part waits for is set in place: the bundle is read again, and the part installs.
+    for (const [name, value] of [
+      ["PODS_URL", "https://pods.test"],
+      ["PODS_TOKEN", "pods-token"],
+    ]) {
+      const before = (await followedNow())!.checkedAt;
+      expect(await setSecret(name!, value!)).toEqual({});
+      await readEnds(SOFTWARE, before);
+    }
+    const all = (await followedNow())!;
+    expect(all.waiting).toBeUndefined();
+    expect(all.parts![1]).toMatchObject({ packages: [{ package: "stadeum/pods", version: "0.4.0" }] });
+    expect(followedState(all)).toEqual({ tone: "ok", label: "Up to date" });
+  });
+
+  it("shows a part another subscription holds, and a part strut can't read with the account to connect, each on its own beside the others", async () => {
+    Object.assign(process.env, { CONNECT_GITHUB_CLIENT_ID: "Iv23.test", CONNECT_GITHUB_CLIENT_SECRET: "test-secret" });
+    const offers = connectOffers();
+    // stadeum/code was followed by hand first.
+    const hand = await followRepository(`git+${STRUT_CODE_REPO}@main`);
+    if (hand.error !== undefined) throw new Error(hand.error);
+    await readEnds(hand.followed.id);
+    // And stadeum/github's repository is private: read with the admin's own GitHub account alone, which isn't connected.
+    fake.state.repos.get(STRUT_GITHUB_REPO)!.private = true;
+
+    const r = await followRepository(SOFTWARE_REF);
+    if (r.error !== undefined) throw new Error(r.error);
+    const done = await readEnds(SOFTWARE, r.before);
+    const [github, pods, code] = partsOf(done);
+    // The bundle's own read went fine; each part says what stopped it.
+    expect(done.error).toBeUndefined();
+    expect(github.error).toMatch(/^package_repo_denied: .* this subscription is .*'s, and is read with their own GITHUB_TOKEN alone/);
+    expect(connectFor(refusalCode(github.error), github.error!, offers, github.tokenSecret)).toEqual(offers[0]);
+    expect(pods.waiting).toEqual({ secrets: ["PODS_TOKEN", "PODS_URL"] });
+    expect(code).toMatchObject({ held: [{ package: "stadeum/code", by: `subscription:${hand.followed.id}` }], packages: [] });
+    expect(done.held).toEqual(code.held);
+    expect(followedBySource(await listPackageSubscriptions(), code.held![0]!.by)?.sub.id).toBe(hand.followed.id);
+    expect([done, github, pods, code].map((f) => followedState(f).label)).toEqual(["A part’s last check failed", "Last check failed", "Waiting for keys", "Held by another"]);
+    // stadeum/code stays the hand-followed one's.
+    expect(fake.state.installed.find((p) => p.release.package === "stadeum/code")?.source?.ref).toBe(`subscription:${hand.followed.id}`);
+
+    const html = await page();
+    expect(html).toContain(`is left to git+${STRUT_CODE_REPO}@main, which keeps it up to date here`);
+    expect(html).toContain("The repository can’t be read");
+    expect(html).toContain('href="/api/connect/github?return=%2Fpackages"');
+
+    // The admin connects GitHub and stops following stadeum/code by hand: at its next check, the bundle takes both.
+    fake.state.secrets.set(`${adminActor}/GITHUB_TOKEN`, "ghu_ada");
+    expect(await unfollow(hand.followed.id)).toEqual({ uninstalled: ["stadeum/code"] });
+    expect(await page()).toContain(`was left to ${hand.followed.id}, which the box no longer follows: check now, and this takes it.`);
+    const c = await checkFollowed(SOFTWARE);
+    if (c.error !== undefined) throw new Error(c.error);
+    const after = await readEnds(SOFTWARE, c.before);
+    expect(after.parts!.map((p) => [p.error, p.held, p.packages.map((x) => x.package)])).toEqual([
+      [undefined, undefined, ["stadeum/github"]],
+      [undefined, undefined, []],
+      [undefined, undefined, ["stadeum/code"]],
+    ]);
+    expect(fake.state.installed.find((p) => p.release.package === "stadeum/code")).toMatchObject({ actor: adminActor, source: { ref: `subscription:${after.parts![2]!.id}` } });
+
+    // From a repository won't follow a second time a package the bundle keeps.
+    expect((await followRepository(`git+${STRUT_CODE_REPO}@main`)).error).toBe(
+      `The box follows that already, as part of ${SOFTWARE_REF}, and keeps it up to date with it. To follow it on its own, stop following that first.`,
+    );
+    expect(fake.state.subscriptions.map((s) => s.id)).toEqual([SOFTWARE]);
+  });
+
+  it("checks every part at once, shows the part installing in the bundle's row, and Remove Software takes every part's packages with it", async () => {
+    const r = await followRepository(SOFTWARE_REF);
+    if (r.error !== undefined) throw new Error(r.error);
+    const read = await readEnds(SOFTWARE, r.before);
+
+    // A part's branch moves: Check now reads the bundle, and the row sees that part's install going.
+    fake.state.installMs = 30;
+    const stable = fake.state.repos.get(STRUT_CODE_REPO)!.refs.stable!;
+    Object.assign(stable, { commit: "c3".repeat(20), release: { ...stable.release, version: "0.2.0", digest: `sha256:${"5e".repeat(32)}` } });
+    const c = await checkFollowed(SOFTWARE);
+    expect(c).toEqual({ before: read.checkedAt });
+    let going: string | undefined;
+    for (let looks = 0; looks < 200 && !going; looks++) {
+      const p = await followedProgress(SOFTWARE, read.checkedAt);
+      if (p.error === undefined && p.followed && p.install) going = followedBySource([p.followed], p.install.ref)?.part?.ref;
+    }
+    expect(going).toBe(PARTS[2]);
+    expect((await readEnds(SOFTWARE, read.checkedAt)).parts![2]).toMatchObject({ applied: { commit: "c3".repeat(20) }, packages: [{ package: "stadeum/code", version: "0.2.0" }] });
+
+    // Another admin's Software is theirs: the card says whose.
+    const cy = (await admit("cy@acme.test")).user!;
+    await db.user.update({ where: { id: cy.id }, data: { role: "admin" } });
+    who.email = "cy@acme.test";
+    expect(await page()).toMatch(/On<\/span><span[^>]*> · ada@acme\.test’s\.<\/span>/);
+
+    // Remove Software: the bundle's row's Stop following, every part's packages with it.
+    expect((await uninstall("stadeum/code")).error).toMatch(/only that updates or removes it/);
+    expect(await unfollow(SOFTWARE)).toEqual({ uninstalled: ["stadeum/github", "stadeum/code"] });
+    expect(fake.state.subscriptions).toEqual([]);
+    expect(await listPackages()).toEqual([]);
+    expect((await listApps()).map((a) => a.name).filter((n) => n.startsWith("stadeum/"))).toEqual([]);
+    expect(softwareOf(await listPackageSubscriptions())).toBeUndefined();
+    const html = await page();
+    expect(html).toContain("Add Software");
+    expect(html).not.toContain("Remove Software");
   });
 });
