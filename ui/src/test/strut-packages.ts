@@ -33,7 +33,10 @@ export interface FakeRelease {
   digest: string;
   description?: string;
   license?: string;
-  requires?: { secrets?: string[] };
+  /** `secrets`: what an install's `missing` and a subscription's gate ask for. `optional`: read if present, never asked for. */
+  requires?: { secrets?: string[]; optional?: string[] };
+  /** What its own steps manage (`secrets`), and the hosts a token it holds serves (`git`). */
+  provides?: { secrets?: string[]; git?: Array<{ host: string; secret: string }> };
   /** A bundle's: the `git+` refs it lists, each followed on its own branch. A bundle holds nothing else. */
   bundle?: string[];
   detail?: {
@@ -47,6 +50,12 @@ export interface FakeRelease {
   };
   items: Array<{ kind: "workflow" | "step" | "app" | "concept"; name: string; helper?: true }>;
 }
+
+/** What an install's `missing` asks for: `requires.secrets`, else the index's reading of it. */
+export const requiredSecrets = (r: FakeRelease): string[] => (r.requires ? (r.requires.secrets ?? []) : (r.detail?.secrets ?? []));
+
+/** What its steps may read, as `GET /packages` says it (strut's `readableSecrets`): required and optional together. */
+export const readableSecrets = (r: FakeRelease): string[] => [...new Set([...requiredSecrets(r), ...(r.requires?.optional ?? [])])];
 
 /** An index strut can reach: where its card is served, and what it lists. */
 export interface FakeIndex {
@@ -173,7 +182,11 @@ export const ACME_TOOLS: FakeRelease = {
   ],
 };
 
-/** `stadeum/github`, made up for the fake: connecting GitHub and picking repositories. Needs no key of the box's. */
+/**
+ * `stadeum/github`, made up for the fake: connecting GitHub and picking
+ * repositories. Its steps read and write each person's own `GITHUB_TOKEN`,
+ * as stakwork/strut-github's `strut.yaml` says: it needs no key of the box's.
+ */
 export const STADEUM_GITHUB: FakeRelease = {
   package: "stadeum/github",
   publisher: "stadeum",
@@ -182,6 +195,8 @@ export const STADEUM_GITHUB: FakeRelease = {
   version: "0.1.0",
   digest: digest("6a"),
   description: "GitHub for the box.",
+  requires: { optional: ["GITHUB_TOKEN"] },
+  provides: { secrets: ["GITHUB_TOKEN"], git: [{ host: "github.com", secret: "GITHUB_TOKEN" }] },
   detail: { apps: [{ name: "github", title: "GitHub", can: { spends: false, acts: true, code: true } }], workflows: 1, steps: 2, concepts: 0, secrets: [], can: { spends: false, acts: true, code: true }, readme: true },
   items: [
     { kind: "app", name: "github" },

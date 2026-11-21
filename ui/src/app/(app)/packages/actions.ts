@@ -188,7 +188,8 @@ export async function unfollowIndex(id: string): Promise<{ error?: string }> {
 /**
  * `PUT /secrets/:name { value }`: a key an installed package's steps read,
  * in strut's deployment store, for every run. Only a name an installed
- * package declares, or one a package the box follows waits for; the value
+ * package's steps read and do not manage themselves (`boxSecrets`: never a
+ * person's own), or one a package the box follows waits for; the value
  * goes to strut and nowhere else. What waited for it is read again now, so
  * it installs without waiting for strut's next look.
  */

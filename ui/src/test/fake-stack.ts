@@ -38,7 +38,18 @@ import { decodeMacaroon, verify } from "gatekey";
 import { brandStyles } from "@/lib/brand";
 import type { StrutBrand } from "@/lib/strut/client";
 import { brandProblem, normalizeBrand } from "./strut-brand";
-import { fakeIndexes, fakeRepos, indexSubscriptionProblem, matches, secretOfHost, type FakeIndex, type FakeRelease, type FakeRepo } from "./strut-packages";
+import {
+  fakeIndexes,
+  fakeRepos,
+  indexSubscriptionProblem,
+  matches,
+  readableSecrets,
+  requiredSecrets,
+  secretOfHost,
+  type FakeIndex,
+  type FakeRelease,
+  type FakeRepo,
+} from "./strut-packages";
 import { checkDelegationShape } from "./strut-shape";
 
 /** Strut's answer to a `tokenSecret` in a request (`src/packages/git-source.ts`, gone 2026-11-20). */
@@ -969,8 +980,8 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     }
     // The distro's door takes a package nobody follows even at the same release: it is the subscription's from then on.
     const same = here?.release.digest === release.digest && (door === "install" || here.source?.ref === from?.ref);
-    const secrets = release.requires?.secrets ?? release.detail?.secrets ?? [];
-    const kinds = (k: string) => release.items.filter((i) => i.kind === k && !i.helper).length;
+    const secrets = requiredSecrets(release);
+    const kinds =(k: string) => release.items.filter((i) => i.kind === k && !i.helper).length;
     const concepts = Math.max(kinds("concept"), release.detail?.concepts ?? 0);
     return {
       status: 201,
@@ -1091,7 +1102,8 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
         digest: rec.release.digest,
         source: rec.source ?? { ref: `pk:${rec.release.key}/${rec.release.package}`, url: rec.release.urls[0] },
         ...(rec.commit ? { commit: rec.commit } : {}),
-        secrets: rec.release.requires?.secrets ?? rec.release.detail?.secrets ?? [],
+        secrets: readableSecrets(rec.release),
+        ...(rec.release.provides ? { provides: rec.release.provides } : {}),
         door: rec.door,
         items: rec.release.items.map((i) => ({
           kind: i.kind,

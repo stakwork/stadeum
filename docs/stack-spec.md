@@ -579,11 +579,18 @@ checked".
   takes it off the URL (strut `specs/API.md` §13.1).
 - **Packages** (admins; `ui/src/app/(app)/packages/`, strut `specs/API.md`
   §16). Installed: each package, its version, apps, workflows, steps and
-  Concepts (an item edited here is marked), and the secrets its steps read
+  Concepts (an item edited here is marked), and the box's secrets of it
   that strut's store has no value for (`GET /secrets` names against the
-  package's `secrets`), each with a write-only field that `PUT`s it to
-  strut's deployment store. Only a name an installed package declares is
-  set there, never `STRUT_DEFAULT_MODEL` or `STRUT_MODELS`. Uninstall asks
+  package's `secrets` less its `provides.secrets`), each with a write-only
+  field that `PUT`s it to strut's deployment store. A secret a package
+  provides is managed by its own steps: a person's own, which they connect
+  or paste in the package's app, or one its admin app makes; no admin
+  pastes one for the box (`stadeum/github`'s `GITHUB_TOKEN` is each
+  person's). Strut's `secrets` holds `requires.secrets` and
+  `requires.optional` together, so an optional secret the package does not
+  provide is offered a field too. Only a name an installed package's steps
+  read and do not provide, or one a followed package waits for, is set
+  there, never `STRUT_DEFAULT_MODEL` or `STRUT_MODELS`. Uninstall asks
   first and says what strut kept. Find: `GET /packages/search` over the
   indexes strut follows (peers' installs are left out: a hit is installed
   by its name through an index), each hit with what the index read off the

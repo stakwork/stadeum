@@ -353,6 +353,29 @@ describe("a missing secret", () => {
     expect((await setSecret("SERPA_API_KEY", "   ")).error).toMatch(/Paste the value first/);
     expect([...fake.state.deploymentSecrets.keys()]).toEqual([]);
   });
+
+  it("offers no box-wide field for a secret a package's own steps manage, a person's own, and refuses to set it; a required one still gets one", async () => {
+    await followStakwork();
+    await installed("openlaw/legal-desk", "index-stakwork-ai");
+    const started = await installFromRepository(`${STRUT_GITHUB_REPO}@stable`);
+    if (started.status === undefined) throw new Error(started.error);
+    expect(await installProgress(started.id)).toMatchObject({ status: "done", result: { package: "stadeum/github", missingSecrets: [] } });
+
+    // Strut reports what its steps read and what they provide.
+    const github = (await listPackages()).find((p) => p.package === "stadeum/github")!;
+    expect(github).toMatchObject({ secrets: ["GITHUB_TOKEN"], provides: { secrets: ["GITHUB_TOKEN"] } });
+    expect(secretsNeeded(github, new Set(await listDeploymentSecretNames()))).toEqual([]);
+
+    const html = await page();
+    expect(html).toContain('for="secret-COURTLISTENER_API_KEY"');
+    expect(html).not.toContain('for="secret-GITHUB_TOKEN"');
+    // Nor is a person's token said to be the box's, set.
+    expect(html).not.toMatch(/Its keys are set: <span[^>]*>GITHUB_TOKEN/);
+
+    expect((await setSecret("GITHUB_TOKEN", "a-box-token")).error).toMatch(/No package installed here reads that secret/);
+    expect(await setSecret("COURTLISTENER_API_KEY", "cl-secret")).toEqual({});
+    expect([...fake.state.deploymentSecrets.keys()]).toEqual(["COURTLISTENER_API_KEY"]);
+  });
 });
 
 describe("who may", () => {
@@ -620,6 +643,8 @@ describe("a bundle, and the Software card", () => {
     expect(html).toMatch(/Bundle <span[^>]*>stadeum\/software<\/span> 0\.1\.0/);
     for (const ref of PARTS) expect(html).toContain(ref);
     expect(html).toContain('for="secret-PODS_TOKEN"');
+    // stadeum/github's GITHUB_TOKEN is each person's, which the connect seam writes: never a box-wide field.
+    expect(html).not.toContain('for="secret-GITHUB_TOKEN"');
     expect(html).toContain(`Kept up to date from ${PARTS[2]}, part of ${SOFTWARE_REF}, yours. Stop following the bundle below to remove it`);
 
     // A key a part waits for is set in place: the bundle is read again, and the part installs.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL } from "@/test/strut-packages";
 import {
+  boxSecrets,
   bringsWords,
   canWords,
   connectFor,
@@ -109,6 +110,20 @@ describe("secrets", () => {
     expect(settableSecret("GITHUB_TOKEN", [pkg])).toBe(false);
     expect(settableSecret("STRUT_DEFAULT_MODEL", [{ ...pkg, secrets: ["STRUT_DEFAULT_MODEL"] }])).toBe(false);
     expect(settableSecret("BAD-NAME", [{ ...pkg, secrets: ["BAD-NAME"] }])).toBe(false);
+  });
+
+  it("leaves out what a package's own steps manage: no field for it, and no setting it box-wide, unless another package reads it as the box's", () => {
+    const github: InstalledPackage = { package: "stadeum/github", secrets: ["GITHUB_TOKEN"], provides: { secrets: ["GITHUB_TOKEN"] }, items: [] };
+    const both: InstalledPackage = { ...pkg, secrets: ["COURTLISTENER_API_KEY", "HOOK_SECRET"], provides: { secrets: ["HOOK_SECRET"] } };
+    expect(boxSecrets(github)).toEqual([]);
+    expect(boxSecrets(both)).toEqual(["COURTLISTENER_API_KEY"]);
+    expect(secretsNeeded(github, new Set())).toEqual([]);
+    expect(secretsNeeded(both, new Set())).toEqual(["COURTLISTENER_API_KEY"]);
+    expect(settableSecret("GITHUB_TOKEN", [github])).toBe(false);
+    expect(settableSecret("HOOK_SECRET", [both])).toBe(false);
+    expect(settableSecret("COURTLISTENER_API_KEY", [both])).toBe(true);
+    // One general rule: a package that reads it as the box's makes it settable, whoever else provides it.
+    expect(settableSecret("GITHUB_TOKEN", [github, { ...pkg, secrets: ["GITHUB_TOKEN"] }])).toBe(true);
   });
 });
 
