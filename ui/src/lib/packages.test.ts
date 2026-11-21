@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL } from "@/test/strut-packages";
 import {
+  boxSecrets,
   bringsWords,
   canWords,
   connectFor,
@@ -109,6 +110,29 @@ describe("secrets", () => {
     expect(settableSecret("GITHUB_TOKEN", [pkg])).toBe(false);
     expect(settableSecret("STRUT_DEFAULT_MODEL", [{ ...pkg, secrets: ["STRUT_DEFAULT_MODEL"] }])).toBe(false);
     expect(settableSecret("BAD-NAME", [{ ...pkg, secrets: ["BAD-NAME"] }])).toBe(false);
+  });
+
+  it("offers only what a package requires: never what its own steps manage, nor what it reads only when set, unless another package requires it", () => {
+    const github: InstalledPackage = { package: "stadeum/github", secrets: ["GITHUB_TOKEN"], optional: ["GITHUB_TOKEN"], provides: { secrets: ["GITHUB_TOKEN"] }, items: [] };
+    const all: InstalledPackage = {
+      ...pkg,
+      secrets: ["COURTLISTENER_API_KEY", "HOOK_SECRET", "PACER_LOGIN"],
+      optional: ["PACER_LOGIN"],
+      provides: { secrets: ["HOOK_SECRET"] },
+    };
+    expect(boxSecrets(github)).toEqual([]);
+    expect(boxSecrets(all)).toEqual(["COURTLISTENER_API_KEY"]);
+    expect(secretsNeeded(github, new Set())).toEqual([]);
+    expect(secretsNeeded(all, new Set())).toEqual(["COURTLISTENER_API_KEY"]);
+    expect(settableSecret("GITHUB_TOKEN", [github])).toBe(false);
+    expect(settableSecret("HOOK_SECRET", [all])).toBe(false);
+    expect(settableSecret("PACER_LOGIN", [all])).toBe(false);
+    expect(settableSecret("COURTLISTENER_API_KEY", [all])).toBe(true);
+    // A provided one with no `optional` (a strut from before it): still left out.
+    expect(boxSecrets({ ...github, optional: undefined })).toEqual([]);
+    // One general rule: a package that requires it makes it settable, whoever else provides it or reads it if set.
+    expect(settableSecret("GITHUB_TOKEN", [github, { ...pkg, secrets: ["GITHUB_TOKEN"] }])).toBe(true);
+    expect(settableSecret("PACER_LOGIN", [all, { ...pkg, secrets: ["PACER_LOGIN"] }])).toBe(true);
   });
 });
 

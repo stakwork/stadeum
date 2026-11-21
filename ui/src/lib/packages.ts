@@ -143,22 +143,32 @@ export function itemsByKind(pkg: InstalledPackage): Array<{ kind: string; label:
 export const shortName = (pkg: string, name: string) => (name.startsWith(`${pkg}/`) ? name.slice(pkg.length + 1) : name);
 
 /**
- * The secrets a package's steps read that the box's store has no value
- * for. `set` is `GET /secrets`'s names: null when strut could not say, and
- * then nothing is claimed missing.
+ * The secrets of a package's that are the box's to set: those it requires,
+ * less those its own steps manage. Strut's `secrets` is everything its steps
+ * may read; `optional` among them is read only when set, and nothing asks
+ * for it. A provided one (`provides.secrets`) is a person's own, which they
+ * connect or paste in the package's app, or one the package's admin app
+ * makes; an admin never pastes it for the whole box.
  */
-export const secretsNeeded = (pkg: InstalledPackage, set: ReadonlySet<string> | null) => (set ? pkg.secrets.filter((s) => !set.has(s)) : []);
+export const boxSecrets = (pkg: InstalledPackage) => pkg.secrets.filter((s) => !pkg.optional?.includes(s) && !pkg.provides?.secrets.includes(s));
 
 /**
- * The secret names a person may set from this page: those an installed
- * package declares, or one a package the box follows waits for (strut
+ * The box's secrets of a package's that strut's deployment store has no
+ * value for. `set` is `GET /secrets`'s names: null when strut could not
+ * say, and then nothing is claimed missing.
+ */
+export const secretsNeeded = (pkg: InstalledPackage, set: ReadonlySet<string> | null) => (set ? boxSecrets(pkg).filter((s) => !set.has(s)) : []);
+
+/**
+ * The secret names a person may set from this page: the box's secret of an
+ * installed package, or one a package the box follows waits for (strut
  * installs it once it is set), never one stadeum keeps itself.
  */
 export function settableSecret(name: string, installed: readonly InstalledPackage[], followed: readonly Pick<PackageSubscription, "waiting">[] = []): boolean {
   return (
     /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) &&
     !STADEUM_SETTINGS.has(name) &&
-    (installed.some((p) => p.secrets.includes(name)) || followed.some((s) => s.waiting?.secrets.includes(name)))
+    (installed.some((p) => boxSecrets(p).includes(name)) || followed.some((s) => s.waiting?.secrets.includes(name)))
   );
 }
 

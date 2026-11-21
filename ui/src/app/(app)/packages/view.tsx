@@ -9,6 +9,7 @@ import { SectionLabel } from "@/components/page-header";
 import { Dot } from "@/components/state";
 import { relativeTime } from "@/lib/format";
 import {
+  boxSecrets,
   bringsWords,
   canWords,
   connectFor,
@@ -373,10 +374,10 @@ function InstalledList({ installed, secretsKnown, followed }: { installed: Insta
                     <SecretField key={name} name={name} />
                   ))}
                 </div>
-              ) : p.secrets.length > 0 ? (
+              ) : boxSecrets(p).length > 0 ? (
                 <p className="text-[13px] text-ink-3">
                   {secretsKnown ? "Its keys are set: " : "Strut couldn’t say which of its keys are set: "}
-                  <span className="font-mono">{p.secrets.join(", ")}</span>
+                  <span className="font-mono">{boxSecrets(p).join(", ")}</span>
                 </p>
               ) : null}
             </li>
