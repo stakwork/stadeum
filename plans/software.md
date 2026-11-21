@@ -1122,10 +1122,15 @@ So the Codebase tree needs no pipeline of its own:
     the run that made it.
   - **The bake writes it.** That is when the page is proven: `pod check`
     passed in the build and again on a machine started from the image,
-    so every arrow was wired and checked. Later bakes and jobs change it.
-    A workspace tried in a pod and released without a bake leaves no
-    image and no page, and a workspace that goes takes its page with it.
-    `Pod`'s "Remember" step becomes this, and `<workspace> pod` goes
+    so every arrow was wired and checked. The agent hands `bake` the
+    page, its whole text the first time and `edits` after, and the step
+    writes it once this pod's image is ready. So the job agent is granted
+    no graph writes, and an edit keeps the page's claims and history
+    (stakwork/pods#21, open). Among jobs, only a bake changes it: what a
+    job learns without baking waits for the next bake. A workspace tried
+    in a pod and released without a bake leaves no image and no page, and
+    a workspace that goes takes its page with it (stakwork/strut-code#5,
+    open). `Pod`'s "Remember" step says so, and `<workspace> pod` goes
     (§3.2).
   - **Where it sits.** Under `Codebase`, with each of its repositories'
     pages under it as well, and under `Pod`, where the job agent looks
