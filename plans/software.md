@@ -88,6 +88,12 @@
 > `stadeum/software` in stakwork/strut-software, and the Software button
 > on the Packages page, which follows it as the admin who presses it and
 > shows its parts under Followed (§4; §12, step 7).
+>
+> **2026-11-21:** the owner: *"the 'real' insight about a set of repos is
+> in how they interact"*. Each workspace gets one page: a diagram of its
+> systems and the system in words, *"the most valuable thing to a model
+> or a human to understand what to set up and how"*. The bake writes it,
+> so a workspace tried and released leaves none (row 21, §14.2).
 
 ## Problem
 
@@ -128,6 +134,7 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 18 | Where a repository is set up | **In one app, Code.** Each other package's part of a repository is a link to its own app at first, and a section drawn in place once strut has panels (§14.4; §5, item 14). | proposed |
 | 19 | What a package's repository is called | **`stakwork/strut-<name>`:** `strut-github`, `strut-pods`, `strut-code`, and so on. The package's own name stays `stadeum/<name>`. Pods' package moves from `stakwork/pods-package` to `stakwork/strut-pods` (§11). | **owner** (2026-11-20) |
 | 20 | What a workspace is | **A node of its own,** linked to each of its repositories, so a repository can be in several workspaces (§14.4). | **owner** (2026-11-20); the node's fields are proposed |
+| 21 | Where a workspace's systems and how they connect are written | **One Concept page for each workspace:** a diagram of its systems and how they connect, the system in words, and how to run it. Its bake writes it, so only a workspace that was baked has one (§14.2). | **owner** (2026-11-21: one page with a diagram, written at the bake); its name and place in the tree are proposed |
 
 ## 1. What Hive does
 
@@ -533,6 +540,8 @@ and a bare pod tells the agent to clone by hand. Proposed:
 The pods service doesn't change. It never sees a repository or a token.
 The `<workspace> pod` Concept pages stop listing repositories, which the
 workspace now holds. They keep what jobs learned about running it.
+Proposed next (2026-11-21): they become the workspace's page, which the
+bake writes (§14.2).
 
 ### 3.3 Why not one `software` package
 
@@ -692,6 +701,7 @@ manifest, and gains no new kind of thing.
 | 20 | **A step can tell an admin outside a page** | An admin changes the list through the API or the job agent | A step sees an admin only on a page's call (`ctx.app.admin`) |
 | 21 | **A subscription that goes hands over what it installed,** or an admin can uninstall it | Stop following without uninstalling | The package stays the distro's: nothing updates it and no person can remove it, so stadeum's Stop following always uninstalls (stakwork/stadeum#72) |
 | 22 | **A subscription's read is started without waiting and read alone,** and setting a key it waits for makes strut look again | The Packages page shows one row's progress | The sync answers only when done, there is no `GET` of one subscription, and stadeum asks for the sync itself after a key is set |
+| 23 | **A page's `mermaid` block is drawn** in the Knowledge app, with Mermaid loaded only for a page that has one | A person sees a workspace's diagram, not its source (§14.2) | The kit renders a page with react-markdown and remark-gfm, and has no Mermaid, so the block shows as code. A model reads the text either way |
 
 Smaller things the packages met, each a fix in strut:
 
@@ -1094,6 +1104,40 @@ So the Codebase tree needs no pipeline of its own:
   its features, and the repository's page and theirs are written as
   ordinary pages. `ingest` starts it when a repository is added
   (§14.4).
+- **A workspace's page** (owner, 2026-11-21). How the repositories
+  interact is what a person or a model most needs, and no repository's
+  page holds it. So each workspace that has been baked has one page,
+  `<workspace> workspace` (`hive workspace`):
+  - **What it holds.** A Mermaid diagram of the workspace's systems. Each
+    arrow is a real connection (an HTTP route, a queue, a webhook, a
+    shared database), labelled with the setting that points it, so every
+    arrow is something setup fills in. Then the system in words: how the
+    parts fit together. Then how to run it: the services and ports, the
+    test user, and what broke and how it was fixed.
+  - **A page, not a field on the `Workspace` node.** The node keeps its
+    name, its main repository and its repositories (§14.4). Only a
+    Concept carries claims, cases and tests (§14.3). Opening one is
+    recorded with its version, so its claims judge the work that read
+    it. The dream keeps it in step, and the history keeps each edit with
+    the run that made it.
+  - **The bake writes it.** That is when the page is proven: `pod check`
+    passed in the build and again on a machine started from the image,
+    so every arrow was wired and checked. Later bakes and jobs change it.
+    A workspace tried in a pod and released without a bake leaves no
+    image and no page, and a workspace that goes takes its page with it.
+    `Pod`'s "Remember" step becomes this, and `<workspace> pod` goes
+    (§3.2).
+  - **Where it sits.** Under `Codebase`, with each of its repositories'
+    pages under it as well, and under `Pod`, where the job agent looks
+    today. Without `stadeum/code`, under `Pod` alone. The bare name is
+    taken: a workspace is named after its main repository by default
+    (§14.4), and the repository's page already has that name.
+  - **The dream keeps it.** `Repository Changes` says that a change
+    which adds, moves or removes a connection between systems changes
+    the workspace's page too.
+  - **The diagram is text,** so a model reads it as written, the history
+    shows each changed line, and the dream edits it like any other line.
+    The Knowledge app shows it as code today (§5, item 23).
 - **The manifest ties them.** A dream source is no new kind of thing in
   a package. It is a page and a step the package carries, named in a few
   lines of `strut.yaml` (§5, item 10), as `job:` names the job agent's
@@ -1134,7 +1178,8 @@ conversations in three places:
 - **Links from a feature to `File` nodes.** They need the parser (§14.6).
   Until then a feature's page lists its main files by path.
 - **A written overview above the repositories.** Opening `Codebase` lists
-  each repository with its one line, which the dream keeps.
+  each repository with its one line, which the dream keeps. How the
+  repositories fit together is each workspace's page (above).
 
 **What is gained:**
 
@@ -1237,7 +1282,8 @@ one app shows it.
 - **Its workspaces,** as nodes of their own (owner, 2026-11-20). A
   workspace has a `name`, a link to each of its repositories, and
   `main`, which says which of them is its main one. The fields are
-  proposed.
+  proposed. What its systems are and how they connect is its page, a
+  Concept, not a field (§14.2).
   - A repository can be in several workspaces: `stakgraph` is in
     `hive`'s, with `hive` (main) and `mcp`, and can be in a larger
     test's as well.
