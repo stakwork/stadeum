@@ -34,6 +34,8 @@ export interface FakeRelease {
   description?: string;
   license?: string;
   requires?: { secrets?: string[] };
+  /** A bundle's: the `git+` refs it lists, each followed on its own branch. A bundle holds nothing else. */
+  bundle?: string[];
   detail?: {
     apps: Array<{ name: string; title: string; description?: string; can: { spends: boolean; acts: boolean; code: boolean } }>;
     workflows: number;
@@ -171,9 +173,70 @@ export const ACME_TOOLS: FakeRelease = {
   ],
 };
 
+/** `stadeum/github`, made up for the fake: connecting GitHub and picking repositories. Needs no key of the box's. */
+export const STADEUM_GITHUB: FakeRelease = {
+  package: "stadeum/github",
+  publisher: "stadeum",
+  key: "",
+  urls: [],
+  version: "0.1.0",
+  digest: digest("6a"),
+  description: "GitHub for the box.",
+  detail: { apps: [{ name: "github", title: "GitHub", can: { spends: false, acts: true, code: true } }], workflows: 1, steps: 2, concepts: 0, secrets: [], can: { spends: false, acts: true, code: true }, readme: true },
+  items: [
+    { kind: "app", name: "github" },
+    { kind: "workflow", name: "on-event" },
+    { kind: "step", name: "installations" },
+    { kind: "step", name: "pick" },
+  ],
+};
+
+/** `stadeum/pods`, made up for the fake: it waits for the pods service's address and token. */
+export const STADEUM_PODS: FakeRelease = {
+  package: "stadeum/pods",
+  publisher: "stadeum",
+  key: "",
+  urls: [],
+  version: "0.4.0",
+  digest: digest("7b"),
+  description: "A machine for every coding job.",
+  requires: { secrets: ["PODS_TOKEN", "PODS_URL"] },
+  detail: { apps: [], workflows: 1, steps: 2, concepts: 0, secrets: ["PODS_TOKEN", "PODS_URL"], can: { spends: false, acts: true, code: true }, readme: true },
+  items: [
+    { kind: "workflow", name: "release" },
+    { kind: "step", name: "claim" },
+    { kind: "step", name: "git" },
+  ],
+};
+
 /** The repositories the fake strut can read, by address (lowercase, no `.git`). */
 export const STRUT_CODE_REPO = "https://github.com/stakwork/strut-code";
-export const ACME_TOOLS_REPO = "https://git.acme.test/acme/tools";
+export const STRUT_GITHUB_REPO = "https://github.com/stakwork/strut-github";
+export const STRUT_PODS_REPO = "https://github.com/stakwork/strut-pods";
+/** A bundle's repository, as stakwork/strut-software is to hold it (it does not exist yet): the Software card's `SOFTWARE_REF`. */
+export const STRUT_SOFTWARE_REPO = "https://github.com/stakwork/strut-software";
+export const ACME_TOOLS_REPO = "https://github.com/acme/tools";
+
+/** `stadeum/software`: a bundle of the three, each on its `stable` branch. */
+export const STADEUM_SOFTWARE: FakeRelease = {
+  package: "stadeum/software",
+  publisher: "stadeum",
+  key: "",
+  urls: [],
+  version: "0.1.0",
+  digest: digest("8c"),
+  description: "GitHub, the box's repositories, and a pod for every coding job",
+  bundle: [`git+${STRUT_GITHUB_REPO}@stable`, `git+${STRUT_PODS_REPO}@stable`, `git+${STRUT_CODE_REPO}@stable`],
+  items: [],
+};
+
+/**
+ * Which secret serves a repository's host (strut `src/git-hosts.ts`):
+ * strut's own `github.com` → `GITHUB_TOKEN`; no package here provides
+ * another. None: the repository is read with no token.
+ */
+export const secretOfHost = (url: string): string | undefined => (new URL(url).host.toLowerCase() === "github.com" ? "GITHUB_TOKEN" : undefined);
+
 export const fakeRepos = (): Map<string, FakeRepo> =>
   new Map<string, FakeRepo>([
     [
@@ -182,9 +245,13 @@ export const fakeRepos = (): Map<string, FakeRepo> =>
         defaultBranch: "main",
         refs: {
           main: { commit: commit("a1"), release: structuredClone(STADEUM_CODE) },
+          stable: { commit: commit("a1"), release: structuredClone(STADEUM_CODE) },
           "v0.1.0": { commit: commit("a1"), release: structuredClone(STADEUM_CODE), tag: true },
         },
       },
     ],
+    [STRUT_GITHUB_REPO, { defaultBranch: "main", refs: { stable: { commit: commit("d4"), release: structuredClone(STADEUM_GITHUB) } } }],
+    [STRUT_PODS_REPO, { defaultBranch: "main", refs: { stable: { commit: commit("e5"), release: structuredClone(STADEUM_PODS) } } }],
+    [STRUT_SOFTWARE_REPO, { defaultBranch: "main", refs: { stable: { commit: commit("f6"), release: structuredClone(STADEUM_SOFTWARE) } } }],
     [ACME_TOOLS_REPO, { private: true, defaultBranch: "main", folder: "package", refs: { main: { commit: commit("b2"), release: structuredClone(ACME_TOOLS) } } }],
   ]);
