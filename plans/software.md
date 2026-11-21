@@ -31,17 +31,34 @@
 > repository list in place of the GitHub package (§3.1, §14.4). That is
 > proposed too.
 >
-> **Built (2026-11-20):** step 2 (§12), the connect seam in stadeum-ui,
-> with GitHub's entry and a fake GitHub in `npm run fake-stack`
-> (`docs/stack-spec.md`, "The connect seam"). In strut, of step 3: the
-> secrets a package provides and an admin's call from its own app (§5,
-> items 1-2; stakwork/strut#789, #790), and schedules a package ships
-> (item 3; stakwork/strut#791), and unattended work that runs as a
-> person (item 15; stakwork/strut#794, #796). The first package,
-> `stadeum/code`, in stakwork/strut-code: the repository list, the Code
-> app, `check`, `ingest` and the `repositories` tool (0.1.0, #1), and
-> the `Code Change` page (0.2.0, #2). Everything else here is still a
-> plan.
+> **Built (2026-11-21).** An admin presses **Add Software** on the
+> Packages page and the box follows one bundle, which brings the three
+> packages. Nothing has run on a real box or against the real GitHub App
+> yet. What is built, by repository:
+>
+> - **stadeum:** the connect seam, with its confirm page and no
+>   `for=box` (#66, #68); From a repository (#72); a bundle's parts and
+>   the Software button (#76); no box-wide field for a secret a package
+>   provides (#77).
+> - **strut,** of §5: items 1-2 (#789, #790), 3 (#791), 15 (#794,
+>   #796), 9 with `git/remote-head` (#798, #801), 16 with `git/push`
+>   held to a new branch and the job's own checkout (#800, #802), and 5,
+>   bundles (#803). Also, found in review: only the host a sign-in
+>   ticket named may frame strut's UI, and a neighbouring box's socket
+>   spends no cookie (#804).
+> - **stakwork/strut-code,** `stadeum/code` 0.4.0: the list and its
+>   workspaces, the Code app, `check`, `ingest`, the `repositories`
+>   tool, the `Code Change` page, private repositories, and `git/push`
+>   granted to the job agent (#1 to #4).
+> - **stakwork/strut-github,** `stadeum/github` 0.1.0: connect, paste
+>   and disconnect, the orgs and the picker (#1).
+> - **stakwork/pods,** `stadeum/pods` 0.2.0: `claim` clones the
+>   workspace, and tokens are read by host (#20).
+> - **stakwork/strut-software,** the bundle, on `main` and `stable`.
+>
+> Not built: events and `POST /retire` (item 4), webhook routes (item
+> 7), first-boot subscriptions (item 6), the rest of stadeum's step 5,
+> and step 9 beyond the `Code Change` page.
 >
 > **2026-11-20:** the owner decided that a workspace is a node of its
 > own, so a repository can be in several (row 20, §14.4).
@@ -474,6 +491,24 @@ For an admin, the same app also shows:
   runs `forget` for everyone, which revokes every token. Both are
   events strut runs, a capability to add (§5).
 
+**As built** (stakwork/strut-github#1, 0.1.0), where it differs from
+the sketch above:
+
+- The manifest has no `GITHUB_HOOK_SECRET` and no `hooks:` until strut
+  has webhook routes (§5, item 7). It grants the job agent strut's
+  `github/create-pr`.
+- The steps are `me`, `paste`, `disconnect`, `installations` and
+  `repositories`.
+- The picker writes nothing. `stadeum/code` lets only its own Code app
+  change the list, so the picker opens that app with the address filled
+  in, and the admin presses Add there.
+- Connect is offered only on the box's own page for the app. Anywhere
+  else the app offers a pasted token.
+- Disconnect revokes a token the App issued, and only removes one the
+  person pasted, which may be in use elsewhere.
+- Change repositories opens the installation's own settings page on
+  GitHub, under the organisation or the person.
+
 **Steps:** the app's own: `me`, `disconnect`, `installations`,
 `available`, `pick`.
 
@@ -650,7 +685,7 @@ manifest, and gains no new kind of thing.
 | 13 | **A trial that runs a job:** a case whose replay starts a job in a pod of its own, released once the sample is judged | A past coding task replayed against a change (§14.3). Later | A trial starts no job (`src/createStrut.ts:8428`) |
 | 14 | **Panels:** `panels:` in `strut.yaml` names one of the package's apps as a section for a graph type. A page that shows a node of that type asks for its panels, and each installed package's section is drawn in place, opened on the node, with that app's own grants | One page for a repository, with a section from each package: its source, its pages, its pod, its code graph (§14.4). Any type can have them: a customer, a matter | An app can link to another app (`kit/src/links.ts:17`). It can't show one: its page allows no frames (`src/apps/build.ts:217`) |
 | 15 | **Unattended work runs as a person:** a run nobody launched (a schedule's, a webhook's, a subscription's sync) acts as the owner of the workflow it runs, with that person's secrets and on their bill. What a subscription installs is owned by whoever subscribed. A package never names a person, and with no owner nothing runs | No box token (Decided, row 6). `check` and `ingest` act as whoever installed Software, and a private package syncs as whoever subscribed. An admin changes who by changing the owner | A package's schedule runs as its workflow's owner, and launches nothing with none (stakwork/strut#791). What a subscription installs has no owner, and a subscription names one `tokenSecret` |
-| 16 | **A package's `job:` grants strut's own steps,** not only its own | The job agent pushes and opens a pull request without a pod, which is the `Code Change` page's small path: `stadeum/code` grants `git/push`, and a forge's package its pull-request step | A package's `job:` grants only its own steps, and the job agent has `git/checkout` alone. So a small change ends as a diff handed over (stakwork/strut-code#2) |
+| 16 | **A package's `job:` grants strut's own steps,** not only its own. Built (stakwork/strut#800), with `git/push` held to a new branch and the job's own checkout (#802) | The job agent pushes and opens a pull request without a pod, which is the `Code Change` page's small path: `stadeum/code` grants `git/push`, and a forge's package its pull-request step | A package's `job:` grants only its own steps, and the job agent has `git/checkout` alone. So a small change ends as a diff handed over (stakwork/strut-code#2) |
 | 17 | **A pull-request step chosen by the remote's host** | The `Code Change` page names no forge | `github/create-pr` is the only one |
 | 18 | **A package's graph type asks for exact keys** | Two repositories whose addresses differ only in punctuation or case are two nodes | Keys fold punctuation and case, so `a/b-c` and `ab/c` collide; `stadeum/code` refuses the collision (stakwork/strut-code#1) |
 | 19 | **A package step's write from a page is kept as a run** | An audit trail for who removed or moved a repository | Only strut's own write steps are kept (stakwork/strut-code#1) |
@@ -662,8 +697,24 @@ Smaller things the packages met, each a fix in strut:
 
 - `POST /steps/<a>/<b>/<c>/run` answers 404 for a three-part step type
   unless its slashes are encoded.
-- With no token, strut's git steps keep the machine's own credential
-  helpers. It goes with item 9.
+- A package can't say which strut it needs. An older strut installs a
+  newer package and fails when it runs, or refuses it for a manifest key
+  with words about something else.
+- A package made only of pages has its `provides.git` ignored.
+- `ctx.app` names the app and not its package, so "my own app" is a
+  name each package writes down.
+- An app can't tell what its host offers. On a box with no App set up,
+  Connect leads to a 404.
+- A link from an app to its host's own page opens in a new tab, never
+  in place.
+- `git/push` names the commit's author by asking GitHub. On another
+  forge the author is "strut".
+- Connecting again leaves the person's earlier token valid at GitHub.
+- Two reads have side effects a neighbouring box's page could trigger:
+  a package repository's diff stages local edits, and listing chats may
+  resume one a restart left unfinished.
+- A graph read of a type that isn't installed answers an error, which
+  the pods package has to recognise by its words.
 - A person's subscription that can't read its repository is told what to
   do in an operator's words (`PUT /actors/…/secrets/…`).
 
@@ -867,18 +918,20 @@ Each is its own PR.
 4. **`stadeum/code`, the list** (§14.4): the `Repository` and
    `Workspace` types, the Code
    app (add by address, workspaces), `check`, an empty `ingest` and the
-   `repositories` tool.
+   `repositories` tool. Built (stakwork/strut-code).
 
    **`stadeum/github`:**
-   - the app, installations and the picker;
-   - webhooks and `on-event`;
-   - `forget` and `retire`.
+   - the app, installations and the picker. Built
+     (stakwork/strut-github), as §3.1's "As built" says;
+   - webhooks and `on-event`, with strut's item 7;
+   - `forget` and `retire`, with strut's item 4.
 5. **Stadeum:**
    - From a repository (built 2026-11-20);
    - `DELETE /actors/:actor` on a member's removal;
    - ops syncing every subscription;
    - strut's poll off.
-6. **Pods:** `claim` clones the workspace (stakwork/pods).
+6. **Pods:** `claim` clones the workspace (stakwork/pods). Built
+   (stakwork/pods#20).
 7. **Strut:** bundles (§5, item 5; built) and `STRUT_SUBSCRIPTIONS`
    (item 6). Then `stadeum/software` (stakwork/strut-software; built)
    and the Software button, one subscription to it (built 2026-11-20:
@@ -887,6 +940,7 @@ Each is its own PR.
 8. **Ingestion** folds into `ingest` (the owner's).
 9. **Code** (§14), on the list of step 4:
    - `explore` and the pages under `Job`. They need nothing from strut.
+     The `Code Change` page is built; `explore` and its page are not.
    - Strut: a dream source a package ships (§5, item 10). Then the
      `Codebase` root, `bootstrap`, `changes` and the `Repository Changes`
      page.
