@@ -261,8 +261,10 @@ export interface InstalledPackage {
   source?: { ref: string; url?: string };
   /** A `git+` source's commit. */
   commit?: string;
-  /** The secret names its steps read, the only ones they may: its `requires.secrets` and `requires.optional` together, which strut does not tell apart here. */
+  /** The secret names its steps read, the only ones they may: its `requires.secrets` and `requires.optional` together. */
   secrets: string[];
+  /** Its `requires.optional`: those of `secrets` read only when set, which nothing asks for. Absent when none, and from a strut that doesn't say. */
+  optional?: string[];
   /** Its `strut.yaml`'s `provides.secrets`: those its own steps manage, a person's own value among them. */
   provides?: { secrets: string[] };
   /** `distro`: the box's distro wrote it, and only the distro updates or removes it. */
@@ -345,6 +347,7 @@ export async function listPackages(): Promise<InstalledPackage[]> {
         ...(source && typeof source.ref === "string" ? { source: { ref: source.ref, ...(str(source.url) ? { url: source.url as string } : {}) } } : {}),
         ...(str(p.commit) ? { commit: p.commit as string } : {}),
         secrets: strings(p.secrets),
+        ...(Array.isArray(p.optional) ? { optional: strings(p.optional) } : {}),
         ...(Array.isArray(provides?.secrets) ? { provides: { secrets: strings(provides.secrets) } } : {}),
         ...(p.door === "install" || p.door === "distro" ? { door: p.door } : {}),
         items: (Array.isArray(p.items) ? p.items : [])

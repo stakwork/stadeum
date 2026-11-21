@@ -186,10 +186,11 @@ export async function unfollowIndex(id: string): Promise<{ error?: string }> {
 }
 
 /**
- * `PUT /secrets/:name { value }`: a key an installed package's steps read,
- * in strut's deployment store, for every run. Only a name an installed
- * package's steps read and do not manage themselves (`boxSecrets`: never a
- * person's own), or one a package the box follows waits for; the value
+ * `PUT /secrets/:name { value }`: a key an installed package requires, in
+ * strut's deployment store, for every run. Only a name an installed package
+ * requires and does not manage itself (`boxSecrets`: never one it reads
+ * only when set, nor a person's own), or one a package the box follows
+ * waits for; the value
  * goes to strut and nowhere else. What waited for it is read again now, so
  * it installs without waiting for strut's next look.
  */
@@ -200,7 +201,7 @@ export async function setSecret(name: string, value: string): Promise<{ error?: 
   if (value.length > 64 * 1024) return { error: "That is longer than any key." };
   try {
     const [installed, followed] = await Promise.all([listPackages(), listPackageSubscriptions().catch(() => [])]);
-    if (typeof name !== "string" || !settableSecret(name, installed, followed)) return { error: "No package installed here reads that secret." };
+    if (typeof name !== "string" || !settableSecret(name, installed, followed)) return { error: "No package installed here needs that secret set for the box." };
     await putDeploymentSetting(name, value);
     for (const s of followed.filter((f) => f.waiting?.secrets.includes(name))) readInBackground(s.id);
   } catch (err) {

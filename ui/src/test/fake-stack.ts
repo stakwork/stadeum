@@ -1103,6 +1103,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
         source: rec.source ?? { ref: `pk:${rec.release.key}/${rec.release.package}`, url: rec.release.urls[0] },
         ...(rec.commit ? { commit: rec.commit } : {}),
         secrets: readableSecrets(rec.release),
+        ...(rec.release.requires?.optional?.length ? { optional: rec.release.requires.optional } : {}),
         ...(rec.release.provides ? { provides: rec.release.provides } : {}),
         door: rec.door,
         items: rec.release.items.map((i) => ({

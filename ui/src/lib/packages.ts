@@ -143,13 +143,14 @@ export function itemsByKind(pkg: InstalledPackage): Array<{ kind: string; label:
 export const shortName = (pkg: string, name: string) => (name.startsWith(`${pkg}/`) ? name.slice(pkg.length + 1) : name);
 
 /**
- * The secrets of a package's that are the box's to set: those its steps
- * read, less those its own steps manage (`provides.secrets`). A provided
- * one is a person's own, which they connect or paste in the package's app,
- * or one the package's admin app makes; an admin never pastes it for the
- * whole box.
+ * The secrets of a package's that are the box's to set: those it requires,
+ * less those its own steps manage. Strut's `secrets` is everything its steps
+ * may read; `optional` among them is read only when set, and nothing asks
+ * for it. A provided one (`provides.secrets`) is a person's own, which they
+ * connect or paste in the package's app, or one the package's admin app
+ * makes; an admin never pastes it for the whole box.
  */
-export const boxSecrets = (pkg: InstalledPackage) => pkg.secrets.filter((s) => !pkg.provides?.secrets.includes(s));
+export const boxSecrets = (pkg: InstalledPackage) => pkg.secrets.filter((s) => !pkg.optional?.includes(s) && !pkg.provides?.secrets.includes(s));
 
 /**
  * The box's secrets of a package's that strut's deployment store has no

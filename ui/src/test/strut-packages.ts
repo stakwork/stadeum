@@ -69,7 +69,7 @@ export const STAKWORK_INDEX_URL = "https://index.stakwork.ai/index/catalog";
 
 const digest = (n: string) => `sha256:${n.repeat(64).slice(0, 64)}`;
 
-/** openlaw1's legal desk, as it will be listed: one app, its workflows and steps, a Concept tree, three keys. */
+/** openlaw1's legal desk, as it will be listed: one app, its workflows and steps, a Concept tree, three keys, and one it reads only when set. */
 export const LEGAL_DESK: FakeRelease = {
   package: "openlaw/legal-desk",
   publisher: "openlaw",
@@ -79,7 +79,7 @@ export const LEGAL_DESK: FakeRelease = {
   digest: digest("1a"),
   description: "A legal desk: matters, research on CourtListener, filings in Google Drive.",
   license: "Apache-2.0",
-  requires: { secrets: ["COURTLISTENER_API_KEY", "GOOGLE_SERVICE_ACCOUNT_JSON", "SERPA_API_KEY"] },
+  requires: { secrets: ["COURTLISTENER_API_KEY", "GOOGLE_SERVICE_ACCOUNT_JSON", "SERPA_API_KEY"], optional: ["PACER_LOGIN"] },
   detail: {
     apps: [{ name: "desk", title: "Legal desk", description: "Matters, research and filings.", can: { spends: true, acts: true, code: true } }],
     workflows: 4,

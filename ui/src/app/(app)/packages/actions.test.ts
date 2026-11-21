@@ -348,31 +348,39 @@ describe("a missing secret", () => {
   it("refuses a name no installed package reads, a setting stadeum keeps, and an empty value", async () => {
     await followStakwork();
     await installed("openlaw/legal-desk", "index-stakwork-ai");
-    expect((await setSecret("GITHUB_TOKEN", "x")).error).toMatch(/No package installed here reads that secret/);
-    expect((await setSecret("STRUT_DEFAULT_MODEL", "x")).error).toMatch(/No package installed here reads that secret/);
+    expect((await setSecret("GITHUB_TOKEN", "x")).error).toMatch(/No package installed here needs that secret set for the box/);
+    expect((await setSecret("STRUT_DEFAULT_MODEL", "x")).error).toMatch(/No package installed here needs that secret set for the box/);
     expect((await setSecret("SERPA_API_KEY", "   ")).error).toMatch(/Paste the value first/);
     expect([...fake.state.deploymentSecrets.keys()]).toEqual([]);
   });
 
-  it("offers no box-wide field for a secret a package's own steps manage, a person's own, and refuses to set it; a required one still gets one", async () => {
+  it("offers no box-wide field for a secret a package reads only when set, nor one its own steps manage, a person's own, and refuses to set either; a required one still gets one", async () => {
     await followStakwork();
     await installed("openlaw/legal-desk", "index-stakwork-ai");
     const started = await installFromRepository(`${STRUT_GITHUB_REPO}@stable`);
     if (started.status === undefined) throw new Error(started.error);
     expect(await installProgress(started.id)).toMatchObject({ status: "done", result: { package: "stadeum/github", missingSecrets: [] } });
 
-    // Strut reports what its steps read and what they provide.
-    const github = (await listPackages()).find((p) => p.package === "stadeum/github")!;
-    expect(github).toMatchObject({ secrets: ["GITHUB_TOKEN"], provides: { secrets: ["GITHUB_TOKEN"] } });
-    expect(secretsNeeded(github, new Set(await listDeploymentSecretNames()))).toEqual([]);
+    // Strut reports what its steps read, which of those they read only when set, and what they provide.
+    const listed = await listPackages();
+    const github = listed.find((p) => p.package === "stadeum/github")!;
+    const desk = listed.find((p) => p.package === "openlaw/legal-desk")!;
+    expect(github).toMatchObject({ secrets: ["GITHUB_TOKEN"], optional: ["GITHUB_TOKEN"], provides: { secrets: ["GITHUB_TOKEN"] } });
+    expect(desk).toMatchObject({ secrets: ["COURTLISTENER_API_KEY", "GOOGLE_SERVICE_ACCOUNT_JSON", "SERPA_API_KEY", "PACER_LOGIN"], optional: ["PACER_LOGIN"] });
+    expect(desk.provides).toBeUndefined();
+    const names = new Set(await listDeploymentSecretNames());
+    expect(secretsNeeded(github, names)).toEqual([]);
+    expect(secretsNeeded(desk, names)).toEqual(["COURTLISTENER_API_KEY", "GOOGLE_SERVICE_ACCOUNT_JSON", "SERPA_API_KEY"]);
 
     const html = await page();
     expect(html).toContain('for="secret-COURTLISTENER_API_KEY"');
+    expect(html).not.toContain('for="secret-PACER_LOGIN"');
     expect(html).not.toContain('for="secret-GITHUB_TOKEN"');
     // Nor is a person's token said to be the box's, set.
     expect(html).not.toMatch(/Its keys are set: <span[^>]*>GITHUB_TOKEN/);
 
-    expect((await setSecret("GITHUB_TOKEN", "a-box-token")).error).toMatch(/No package installed here reads that secret/);
+    expect((await setSecret("GITHUB_TOKEN", "a-box-token")).error).toMatch(/No package installed here needs that secret set for the box/);
+    expect((await setSecret("PACER_LOGIN", "a-login")).error).toMatch(/No package installed here needs that secret set for the box/);
     expect(await setSecret("COURTLISTENER_API_KEY", "cl-secret")).toEqual({});
     expect([...fake.state.deploymentSecrets.keys()]).toEqual(["COURTLISTENER_API_KEY"]);
   });
