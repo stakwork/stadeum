@@ -36,7 +36,12 @@
 > (`docs/stack-spec.md`, "The connect seam"). In strut, of step 3: the
 > secrets a package provides and an admin's call from its own app (§5,
 > items 1-2; stakwork/strut#789, #790), and schedules a package ships
-> (item 3; stakwork/strut#791). Everything else here is still a plan.
+> (item 3; stakwork/strut#791), and unattended work that runs as a
+> person (item 15; stakwork/strut#794, #796). The first package,
+> `stadeum/code`, in stakwork/strut-code: the repository list, the Code
+> app, `check`, `ingest` and the `repositories` tool (0.1.0, #1), and
+> the `Code Change` page (0.2.0, #2). Everything else here is still a
+> plan.
 >
 > **2026-11-20:** the owner decided that a workspace is a node of its
 > own, so a repository can be in several (row 20, §14.4).
@@ -55,6 +60,11 @@
 > owner, not a person recorded on each repository (row 6; §5, item 15).
 > Strut already has owners and lets an admin change one, so a package
 > never names a person.
+>
+> **2026-11-20:** the owner chose bundles before the Software button,
+> with no stopgap: stadeum never holds a list of the packages (row 7,
+> §3.3, §12 step 7). §5 gained items 16 to 22, what the first package
+> and the Packages page found lacking in strut.
 
 ## Problem
 
@@ -81,7 +91,7 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 4 | How a person connects | **The web flow, through a connect seam in stadeum:** two routes, and a third to refresh tokens that expire, that any OAuth provider's package can use. The client secret stays in stadeum-ui. The token goes to strut as the person's secret. Everything else is the package's (§2). | **owner** (2026-11-19: web flow over device flow); the seam's shape is proposed |
 | 5 | Which repositories the box works on | **`stadeum/code` keeps the list,** with its workspaces, in one app, Code. A repository is added by its address, or picked in the GitHub package from what the App's installations grant. `stadeum/code` checks them for new commits and is where the parser plugs in (§3.1, §14.4). | proposed (revised 2026-11-20: the list was the GitHub package's) |
 | 6 | Unattended work: ingestion, subscriptions to private packages, a job with no person | **It runs as a person. There is no box token.** By default the person is whoever set up GitHub on the box, and changing who is for later. A run nobody launched acts as the owner of the workflow it runs: whoever installed the package or subscribed to it. An admin changes who by giving the workflow another owner, which strut has today (§3.1, §14.4; §5, item 15). | **owner** (2026-11-20: no box token, everything is a person, and the default); that the person is the workflow's owner is proposed (revised 2026-11-20: it was a person on each repository) |
-| 7 | A `software` package that requires the others | **No.** Strut pins a required package by digest, and a `git+` subscription doesn't gate a required package on its own secrets (§3.3). Software is a **bundle**, a strut capability to add (§5). Until then, the button makes two subscriptions. | proposed |
+| 7 | A `software` package that requires the others | **No.** Strut pins a required package by digest, and a `git+` subscription doesn't gate a required package on its own secrets (§3.3). Software is a **bundle**, a strut capability to add (§5). The Software button waits for bundles: stadeum never holds a list of the packages. | proposed; **owner** (2026-11-20): no stopgap, bundles come first |
 | 8 | Repositories and pods: one package or two? | **Two:** `stadeum/github` and `stadeum/pods`. Pods reads the repositories through the graph, not by requiring the package (§3.4). | proposed |
 | 9 | Fleet boots a box with Software | **First-boot subscriptions** (`STRUT_SUBSCRIPTIONS`), a strut capability to add, not `STRUT_PACKAGES`, which never moves (§6). | proposed |
 | 10 | Real-time updates | **Repository webhooks, straight to each box's strut.** The GitHub package creates one on each repository the box works on, and strut receives it on a webhook route the package declares, a capability to add (§5). Polling stays as the fallback. The App's own webhook is inactive, so nothing central relays events (§7). | **owner** (2026-11-19) |
@@ -512,8 +522,10 @@ bundle:
   - git+https://github.com/stakwork/strut-pods@stable
 ```
 
-Until bundles exist, the button makes a subscription for each package
-itself. §14.4 proposes a third package in the bundle, `stadeum/code`.
+The button waits for bundles (owner, 2026-11-20: skip the stopgap), so
+stadeum never holds a list of the packages. Until then an admin follows
+each package's repository by hand, with From a repository (§4). §14.4
+proposes a third package in the bundle, `stadeum/code`.
 
 ### 3.4 Separate packages, and where repositories go
 
@@ -559,7 +571,7 @@ GitHub:
 - **The Software button.** A card on the Packages page, "Your
   repositories, known to the box and in its graph, and a machine of its
   own for every coding job." It makes one subscription to the bundle
-  (two, until bundles exist), syncs it, and shows each package's state:
+  (it is built once bundles are: no stopgap), syncs it, and shows each package's state:
   installed at which commit, waiting for which secrets, or the last
   error. **Remove Software** deletes the subscription and uninstalls what
   it brought. The ref is one constant in `ui/src/lib/packages.ts`. It
@@ -623,6 +635,22 @@ manifest, and gains no new kind of thing.
 | 13 | **A trial that runs a job:** a case whose replay starts a job in a pod of its own, released once the sample is judged | A past coding task replayed against a change (§14.3). Later | A trial starts no job (`src/createStrut.ts:8428`) |
 | 14 | **Panels:** `panels:` in `strut.yaml` names one of the package's apps as a section for a graph type. A page that shows a node of that type asks for its panels, and each installed package's section is drawn in place, opened on the node, with that app's own grants | One page for a repository, with a section from each package: its source, its pages, its pod, its code graph (§14.4). Any type can have them: a customer, a matter | An app can link to another app (`kit/src/links.ts:17`). It can't show one: its page allows no frames (`src/apps/build.ts:217`) |
 | 15 | **Unattended work runs as a person:** a run nobody launched (a schedule's, a webhook's, a subscription's sync) acts as the owner of the workflow it runs, with that person's secrets and on their bill. What a subscription installs is owned by whoever subscribed. A package never names a person, and with no owner nothing runs | No box token (Decided, row 6). `check` and `ingest` act as whoever installed Software, and a private package syncs as whoever subscribed. An admin changes who by changing the owner | A package's schedule runs as its workflow's owner, and launches nothing with none (stakwork/strut#791). What a subscription installs has no owner, and a subscription names one `tokenSecret` |
+| 16 | **A package's `job:` grants strut's own steps,** not only its own | The job agent pushes and opens a pull request without a pod, which is the `Code Change` page's small path: `stadeum/code` grants `git/push`, and a forge's package its pull-request step | A package's `job:` grants only its own steps, and the job agent has `git/checkout` alone. So a small change ends as a diff handed over (stakwork/strut-code#2) |
+| 17 | **A pull-request step chosen by the remote's host** | The `Code Change` page names no forge | `github/create-pr` is the only one |
+| 18 | **A package's graph type asks for exact keys** | Two repositories whose addresses differ only in punctuation or case are two nodes | Keys fold punctuation and case, so `a/b-c` and `ab/c` collide; `stadeum/code` refuses the collision (stakwork/strut-code#1) |
+| 19 | **A package step's write from a page is kept as a run** | An audit trail for who removed or moved a repository | Only strut's own write steps are kept (stakwork/strut-code#1) |
+| 20 | **A step can tell an admin outside a page** | An admin changes the list through the API or the job agent | A step sees an admin only on a page's call (`ctx.app.admin`) |
+| 21 | **A subscription that goes hands over what it installed,** or an admin can uninstall it | Stop following without uninstalling | The package stays the distro's: nothing updates it and no person can remove it, so stadeum's Stop following always uninstalls (stakwork/stadeum#72) |
+| 22 | **A subscription's read is started without waiting and read alone,** and setting a key it waits for makes strut look again | The Packages page shows one row's progress | The sync answers only when done, there is no `GET` of one subscription, and stadeum asks for the sync itself after a key is set |
+
+Smaller things the packages met, each a fix in strut:
+
+- `POST /steps/<a>/<b>/<c>/run` answers 404 for a three-part step type
+  unless its slashes are encoded.
+- With no token, strut's git steps keep the machine's own credential
+  helpers. It goes with item 9.
+- A person's subscription that can't read its repository is told what to
+  do in an operator's words (`PUT /actors/…/secrets/…`).
 
 Not needed now, and kept for later:
 
@@ -814,7 +842,7 @@ Each is its own PR.
    - secrets a package provides, and an admin's call from a package's
      app (§5, items 1-2). Built;
    - schedules a package ships (item 3). Built;
-   - unattended work that runs as a person (item 15);
+   - unattended work that runs as a person (item 15). Built;
    - events, `DELETE /actors/:actor` and `POST /retire` (item 4);
    - webhook routes for packages, with the three schemes (item 7);
    - git credentials by host (item 9).
@@ -832,13 +860,13 @@ Each is its own PR.
    - `forget` and `retire`.
 5. **Stadeum:**
    - From a repository (built 2026-11-20);
-   - the Software button as a subscription for each package;
    - `DELETE /actors/:actor` on a member's removal;
    - ops syncing every subscription;
    - strut's poll off.
 6. **Pods:** `claim` clones the workspace (stakwork/pods).
 7. **Strut:** bundles and `STRUT_SUBSCRIPTIONS` (§5, items 5-6). Then
-   `stadeum/software`, the button as one subscription, and fleet's
+   `stadeum/software` and the Software button, one subscription to it
+   (there is no button before this: owner, 2026-11-20), and fleet's
    Software answer and `POST /retire` at teardown.
 8. **Ingestion** folds into `ingest` (the owner's).
 9. **Code** (§14), on the list of step 4:
