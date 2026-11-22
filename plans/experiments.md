@@ -85,13 +85,17 @@ answer kept on the case:
 **Where cases come from.**
 
 - **A person,** in the Knowledge app. Built.
-- **Real work.** A setup that bakes can leave exam claims for what
-  worked ("hive runs Postgres 16 and Redis 7, the API on 3333"). The
-  dear loop writes the cheap loop's questions.
-- **Corrections.** When a person corrects the model ("we use pnpm
-  here"), the dream already writes the lesson on a page. It would also
-  write the fact as an exam claim, with the question as its case, so the
-  fact can't quietly fall out of the pages again.
+- **The dream,** from any source it reads. Today it reads one,
+  conversations: when a person corrects the model ("we use pnpm here"),
+  it writes the lesson on a page. The second is **finished jobs**, of
+  any kind: a setup, a plan, a code item, a workflow the builder made.
+  What a person said in one is a correction; a plan's `plan.md` holds
+  its questions and how each was ruled (Decided) and what each item did
+  differently (Progress); a setup that bakes holds what worked ("hive
+  runs Postgres 16 and Redis 7, the API on 3333"). From either source
+  the dream writes the lesson on a page and the fact as an exam claim,
+  with the question as its case, so the fact can't quietly fall out of
+  the pages again. The dear loop writes the cheap loop's questions.
 
 **Two loops.** Exam cases are cheap: dozens on a page, run on every
 change to its wording. Deliverable cases are dear (half an hour and
@@ -103,7 +107,7 @@ the wrong thing.
 it is judged). Anyone can write both today, so claims, cases, trials and
 tests stay as they are.
 
-**What exam claims need from strut.** Neither is needed for Experiment
+**What exam claims need from strut.** None is needed for Experiment
 1:
 
 - **A claim's policy,** from a page's `claims:` block and from the
@@ -112,6 +116,15 @@ tests stay as they are.
   about the work in front of them.
 - **The dream adds a case** to a claim it writes. Today only an admin's
   page sets cases.
+- **Finished jobs as a dream source.** The dream already takes a source
+  by name (strut `src/concepts/Dream.md`: one page per kind of source
+  under `Dream`, `input.source` on its workflow), and only `Assistant
+  Conversations` is built. A second is a page under `Dream` and a step
+  that hands over each finished job: its kind and brief, what the person
+  said to it, its deliverables (the job index has them: `plan.md`, pull
+  requests, published workflows) and its claims' verdicts. What the
+  dream does with it (claim, evidence, change) is unchanged: a job's
+  turn is a run, and evidence on it is built.
 
 ## Experiment 1: set a workspace up
 
@@ -229,3 +242,8 @@ Not needed for the first run, and each is generic when it comes:
    general pages would have let a model guess. To measure the guess, ask
    about a repository the tree hasn't seen yet, or test with that page
    emptied.
+8. **What a finished job counts as.** The `Dream` page learns "only from
+   what a person actually said". A plan's question settled by its
+   default (the person said only "go"), or a check's verdict on a job,
+   is not that. Count them as material, or only what a person said in
+   or about the job?
