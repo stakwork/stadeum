@@ -208,9 +208,16 @@ once this is agreed; it is here so the two are read together.
 - **Fleet's rule 3 holds:** the box's gateway trades its identity token
   with Anthropic, never with fleet, and its signing key never leaves the
   box.
-- **Spend per box:** a service account per box should split Anthropic's
-  usage and cost analytics by box (§6, 6). A cap per box stays what it is
-  today: none.
+- **Spend per box** is a gate (§6, 6). We pay for the models, and fleet's
+  only view of one box's spend today is Anthropic's usage report grouped
+  by key (fleet's `PLAN.md`, Q7), which goes with the key pool. The
+  federation pages say only that a token's usage is attributed to its
+  workspace, as an API key's is. If usage and cost group by service
+  account, each box keeps its own, as above. If they don't, a service
+  account per box buys nothing: the boxes share one, a claim makes and a
+  destroy archives an issuer and a rule alone, and fleet needs another
+  view of a box's spend before the key pool goes. A cap per box stays
+  what it is today: none.
 
 ## 6. To check before building
 
@@ -231,12 +238,22 @@ once this is agreed; it is here so the two are read together.
 5. **When Anthropic first fetches a key set.** If making an issuer by
    discovery fetches it at once, fleet makes the issuer after the box is
    up, and the IDs can't ride in the claim's answers, which a box reads
-   once.
+   once. The docs don't say. They hint at the exchange: verifying an
+   issuer is an optional step in the console, and a failed fetch is among
+   the exchange's errors.
 6. **Spend by box.** Whether usage and cost analytics group by service
-   account (the `actor` dimension).
+   account (the `actor` dimension). It decides whether a box has a
+   service account of its own, and whether fleet still sees one box's
+   spend (§5, Spend per box).
 
 1 and 2 take one rule on a test box and a few curls: the exchange, a
 message with the token in each header, a long stream across a renewal.
+
+3, 5 and 6 decide the shape of fleet's part, so they are answered before
+§5 goes into fleet's `PLAN.md`, not while it is built. 5 and 6 take a few
+more curls: an issuer made for a name that doesn't answer yet; two
+service accounts with a rule each, a message as each, and the usage
+report read by service account. 3 is a question to Anthropic.
 
 ## 7. What changes elsewhere, when built
 
@@ -245,18 +262,20 @@ message with the token in each header, a long stream across a renewal.
   holds it with the org's settings.
 - **docs/models.md**, "Providers given at install": the `federation`
   entry; and the Models page's "Connect without a key".
-- **stadeum-fleet:** `PLAN.md` §7, `README.md` ("Models"), `DEPLOY.md`
-  (the one-time setup in place of the Admin API key).
+- **stadeum-fleet:** `PLAN.md` §7 and Q7 (a box's model spend),
+  `README.md` ("Models"), `DEPLOY.md` (the one-time setup in place of the
+  Admin API key).
 
 ## Order
 
 Each step its own PR:
 
-1. The checks in §6, 1 and 2, by hand.
+1. The checks in §6, all but 4, by hand. 1 is answered (the status,
+   above). 3, 5 and 6 are open, and step 4 waits for them.
 2. stadeum: the key, the two `/.well-known` routes, the renewal, and
    `federation` in `STADEUM_MODEL_PROVIDERS`. The fake stack answers
    `/v1/oauth/token`, and a test checks that a renewed token reaches the
    gateway.
 3. stadeum: "Connect without a key" on the Models page.
-4. stadeum-fleet: its own federation, the claim's and destroy's `models`
-   steps, the key pool deleted.
+4. stadeum-fleet, once §6's 3, 5 and 6 are answered: its own federation,
+   the claim's and destroy's `models` steps, the key pool deleted.
