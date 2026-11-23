@@ -14,12 +14,13 @@ export async function generateMetadata(): Promise<Metadata> {
 /**
  * The home is the assistant, Jamie, when strut lists it: its frame is the
  * layout's (`HomeFrame`), shown here alone, so this page draws nothing.
- * Without it, the home lists strut's apps, which the rail lists too.
+ * Without it, the home lists the apps the rail does.
  */
 export default async function Home() {
   await requireUser();
-  const apps = await listApps();
-  if (apps?.some((a) => a.assistant)) return null;
+  const listed = await listApps();
+  if (listed?.some((a) => a.assistant)) return null;
+  const apps = listed && listed.filter((a) => a.pinned);
 
   return (
     <>

@@ -93,19 +93,15 @@ describe("the confirm notes say what everyone gets", () => {
     expect(holdNote("v8")).toBe("The app stays at v8. Later publishes wait as drafts until you make one live.");
   });
 
-  it("says what is live, and what pinning holds", () => {
+  it("says what is live", () => {
     expect(liveLabel("v8", "r9")).toBe("Holding v8");
     expect(liveLabel("v11", "latest")).toBe("Every publish goes live");
-    const app = { pinned: false, active: "v3", live: "latest", seeded: false, admin: false };
-    expect(pinNote(app)).toMatch(/^Everyone sees .* and it stays at v3: later publishes wait as drafts/);
-    expect(pinNote({ ...app, live: "r2" })).not.toMatch(/stays at/);
-    expect(pinNote({ ...app, pinned: true, live: "r2" })).toMatch(/What is live stays as it is/);
   });
 
-  it("says an admin-only app moves between the rail and the organisation's pages, and a seeded one holds nothing", () => {
-    const workers = { pinned: false, active: "v1", live: "latest", seeded: true, admin: true };
-    expect(pinNote(workers)).toBe("Admins see the app in their apps, near the top.");
-    expect(pinNote({ ...workers, pinned: true })).toMatch(/^Admins find the app among the organisation's pages again/);
-    expect(pinNote({ ...workers, seeded: false })).toMatch(/^Admins see .* and it stays at v1/);
+  it("says pinning moves an app between the rail and the organisation's pages, and nothing about versions", () => {
+    expect(pinNote({ pinned: false, admin: false })).toBe("Everyone sees the app in their rail.");
+    expect(pinNote({ pinned: true, admin: false })).toBe("The app leaves everyone's rail. Admins find it among the organisation's pages.");
+    expect(pinNote({ pinned: false, admin: true })).toBe("Admins see the app in their rail.");
+    expect(pinNote({ pinned: true, admin: true })).toBe("The app leaves admins' rail. Admins find it among the organisation's pages.");
   });
 });

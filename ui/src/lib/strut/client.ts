@@ -777,8 +777,6 @@ export interface StrutApp {
   description?: string;
   /** The version people open. */
   activeVersion: string;
-  /** Set only on an app pinned as a tab (`PUT /apps/:name/pin`). */
-  pinned?: boolean;
   /** The live release's id, only while the app is held (§14.5). */
   live?: string;
   /** The live version's usage warnings in the last day (§14.6), when it has any. */
@@ -803,7 +801,6 @@ export async function listApps(timeoutMs?: number): Promise<StrutApp[]> {
     title: typeof a.title === "string" && a.title ? a.title : a.name,
     ...(typeof a.description === "string" && a.description ? { description: a.description } : {}),
     activeVersion: typeof a.activeVersion === "string" ? a.activeVersion : "",
-    ...(a.pinned === true ? { pinned: true } : {}),
     ...(typeof a.live === "string" && a.live ? { live: a.live } : {}),
     ...(typeof a.warnings === "number" && a.warnings > 0 ? { warnings: a.warnings } : {}),
     ...(a.admin === true ? { admin: true as const } : {}),
@@ -821,7 +818,6 @@ export interface StrutAppVersions {
   live: string;
   /** Oldest first. `by` is the actor who made it live. */
   releases: Array<{ id: string; version: string; createdAt: string; by?: string }>;
-  pinned?: boolean;
 }
 
 export async function getAppVersions(name: string): Promise<StrutAppVersions> {
@@ -845,7 +841,6 @@ export async function getAppVersions(name: string): Promise<StrutAppVersions> {
       createdAt: String(r.createdAt ?? ""),
       ...(typeof r.by === "string" && r.by ? { by: r.by } : {}),
     })),
-    ...(d.pinned === true ? { pinned: true } : {}),
   };
 }
 
@@ -883,15 +878,6 @@ export async function setAppLive(name: string, target: LiveTarget, actor: string
   if (!res.ok) await fail("PUT", path, res);
   const d = (await res.json()) as { active?: string; live?: string };
   return { active: d.active ?? "", live: d.live ?? "latest" };
-}
-
-/** `PUT /apps/:name/pin`. Pinning an app that follows latest also holds it at its live version. */
-export async function setAppPinned(name: string, pinned: boolean, actor: string): Promise<{ pinned: boolean; live: string }> {
-  const path = appPath(name, "/pin");
-  const res = await strutFetch("PUT", path, { pinned }, undefined, actor);
-  if (!res.ok) await fail("PUT", path, res);
-  const d = (await res.json()) as { pinned?: boolean; live?: string };
-  return { pinned: d.pinned === true, live: d.live ?? "latest" };
 }
 
 // ── the brand (strut specs/API.md §14.12) ───────────────────────────────

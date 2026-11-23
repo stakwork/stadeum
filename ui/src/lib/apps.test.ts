@@ -1,22 +1,32 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { db } from "@/lib/db";
 import { startFakeStack, type FakeStack } from "@/test/fake-stack";
+import { setAppPinned } from "./app-pins";
 import { adminApps, adminAppsFor, appHref, isAdminOnly, launcherApps, listApps, railApps } from "./apps";
 
 describe("launcherApps", () => {
-  const app = (name: string, title: string, pinned?: boolean) => ({ name, title, activeVersion: "v1", ...(pinned ? { pinned } : {}) });
+  const app = (name: string, title: string) => ({ name, title, activeVersion: "v1" });
 
-  it("puts the assistant first, then the pinned apps, then the rest by title", () => {
+  it("puts the assistant first, then the rest by title", () => {
     const apps = launcherApps([
       app("acme/zeta", "Zeta"),
       app("acme/books", "Books"),
-      app("acme/tax", "Tax", true),
+      app("acme/tax", "Tax"),
       app("strut/jamie", "Jamie"),
-      app("acme/alpha", "Alpha", true),
+      app("acme/alpha", "Alpha"),
       app("acme/annual", "annual report"),
     ]);
-    expect(apps.map((a) => a.name)).toEqual(["strut/jamie", "acme/alpha", "acme/tax", "acme/annual", "acme/books", "acme/zeta"]);
+    expect(apps.map((a) => a.name)).toEqual(["strut/jamie", "acme/alpha", "acme/annual", "acme/books", "acme/tax", "acme/zeta"]);
     expect(apps.filter((a) => a.assistant).map((a) => a.name)).toEqual(["strut/jamie"]);
+  });
+
+  it("pins every app but the ones an admin unpinned, so a new one is pinned", () => {
+    const apps = launcherApps([app("acme/new", "New"), app("acme/off", "Off")], new Set(["acme/off"]));
+    expect(apps.map((a) => [a.name, a.pinned])).toEqual([
+      ["acme/new", true],
+      ["acme/off", false],
+    ]);
   });
 
   it("leaves out strut's component library", () => {
@@ -52,17 +62,31 @@ describe("listApps", () => {
     fake = await startFakeStack({ token: "apps-test-token" });
   });
   afterAll(() => fake.close());
-  afterEach(() => {
+  afterEach(async () => {
     process.env = { ...saved };
+    await db.org.deleteMany();
   });
 
   it("reads strut's GET /apps into the launcher's order", async () => {
     Object.assign(process.env, { SHARED_API_TOKEN: fake.token, STRUT_URL: fake.strutUrl });
     fake.state.apps.push({ ...fake.state.apps[0]!, name: "acme/legal", title: "Legal", publisher: "acme" });
     expect(await listApps()).toEqual([
-      { name: "strut/jamie", title: "Jamie", description: "Jamie, the person's assistant.", href: "/", assistant: true },
-      { name: "acme/legal", title: "Legal", href: "/apps/acme%2Flegal", assistant: false },
+      { name: "strut/jamie", title: "Jamie", description: "Jamie, the person's assistant.", href: "/", assistant: true, pinned: true },
+      { name: "acme/legal", title: "Legal", href: "/apps/acme%2Flegal", assistant: false, pinned: true },
     ]);
+  });
+
+  it("marks the apps an admin unpinned, and pins one again", async () => {
+    Object.assign(process.env, { SHARED_API_TOKEN: fake.token, STRUT_URL: fake.strutUrl });
+    await setAppPinned("acme/legal", false);
+    await setAppPinned("acme/legal", false);
+    expect((await listApps())?.map((a) => [a.name, a.pinned])).toEqual([
+      ["strut/jamie", true],
+      ["acme/legal", false],
+    ]);
+    await setAppPinned("acme/legal", true);
+    expect((await listApps())?.find((a) => a.name === "acme/legal")?.pinned).toBe(true);
+    expect((await db.org.findUnique({ where: { id: "org" } }))?.unpinnedApps).toBeNull();
   });
 
   it("is null, not an error, when strut does not answer", async () => {
@@ -105,25 +129,28 @@ describe("railApps", () => {
   const strut = [
     { name: "strut/jamie", title: "Jamie", activeVersion: "v1" },
     { name: "acme/zeta", title: "Zeta", activeVersion: "v1" },
-    { name: "acme/tax", title: "Tax", activeVersion: "v1", pinned: true },
+    { name: "acme/tax", title: "Tax", activeVersion: "v1" },
     { name: "strut/earnings", title: "Earnings", activeVersion: "v1", admin: true as const },
-    { name: "strut/staff", title: "Workers", activeVersion: "v1", admin: true as const, pinned: true },
+    { name: "strut/staff", title: "Workers", activeVersion: "v1", admin: true as const },
   ];
+  const unpinned = new Set(["acme/zeta", "strut/earnings"]);
 
-  it("puts an admin-only app an admin pinned among the pinned apps, and leaves the rest among the organisation's pages", () => {
-    const { apps, settings } = railApps(launcherApps(strut), adminAppsFor("admin", strut));
+  it("puts every pinned app in an admin's rail, admin-only ones too, and the unpinned ones among the organisation's pages", () => {
+    const { apps, settings } = railApps(launcherApps(strut, unpinned), adminAppsFor("admin", strut, unpinned), true);
     expect(apps.map((a) => [a.name, a.href])).toEqual([
       ["strut/jamie", "/"],
       ["acme/tax", "/apps/acme%2Ftax"],
       ["strut/staff", "/apps/strut%2Fstaff"],
+    ]);
+    expect(settings.map((a) => [a.name, a.href])).toEqual([
+      ["strut/earnings", "/earnings"],
       ["acme/zeta", "/apps/acme%2Fzeta"],
     ]);
-    expect(settings.map((a) => [a.name, a.href])).toEqual([["strut/earnings", "/earnings"]]);
   });
 
-  it("is the launcher's apps alone for a member, pinned or not", () => {
-    const { apps, settings } = railApps(launcherApps(strut), adminAppsFor("member", strut));
-    expect(apps.map((a) => a.name)).toEqual(["strut/jamie", "acme/tax", "acme/zeta"]);
+  it("is the pinned apps alone for a member: an unpinned one is out of sight", () => {
+    const { apps, settings } = railApps(launcherApps(strut, unpinned), adminAppsFor("member", strut, unpinned), false);
+    expect(apps.map((a) => a.name)).toEqual(["strut/jamie", "acme/tax"]);
     expect(settings).toEqual([]);
   });
 });

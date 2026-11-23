@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { MothershipConfigError } from "@/lib/mothership/admin-credentials";
 import { startFakeStack, type FakeStack } from "@/test/fake-stack";
 import { brandProblem } from "@/test/strut-brand";
-import { BrandUnsupportedError, embedUrl, getAppUsage, getAppVersions, getBrand, health, listApps, putBrand, setAppLive, setAppPinned, StrutHttpError } from "./client";
+import { BrandUnsupportedError, embedUrl, getAppUsage, getAppVersions, getBrand, health, listApps, putBrand, setAppLive, StrutHttpError } from "./client";
 
 let fake: FakeStack;
 const saved = { ...process.env };
@@ -115,7 +115,7 @@ describe("embedUrl", () => {
 });
 
 describe("listApps", () => {
-  it("reads GET /apps with the key: name, title, description, pinned, admin", async () => {
+  it("reads GET /apps with the key: name, title, description, admin", async () => {
     configure();
     const apps = await listApps();
     expect(fake.state.requests).toContain("GET /strut/apps");
@@ -124,7 +124,7 @@ describe("listApps", () => {
     expect(apps[1]).toEqual({ name: "strut/jamie", title: "Jamie", description: "Jamie, the person's assistant.", activeVersion: "v1" });
   });
 
-  it("falls back to the name for a title, and keeps pinned only when true", async () => {
+  it("falls back to the name for a title, and leaves strut's pin out: the rail is stadeum's", async () => {
     configure();
     const saved = fake.state.apps;
     fake.state.apps = [
@@ -134,7 +134,7 @@ describe("listApps", () => {
     try {
       expect(await listApps()).toEqual([
         { name: "acme/books", title: "Books", activeVersion: "v1" },
-        { name: "acme/legal", title: "acme/legal", activeVersion: "v1", pinned: true },
+        { name: "acme/legal", title: "acme/legal", activeVersion: "v1" },
       ]);
     } finally {
       fake.state.apps = saved;
@@ -188,22 +188,11 @@ describe("an app's versions", () => {
     expect((err as StrutHttpError).status).toBe(409);
     expect((err as StrutHttpError).detail).toBe("release r1 locks workflow tax-run, which no longer exists");
 
-    // A seeded app cannot be held; pinning it holds nothing.
+    // A seeded app cannot be held.
     await expect(setAppLive("strut/jamie", { version: "v1" }, "ada-0f3c")).rejects.toMatchObject({ status: 409, detail: expect.stringMatching(/cannot be held/) });
-    expect(await setAppPinned("strut/jamie", true, "ada-0f3c")).toEqual({ pinned: true, live: "latest" });
-    await setAppPinned("strut/jamie", false, "ada-0f3c");
     expect((await getAppVersions("strut/jamie")).versions.v1?.source).toBe("seed");
 
     await expect(getAppVersions("acme/nope")).rejects.toMatchObject({ status: 404, detail: 'App "acme/nope" not found' });
-  });
-
-  it("pins: an app that follows latest is held at its live version", async () => {
-    configure();
-    fake.publish("acme/books", "Books");
-    expect(await setAppPinned("acme/books", true, "ada-0f3c")).toEqual({ pinned: true, live: "r1" });
-    expect(await getAppVersions("acme/books")).toMatchObject({ pinned: true, live: "r1", active: "v1" });
-    // Unpinning leaves what is live alone.
-    expect(await setAppPinned("acme/books", false, "ada-0f3c")).toEqual({ pinned: false, live: "r1" });
   });
 
   it("reads the last day's warnings", async () => {

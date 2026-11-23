@@ -1,5 +1,6 @@
 import { draftsOf, isHeld, isSeeded } from "@/lib/app-versions";
-import { isOpened, launcherOrder } from "@/lib/apps";
+import { unpinnedApps } from "@/lib/app-pins";
+import { isAssistant, isOpened, launcherOrder } from "@/lib/apps";
 import {
   getAppUsage,
   getAppVersions,
@@ -25,27 +26,24 @@ export interface ManagedApp {
   live: string;
   held: boolean;
   drafts: number;
+  /** In the rail (`./app-pins.ts`): stadeum's, not strut's pin. */
   pinned: boolean;
   /** The live version's usage warnings in the last day. */
   warnings: number;
-  /** Strut makes its committed version live at every start: read-only here, but for an admin-only app's pin. */
+  /** Strut makes its committed version live at every start: read-only here, but for the pin. */
   seeded: boolean;
-  /** An admin's app alone (§14.14): pinned, it is in an admin's rail, else among the organisation's pages. */
+  /** An admin's app alone (§14.14): pinned, it is in an admin's rail alone. */
   admin: boolean;
 }
 
-/**
- * Whether the admin may pin the app here. A seeded app is read-only, but
- * an admin-only one still takes a pin: it decides whether the app is in
- * an admin's rail, and pinning a seeded app holds nothing.
- */
-export const canPin = (app: Pick<ManagedApp, "seeded" | "admin">) => !app.seeded || app.admin;
+/** Whether the admin may pin the app to the rail: any app but the assistant, which is the home. */
+export const canPin = (app: Pick<ManagedApp, "name">) => !isAssistant(app.name);
 
 /** The admin page for one app's versions; `version` frames that one. */
 export const versionsHref = (name: string, version?: string) =>
   `/apps/${encodeURIComponent(name)}/versions${version ? `/${encodeURIComponent(version)}` : ""}`;
 
-function managed(app: StrutApp, v: StrutAppVersions): ManagedApp {
+function managed(app: StrutApp, v: StrutAppVersions, unpinned: ReadonlySet<string>): ManagedApp {
   return {
     name: app.name,
     title: app.title,
@@ -53,7 +51,7 @@ function managed(app: StrutApp, v: StrutAppVersions): ManagedApp {
     live: v.live,
     held: isHeld(v.live),
     drafts: draftsOf(v),
-    pinned: !!app.pinned,
+    pinned: !unpinned.has(app.name),
     warnings: app.warnings ?? 0,
     seeded: isSeeded(v),
     admin: !!app.admin,
@@ -63,8 +61,8 @@ function managed(app: StrutApp, v: StrutAppVersions): ManagedApp {
 /** Every app a person opens, in the launcher's order. Throws when strut does not answer. */
 export async function managedApps(): Promise<ManagedApp[]> {
   const apps = launcherOrder(await listApps());
-  const versions = await Promise.all(apps.map((a) => getAppVersions(a.name)));
-  return apps.map((a, i) => managed(a, versions[i]!));
+  const [versions, unpinned] = await Promise.all([Promise.all(apps.map((a) => getAppVersions(a.name))), unpinnedApps()]);
+  return apps.map((a, i) => managed(a, versions[i]!, unpinned));
 }
 
 /** One app with its versions and the last day's warnings; null when strut lists no such app a person opens. */
@@ -74,6 +72,6 @@ export async function managedApp(
   if (!isOpened(name)) return null;
   const app = (await listApps()).find((a) => a.name === name);
   if (!app) return null;
-  const [versions, usage] = await Promise.all([getAppVersions(name), getAppUsage(name)]);
-  return { app: managed(app, versions), versions, usage: usage.warnings };
+  const [versions, usage, unpinned] = await Promise.all([getAppVersions(name), getAppUsage(name), unpinnedApps()]);
+  return { app: managed(app, versions, unpinned), versions, usage: usage.warnings };
 }

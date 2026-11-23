@@ -109,21 +109,12 @@ export const liveLabel = (active: string, live: string | undefined): string =>
   isHeld(live) ? `Holding ${active}` : "Every publish goes live";
 
 /**
- * What pinning does here: stadeum lists pinned apps right after Jamie
- * (strut's "tab"), an admin-only app in an admin's rail only once pinned,
- * and pinning an app that follows latest also holds it at its live
- * version, a seeded one excepted (`PUT /apps/:name/pin`, strut's Tab
- * toggle wording).
+ * What pinning does here: a pinned app is in the rail, an admin-only one
+ * in an admin's alone; unpinned, it is out of everyone's rail and sits
+ * among the organisation's pages, for admins. Stadeum's: what is live
+ * never moves.
  */
-export function pinNote(app: { pinned: boolean; active: string; live?: string; seeded: boolean; admin: boolean }): string {
-  if (app.pinned) {
-    const back = app.admin
-      ? "Admins find the app among the organisation's pages again."
-      : "Everyone sees the app among the others again, by title.";
-    return `${back} What is live stays as it is.`;
-  }
-  const to = app.admin ? "Admins see the app in their apps, near the top" : "Everyone sees the app pinned near the top of their apps";
-  return isHeld(app.live) || app.seeded
-    ? `${to}.`
-    : `${to}, and it stays at ${app.active}: later publishes wait as drafts until you make one live.`;
+export function pinNote(app: { pinned: boolean; admin: boolean }): string {
+  if (app.pinned) return `The app leaves ${app.admin ? "admins'" : "everyone's"} rail. Admins find it among the organisation's pages.`;
+  return app.admin ? "Admins see the app in their rail." : "Everyone sees the app in their rail.";
 }
