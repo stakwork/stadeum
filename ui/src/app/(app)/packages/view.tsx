@@ -376,7 +376,7 @@ function InstalledList({ installed, secretsKnown, followed }: { installed: Insta
                 </div>
               ) : boxSecrets(p).length > 0 ? (
                 <p className="text-[13px] text-ink-3">
-                  {secretsKnown ? "Its keys are set: " : "Strut couldn’t say which of its keys are set: "}
+                  {secretsKnown || p.missing ? "Its keys are set: " : "Strut couldn’t say which of its keys are set: "}
                   <span className="font-mono">{boxSecrets(p).join(", ")}</span>
                 </p>
               ) : null}

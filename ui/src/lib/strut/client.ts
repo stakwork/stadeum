@@ -267,6 +267,13 @@ export interface InstalledPackage {
   optional?: string[];
   /** Its `strut.yaml`'s `provides.secrets`: those its own steps manage, a person's own value among them. */
   provides?: { secrets: string[] };
+  /**
+   * The secrets it requires that strut has no value for, read as strut's own
+   * gate reads them: its store, then its environment (where a box's
+   * `PODS_URL` and `PODS_TOKEN` are). Absent from a strut that doesn't say,
+   * and for a package that reads no secret.
+   */
+  missing?: { secrets: string[] };
   /** `distro`: the box's distro wrote it, and only the distro updates or removes it. */
   door?: "install" | "distro";
   items: InstalledPackageItem[];
