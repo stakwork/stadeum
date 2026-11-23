@@ -39,7 +39,7 @@ export function standardServices(): Record<string, FakeService> {
     caddy: { ...always, image: "caddy:2.11.8-alpine", volumes: [{ type: "bind", source: "./caddy/Caddyfile", target: "/etc/caddy/Caddyfile" }] },
     neo4j: { ...always, image: "neo4j:5.26.32", labels: { "stadeum.ops.backup": "stop", "stadeum.ops.upgrade": "confirm" } },
     redis: { ...always, image: "redis:7.4.2-alpine", labels: { "stadeum.ops.backup": "stop" } },
-    bifrost: { ...always, image: "ghcr.io/stakwork/mothership:v0.6.0", labels: { "stadeum.ops.backup": "stop" } },
+    bifrost: { ...always, image: "ghcr.io/stakwork/mothership:v0.5.0", labels: { "stadeum.ops.backup": "stop" } },
     "strut-browser": { ...always, image: "ghcr.io/stakwork/strut-browser:stable", labels: { "stadeum.ops.update": "strut" } },
     strut: { ...always, image: "ghcr.io/stakwork/strut:stable", labels: { "stadeum.ops.update": "strut", "stadeum.ops.backup": "stop" } },
     bootstrap: { restart: "no", image: "node:22.20.0-alpine", volumes: [{ type: "bind", source: "./bootstrap", target: "/bootstrap" }] },

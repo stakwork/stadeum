@@ -15,7 +15,7 @@ but maple (`ui/src/lib/status.ts`, `SERVICES`).
 | `caddy` | `caddy:2.11.8-alpine` | TLS and routing, the only published ports: `$HOST` → stadeum-ui, `strut.$HOST` → strut | None (stadeum-ui never calls it) |
 | `neo4j` | `neo4j:5.26.32` | The graph: strut's workflows, steps and knowledge graph; bifrost's agent catalog | `GET {NEO4J_HTTP_URL}/` |
 | `redis` | `redis:7.4.2-alpine` | bifrost's plugin state | None (stadeum-ui never calls it) |
-| `bifrost` | `ghcr.io/stakwork/mothership:v0.6.0` | Model gateway: provider keys, a virtual key and a cap per person, the price table; accepts only macaroon v2 | `/_plugin/trust/status` |
+| `bifrost` | `ghcr.io/stakwork/mothership:v0.5.0` | Model gateway: provider keys, a virtual key and a cap per person, the price table; accepts only macaroon v2 | `/_plugin/trust/status` |
 | `maple` | `ghcr.io/mapleprivacylabs/maple-proxy:0.4.5` | Maple's inference proxy: encrypts each request to Maple's enclave. The gateway's `maple` provider | None (stadeum-ui never calls it) |
 | `strut-browser` | `ghcr.io/stakwork/strut-browser:stable` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
 | `strut` | `ghcr.io/stakwork/strut:stable` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
@@ -123,13 +123,14 @@ checked".
   private. Only bifrost uses it (`BIFROST_PLUGIN_REDIS_URL`).
 
 ### bifrost (mothership / LLM gateway)
-- `ghcr.io/stakwork/mothership:${MOTHERSHIP_TAG:-v0.6.0}`, amd64 + arm64,
+- `ghcr.io/stakwork/mothership:${MOTHERSHIP_TAG:-v0.5.0}`, amd64 + arm64,
   port 8181 (a wrapper that proxies to bifrost-http on 127.0.0.1:8080). Do
   NOT set `APP_PORT`/`APP_HOST`. Its tags are stakwork/mothership's
   releases: the gateway left stakgraph for its own repository (its image
   was `ghcr.io/stakwork/stakgraph-gateway`, last pinned at `v0.4.399`).
-  `v0.6.0` runs Bifrost v2.6.0 and accepts only macaroon v2
-  (stakwork/mothership#2; `docs/mothership-spec.md`, d). A release that
+  `v0.5.0` (stakwork/mothership `628da7d`) runs Bifrost v2.6.0 and
+  accepts only macaroon v2 (stakwork/mothership#2;
+  `docs/mothership-spec.md`, d). A release that
   changes the pin moves it (`MOTHERSHIP_TAG` in `.env` pins a box's; the
   old `BIFROST_TAG` is no longer read).
 - Moving to it is one-way on two counts. Bifrost migrates `config.db` and

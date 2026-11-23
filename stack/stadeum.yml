@@ -130,13 +130,13 @@ services:
     <<: *common
     # PINNED: the gateway moves with a stadeum release that changes this
     # pin (its version tags are stakwork/mothership's releases; before
-    # v0.6.0 it was stakgraph's `stakgraph-gateway` image, whose pin was
-    # BIFROST_TAG). v0.6.0 is published for amd64 and arm64, runs Bifrost
+    # v0.5.0 it was stakgraph's `stakgraph-gateway` image, whose pin was
+    # BIFROST_TAG). v0.5.0 is published for amd64 and arm64, runs Bifrost
     # v2.6.0, and accepts only macaroon v2 (the signed block chain
     # stadeum-ui mints: docs/mothership-spec.md). It keeps the runtime price
     # table (`PUT /_plugin/pricing`) stadeum-ui keeps Maple's, Numes' and
     # added providers' prices in (docs/models.md).
-    image: ghcr.io/stakwork/mothership:${MOTHERSHIP_TAG:-v0.6.0}
+    image: ghcr.io/stakwork/mothership:${MOTHERSHIP_TAG:-v0.5.0}
     labels:
       stadeum.ops.backup: stop
     depends_on:
