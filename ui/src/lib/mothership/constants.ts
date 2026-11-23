@@ -83,17 +83,17 @@ export const DEFAULT_REVOCATION_POLL_SECONDS = 60;
 /** Macaroon org_id = `stadeum_<STADEUM_ORG_SLUG>`. */
 export const MACAROON_ORG_ID_PREFIX = "stadeum_";
 
-/** The agent the standing invocation authorizes. */
+/** The agent the delegation hands its run to (block 1's `agent`, in block 0's `agents`). */
 export const STRUT_DELEGATION_AGENT = "strut-agent";
 
 /** Agents seeded into the gateway's catalog (best-effort). */
 export const AGENT_CATALOG_SOURCE = "stadeum";
 export const AGENT_CATALOG_AGENTS = ["strut-agent", "strut-assistant"];
 
-/** Cumulative per-person cap on everything spent through Strut. */
+/** Cumulative per-person cap on everything spent through Strut (block 1's `max_cost_usd`). */
 export const STRUT_DELEGATION_DEFAULT_MAX_COST_USD = 10_000;
 
-/** Lifetime of the standing invocation and its UA: 60 days. */
+/** Lifetime of the delegation, both its blocks: 60 days. */
 export const STRUT_DELEGATION_TTL_SECONDS = 60 * 24 * 60 * 60;
 
 /** Re-mint a delegation this close to its expiry. */

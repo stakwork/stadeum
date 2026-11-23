@@ -85,9 +85,11 @@ export async function health(timeoutMs?: number): Promise<StrutHealth> {
 
 export interface DelegationSummary {
   actor: string;
-  /** RFC 3339; the earlier of the UA's and the invocation's expiry. */
+  /** RFC 3339; the earliest expiry in the chain. */
   exp: string;
   delegationId: string;
+  /** The macaroon's version. A strut from before macaroon v2 reports none: read that as 1. */
+  v?: number;
 }
 
 const isSummary = (d: unknown): d is DelegationSummary =>

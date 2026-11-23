@@ -14,7 +14,7 @@ work on it. Read the rules before adding anything.
 | --- | --- | --- |
 | **strut** (`ghcr.io/stakwork/strut`) | The product: workflows, apps, the assistant, jobs, the graph's contents, packages | Holds the org signing key or the Docker socket |
 | **neo4j** | The graph strut keeps | Updated by anything but a person |
-| **bifrost** + **redis** (`ghcr.io/stakwork/stakgraph-gateway`) | Every model call: provider keys, a virtual key and a cap per person | Lets a call through without a valid delegation |
+| **bifrost** + **redis** (`ghcr.io/stakwork/mothership`) | Every model call: provider keys, a virtual key and a cap per person | Lets a call through without a valid delegation |
 | **voice** (`sphinxlightning/sphinx-voice`) | A person's voice call with the assistant: the LiveKit room, the agent in it, each turn run through strut as the person | Has a published port, holds the org key or the Docker socket, or keeps what was said: strut's conversation does |
 | **treasury** (`ghcr.io/stakwork/sphinx-daemon`) | The Lightning wallet strut sells through, the "Support" contact workers DM, and "Jamie" in the tribes people link from Peel: an account of its own, its seed, the payments it took, the messages and each `@jamie`, handed to strut with its host key, and the replies strut posts back | Has a published port, answers anyone but strut, or runs beside another box on the same account |
 | **stadeum-ui** (`ui/`) | Who people are (sign-in, members, roles), the org signing key's use, each person's delegation, the admin pages, the Calls page | Draws an app, or knows what a workflow or document is |
