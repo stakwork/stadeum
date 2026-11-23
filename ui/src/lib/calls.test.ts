@@ -42,12 +42,12 @@ describe("readCallAnswer", () => {
     for (const encrypted of [false, undefined, "true"]) {
       const read = readCallAnswer(answer({ encrypted }));
       expect(read.ok).toBe(false);
-      expect(!read.ok && read.error).toMatch(/encrypted/);
+      expect(!read.ok && read.error).toMatch(/voice service/);
     }
   });
 
   it("refuses a token for another room, and an answer it cannot read", () => {
-    expect(readCallAnswer(answer({ token: livekitToken(DEV_LIVEKIT, "a1b2", "elsewhere") }))).toEqual({ ok: false, error: "The call’s token is not for the room it named." });
+    expect(readCallAnswer(answer({ token: livekitToken(DEV_LIVEKIT, "a1b2", "elsewhere") }))).toEqual({ ok: false, error: "The call couldn’t start." });
     expect(readCallAnswer(answer({ identity: "has space" })).ok).toBe(false);
     expect(readCallAnswer(answer({ token: 7 })).ok).toBe(false);
     expect(readCallAnswer(null).ok).toBe(false);
@@ -84,7 +84,7 @@ describe("tokenRoom", () => {
 
 describe("refusalMessage", () => {
   it("says a 402's balance and minimum", () => {
-    expect(refusalMessage(402, { error: "low", balance: 1200, minimum: 5000 })).toBe("Not enough sats to talk: you have 1,200 sats, and a call needs 5,000.");
+    expect(refusalMessage(402, { error: "low", balance: 1200, minimum: 5000 })).toBe("Not enough sats: you have 1,200, a call needs 5,000.");
     expect(refusalMessage(402, { error: "out of credit" })).toBe("Not enough credit to talk: out of credit");
   });
 

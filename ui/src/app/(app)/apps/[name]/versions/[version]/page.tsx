@@ -41,8 +41,8 @@ export default async function ViewVersionPage({ params }: Params) {
     <>
       <p className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-rule bg-raised px-4 py-2 text-[13px] text-ink-2 md:px-6">
         <span>
-          Viewing <strong className="font-medium text-ink">{version}</strong> of {app.title}, for you alone.{" "}
-          {version === versions.active ? "It is what everyone gets." : `Everyone else gets ${versions.active}.`}
+          Viewing <strong className="font-medium text-ink">{version}</strong> of {app.title}. Only you see it.{" "}
+          {version === versions.active ? "Everyone has this version." : `Everyone else has ${versions.active}.`}
         </span>
         <Link href={versionsHref(name)} className="font-medium text-ink underline decoration-rule-strong underline-offset-4 hover:decoration-ink">
           Back to versions

@@ -59,7 +59,7 @@ describe("the connect seam's confirm page", () => {
 
   it("says an install installs the app too", async () => {
     const html = await page({ install: "1" });
-    expect(html).toContain("install your team’s app on an organisation or account you pick");
+    expect(html).toContain("will also ask where to install the app");
     expect(action(html)).toBe("/api/connect/github?install=1");
   });
 

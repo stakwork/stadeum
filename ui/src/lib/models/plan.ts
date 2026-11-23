@@ -122,7 +122,7 @@ export function parseModelsForm(
   if (!models.includes(defaultModel)) return { error: "Choose the default from the allowed models." };
   const kept = Object.fromEntries(Object.entries(prices).filter(([n]) => models.includes(n)));
   const [pin, pout] = [parsePrice(input.otherInput ?? ""), parsePrice(input.otherOutput ?? "")];
-  if (pin === "bad" || pout === "bad") return { error: "A price is dollars per million tokens: a number, 0 for free." };
+  if (pin === "bad" || pout === "bad") return { error: "Enter a price in dollars per million tokens (0 for free)." };
   if (other && (pin !== null || pout !== null)) {
     if (pin === null || pout === null) return { error: "Give both prices, input and output, or neither." };
     kept[other] = { input: pin, output: pout };

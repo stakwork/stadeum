@@ -74,7 +74,7 @@ export async function findPackages(q: string): Promise<FindResult> {
     return await searchPackages(typeof q === "string" ? q.trim().slice(0, 200) : "");
   } catch (err) {
     console.warn(`[packages] search failed: ${err instanceof Error ? err.message : String(err)}`);
-    return { error: "Strut isn’t answering, so the indexes can’t be searched right now." };
+    return { error: "Strut isn’t answering." };
   }
 }
 
@@ -116,14 +116,14 @@ export async function installProgress(id: string): Promise<ProgressOutcome> {
   try {
     const install = await getPackageInstall(id);
     if (!install) {
-      return { error: "Strut no longer knows this install: it restarted, or the install ended over an hour ago. The Installed list shows what landed.", retry: false };
+      return { error: "This install is no longer tracked. Check the Installed list.", retry: false };
     }
     const watch = installWatch(install);
     if (watch.status === "done") changed();
     return watch;
   } catch (err) {
     console.warn(`[packages] install ${id}: ${err instanceof Error ? err.message : String(err)}`);
-    return { error: "Strut isn’t answering just now. Still trying.", retry: true };
+    return { error: "Strut isn’t answering. Still trying.", retry: true };
   }
 }
 
@@ -154,7 +154,7 @@ export async function followIndex(key: string, url: string): Promise<FollowOutco
   await requireAdmin();
   key = typeof key === "string" ? key.trim() : "";
   url = typeof url === "string" ? url.trim() : "";
-  if (!Z32_KEY_RE.test(key)) return { error: "The key is 52 characters of z-base-32, as the index shows it." };
+  if (!Z32_KEY_RE.test(key)) return { error: "That key isn’t valid. Copy it exactly from the index." };
   if (!/^https?:\/\/\S+$/.test(url)) return { error: "Give the address its card is served at, starting https://." };
   const id = indexIdOf(url);
   try {
@@ -162,7 +162,7 @@ export async function followIndex(key: string, url: string): Promise<FollowOutco
     const same = followed.find((i) => i.key === key);
     if (same) return { index: same };
     if (followed.some((i) => i.id === id)) {
-      return { error: `You already follow an index at ${hostOf(url)} under another key. Remove that one first if you mean to replace it.` };
+      return { error: `You already follow an index at ${hostOf(url)} with a different key. Remove it first.` };
     }
     const index = await followPackageIndex(id, { key, urls: [url], label: hostOf(url) });
     revalidatePath("/packages");
@@ -201,7 +201,7 @@ export async function setSecret(name: string, value: string): Promise<{ error?: 
   if (value.length > 64 * 1024) return { error: "That is longer than any key." };
   try {
     const [installed, followed] = await Promise.all([listPackages(), listPackageSubscriptions().catch(() => [])]);
-    if (typeof name !== "string" || !settableSecret(name, installed, followed)) return { error: "No package installed here needs that secret set for the whole team." };
+    if (typeof name !== "string" || !settableSecret(name, installed, followed)) return { error: "No installed package needs that key." };
     await putDeploymentSetting(name, value);
     for (const s of followed.filter((f) => f.waiting?.secrets.includes(name))) readInBackground(s.id);
   } catch (err) {
@@ -247,11 +247,11 @@ export async function followRepository(raw: string): Promise<FollowRepoOutcome> 
   const me = await requireAdmin();
   const r = parseRepositoryRef(raw);
   if ("error" in r) return { error: r.error };
-  if (r.commit) return { error: "A commit never moves, so there is nothing to keep up to date. Name a branch, or turn Keep it up to date off to install that commit once." };
+  if (r.commit) return { error: "A commit can’t be kept up to date. Name a branch, or turn off Keep it up to date." };
   try {
     const found = followingFrom(await listPackageSubscriptions(), r.ref);
     if (found?.part) {
-      return { error: `That’s followed already, as part of ${followedFrom(found.sub)}, which keeps it up to date. To follow it on its own, stop following that first.` };
+      return { error: `It’s already part of ${followedFrom(found.sub)}.` };
     }
     const same = found?.sub;
     const sub = await followPackageRef(same?.id ?? subscriptionIdOf(r), r.ref, me.actor);
@@ -285,7 +285,7 @@ export async function installFromRepository(raw: string): Promise<InstallOutcome
 /** Check now: strut reads it again (`POST /packages/subscriptions/:id/sync`) behind the answer. `before`: when it was last read. */
 export async function checkFollowed(id: string): Promise<{ before?: string; error?: never } | Failed> {
   await requireAdmin();
-  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t something followed here." };
+  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t followed." };
   try {
     const sub = (await listPackageSubscriptions()).find((s) => s.id === id);
     if (!sub) return { error: "That isn’t followed any more." };
@@ -307,7 +307,7 @@ export type FollowedProgress = { followed: Followed | null; install?: InstallWat
  */
 export async function followedProgress(id: string, before?: string): Promise<FollowedProgress> {
   const me = await requireAdmin();
-  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t something followed here.", retry: false };
+  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t followed.", retry: false };
   try {
     const [subs, installs] = await Promise.all([listPackageSubscriptions(), listPackageInstalls()]);
     const sub = subs.find((s) => s.id === id);
@@ -318,7 +318,7 @@ export async function followedProgress(id: string, before?: string): Promise<Fol
     return { followed: followed!, ...(running ? { install: installWatch(running) } : {}) };
   } catch (err) {
     console.warn(`[packages] reading ${id}: ${err instanceof Error ? err.message : String(err)}`);
-    return { error: "Strut isn’t answering just now. Still trying.", retry: true };
+    return { error: "Strut isn’t answering. Still trying.", retry: true };
   }
 }
 
@@ -332,7 +332,7 @@ export async function followedProgress(id: string, before?: string): Promise<Fol
  */
 export async function unfollow(id: string): Promise<{ uninstalled: string[]; error?: never } | (Failed & { uninstalled?: never })> {
   await requireAdmin();
-  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t something followed here." };
+  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t followed." };
   try {
     const r = await unfollowPackageSubscription(id);
     changed();

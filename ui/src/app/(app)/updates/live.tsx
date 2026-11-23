@@ -124,7 +124,7 @@ export function AskButtons() {
           className={buttonClass.secondary}
           busy={check ? (check.state === "working" ? "Checking…" : "Check requested") : undefined}
           disabled={!!update}
-          title={update && !check ? "Update now checks the channels too." : undefined}
+          title={update && !check ? "Update now checks too." : undefined}
         >
           Check now
         </Ask>
@@ -157,7 +157,7 @@ export function NowPanel() {
     <div aria-live="polite" className="flex flex-col gap-4 [&>*+*]:border-t [&>*+*]:border-rule-soft [&>*+*]:pt-4">
       {/* While a request is open, its block says what ops is doing. */}
       {unreachable && (
-        <p className="text-[13px] text-ink-3">stadeum-ui is not answering: a release restarts it. The page tries again every few seconds.</p>
+        <p className="text-[13px] text-ink-3">Restarting for an update. Trying again…</p>
       )}
       {!busy && <OpsNow report={h ? { status: { phase: h.phase, ...(h.detail ? { detail: h.detail } : {}) }, reportedAt: h.at } : null} asked={now.asked} />}
       {now.requests.map((r) => (

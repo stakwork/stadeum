@@ -63,11 +63,10 @@ export default async function UpdatesPage() {
           </h2>
           <p className="text-[14.5px] text-ink-2">
             {release?.available ? <>Release {shortImage(release.available)} </> : <>The next release </>}
-            upgrades {upgrade(held)}. A store a newer Neo4j wrote cannot be opened by the older one, so this cannot be undone. ops
-            takes a fresh backup first, then applies the release. Nothing in it moves until you confirm.
+            upgrades {upgrade(held)}. This can&rsquo;t be undone, so a backup is taken first.
           </p>
           {confirming ? (
-            <p className="text-[14px] text-ink-2">Confirmed: ops backs up, then upgrades, within half a minute.</p>
+            <p className="text-[14px] text-ink-2">Confirmed. Backing up, then upgrading.</p>
           ) : forOps.backups ? (
             <form action={confirmRelease}>
               <input type="hidden" name="target" value={held.map((h) => h.to).join(",")} />
@@ -77,11 +76,11 @@ export default async function UpdatesPage() {
             </form>
           ) : (
             <p className="text-[14px] text-ink-2">
-              It needs a backup first, and none is set up: pick a destination on{" "}
+              Set up{" "}
               <Link href="/backups" className="text-accent underline underline-offset-2">
-                Backups
-              </Link>
-              , then come back here.
+                backups
+              </Link>{" "}
+              first.
             </p>
           )}
         </section>
@@ -101,11 +100,10 @@ export default async function UpdatesPage() {
             )}{" "}
             {checkedAt ? (
               <>
-                Asked the registries what the channels name <time title={absoluteTime(checkedAt)}>{relativeTime(checkedAt)}</time>; ops asks every 10
-                minutes.
+                Checked for updates <time title={absoluteTime(checkedAt)}>{relativeTime(checkedAt)}</time>.
               </>
             ) : (
-              "ops has not asked the registries yet."
+              "Not checked for updates yet."
             )}
           </p>
         </div>
@@ -116,7 +114,7 @@ export default async function UpdatesPage() {
       <section aria-labelledby="images" className="flex flex-col gap-3">
         <SectionLabel id="images">Images</SectionLabel>
         {services.length === 0 ? (
-          <p className="text-[14px] text-ink-3">ops lists the images once it reports.</p>
+          <p className="text-[14px] text-ink-3">Waiting for ops.</p>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-rule bg-surface">
             <table className="w-full min-w-[620px] border-collapse text-[14px]">
@@ -140,8 +138,7 @@ export default async function UpdatesPage() {
                 {pinned.length > 0 && (
                   <tr className="border-t border-rule-soft">
                     <td colSpan={3} className="px-5 pt-5 pb-1 text-[12px] text-ink-3">
-                      Pinned in the release&apos;s stack files: each moves when a release changes its pin, and Neo4j only when you
-                      confirm it. To pin one yourself, set its image in <code className="font-mono">stack/local.yml</code>.
+                      Updated with each release. Neo4j waits for you to confirm. To pin one yourself, set its image in <code className="font-mono">stack/local.yml</code>.
                     </td>
                   </tr>
                 )}
@@ -216,10 +213,9 @@ function Release({ release, held }: { release: ReleaseStatus; held: boolean }) {
       <SectionLabel id="release">Release</SectionLabel>
       <div className="flex flex-col gap-3 rounded-[14px] border border-rule bg-surface p-5 text-[14px] md:p-6">
         <p className="text-ink-2">
-          Running release <code className="font-mono text-[13px] text-ink">{shortImage(release.running)}</code>: ops&apos;s image, with
-          stadeum-ui&apos;s and the stack files they run with. Your own changes go in{" "}
-          <code className="font-mono text-[13px]">stack/local.yml</code> and <code className="font-mono text-[13px]">.env</code>, which a
-          release never touches.
+          Running release <code className="font-mono text-[13px] text-ink">{shortImage(release.running)}</code>. Put your own changes in{" "}
+          <code className="font-mono text-[13px]">stack/local.yml</code> and <code className="font-mono text-[13px]">.env</code>: releases never
+          touch them.
         </p>
         {release.available && (
           <div className="flex flex-col gap-1.5">
@@ -251,7 +247,7 @@ function Release({ release, held }: { release: ReleaseStatus; held: boolean }) {
             </span>
           </div>
         )}
-        {release.problem && <Dot tone="attention" label={`Could not read the channel's release: ${release.problem}`} />}
+        {release.problem && <Dot tone="attention" label={`Couldn’t check for a release: ${release.problem}`} />}
       </div>
     </section>
   );

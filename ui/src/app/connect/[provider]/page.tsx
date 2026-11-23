@@ -47,7 +47,7 @@ export default async function ConnectPage({ params, searchParams }: { params: Pr
           </p>
           {checked.ask.install && (
             <p className="text-[15px] text-ink-2">
-              {p.name} will also install your team&rsquo;s app on an organisation or account you pick.
+              {p.name} will also ask where to install the app.
             </p>
           )}
           <form method="post" action={`/api/connect/${p.id}?${q}`} className="mt-2">

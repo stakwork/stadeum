@@ -188,7 +188,7 @@ export async function setProviderKey(id: string, value: string, client?: Bifrost
   if (isGiven(id)) throw new Error(GIVEN_REFUSAL);
   const c = client ?? (await governanceClient());
   const shape = await shapeOf(c, id);
-  if (!shape) throw new Error("That is not a provider stadeum offers.");
+  if (!shape) throw new Error("Unknown provider.");
   if (shape.kind === "known") await ensureCustomProvider(c, shape.id, shape.baseUrl!);
   return writeKey(c, shape, value);
 }
@@ -196,7 +196,7 @@ export async function setProviderKey(id: string, value: string, client?: Bifrost
 /** A name an Other provider may take: aieo's rule for a gateway provider (strut src/aieo/resolve.ts), not one taken. */
 export function otherNameProblem(name: string): string | undefined {
   if (!/^[a-z0-9]+([._-][a-z0-9]+)*$/.test(name) || name.length > 40) {
-    return "Name it in lowercase letters and digits, with - _ or . between words: it starts every model's name.";
+    return "Use lowercase letters, digits, and - _ or . only.";
   }
   if (RESERVED_PROVIDER_NAMES.has(name)) return `“${name}” is taken: pick another name.`;
   return undefined;
@@ -230,7 +230,7 @@ export async function addOtherProvider(name: string, baseUrl: string, value: str
 export async function checkProviderKey(id: string, client?: BifrostClient): Promise<ProviderState> {
   const c = client ?? (await governanceClient());
   const shape = await shapeOf(c, id);
-  if (!shape) throw new Error("That is not a provider stadeum offers.");
+  if (!shape) throw new Error("Unknown provider.");
   const keys = await keysOf(c, id);
   const set = keys?.find((k) => previewOf(k));
   if (!keys || !set) return stateOf(shape, keys ?? (shape.kind === "known" ? [] : null));
@@ -246,7 +246,7 @@ export async function removeProviderKey(id: string, client?: BifrostClient): Pro
   if (isGiven(id)) throw new Error(GIVEN_REFUSAL);
   const c = client ?? (await governanceClient());
   const shape = await shapeOf(c, id);
-  if (!shape) throw new Error("That is not a provider stadeum offers.");
+  if (!shape) throw new Error("Unknown provider.");
   if (shape.kind !== "builtin") {
     if ((await keysOf(c, id)) !== null) await c.deleteProvider(id);
     return;

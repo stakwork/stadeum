@@ -195,12 +195,12 @@ export async function joinCallRoom(answer: CallAnswer, key: string, assistant: s
       micMeter = createAudioAnalyser(pub.audioTrack, { smoothingTimeConstant: 0.5 });
     })
     .on(RoomEvent.AudioPlaybackStatusChanged, () => {
-      on.notice("audio", room.canPlaybackAudio ? null : `Your browser held ${assistant}’s voice back.`);
+      on.notice("audio", room.canPlaybackAudio ? null : `Your browser blocked ${assistant}’s voice.`);
     })
     // A key that doesn't match fails here, while the agent's state, over
     // LiveKit's signaling, would still say Speaking over silence.
     .on(RoomEvent.EncryptionError, (_err: Error, p?: Participant) => {
-      on.notice("encryption", `This call’s encryption failed: ${p && isLocalParticipant(p) ? `${assistant} can’t hear you` : `${assistant} can’t be heard`}.`);
+      on.notice("encryption", `Encryption failed: ${p && isLocalParticipant(p) ? `${assistant} can’t hear you` : `${assistant} can’t be heard`}.`);
     });
 
   async function setMicrophone(enable: boolean) {

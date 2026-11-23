@@ -149,7 +149,7 @@ export function readAsk(p: Connectable, q: URLSearchParams): AskCheck {
   if (!back) return { ok: false, status: 400, message: "The page to come back to is not on this site." };
   const scopes = askedScopes(p, q.get("scope"));
   if (!scopes) {
-    const message = p.scopes.length ? `A scope asked for is not one of ${p.scopes.join(", ")}.` : `${p.name} takes no scope here.`;
+    const message = p.scopes.length ? "A requested permission isn’t allowed." : `${p.name} takes no scope here.`;
     return { ok: false, status: 400, message, back };
   }
   const install = q.get("install") === "1";

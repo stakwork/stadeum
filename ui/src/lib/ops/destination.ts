@@ -80,7 +80,7 @@ export const DESTINATIONS: Record<Kind, DestinationKind> = {
   },
   local: {
     label: "A folder on this server",
-    hint: "For trying backups out, or a disk mounted at backups/ beside the checkout. It is lost with the server.",
+    hint: "For testing. It’s lost if the server is.",
     fields: [{ name: "path", label: "Folder", placeholder: "/backups/stadeum", hint: "Under /backups (the checkout's backups/ folder)" }],
   },
 };

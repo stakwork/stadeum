@@ -163,7 +163,7 @@ describe("GET /api/connect/:provider/callback", () => {
     fake.state.down.strut = true;
     const res = await land(back);
     expect(res.status).toBe(502);
-    expect(await res.text()).toContain("Strut did not keep");
+    expect(await res.text()).toContain("The token couldn’t be saved");
     const logged = warn.mock.calls.flat().join(" ");
     expect(logged).not.toContain(fake.state.github.tokens.at(-1)!);
     expect(logged).not.toContain(back.searchParams.get("code")!);

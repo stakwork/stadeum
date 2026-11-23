@@ -49,7 +49,7 @@ export default async function PackagesPage({ searchParams }: { searchParams: Pro
       <PageHeader title="Packages" />
       {installed === null || indexes === null ? (
         <p className="rounded-xl border border-dashed border-dash px-5 py-8 text-[14px] text-ink-2">
-          Strut isn’t answering, so its packages can’t be read right now.
+          Strut isn’t answering.
         </p>
       ) : (
         <PackagesView

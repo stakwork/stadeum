@@ -59,7 +59,7 @@ export function BrandForm({ saved: initial }: { saved: StrutBrand }) {
       if (r.error !== undefined) return setNote({ error: r.error });
       setSaved(clean(r.brand));
       setBrand(clean(r.brand));
-      setNote({ ok: Object.keys(r.brand).length ? "Saved." : "Reset to the kit’s own look." });
+      setNote({ ok: Object.keys(r.brand).length ? "Saved." : "Reset to the default look." });
     });
 
   // A radius or font strut holds that is not one of ours stays a choice.
@@ -94,7 +94,7 @@ export function BrandForm({ saved: initial }: { saved: StrutBrand }) {
                 onUse={(color) => set({ color }, "light")}
                 label="Use a deeper shade"
               >
-                This color is pale on a white page, so its buttons can be hard to pick out. A deeper shade reads better:
+                This color is hard to see on white. Try a deeper shade:
               </Suggestion>
             )}
           </Group>
@@ -118,7 +118,7 @@ export function BrandForm({ saved: initial }: { saved: StrutBrand }) {
                       Dark mode uses <ColorWord hex={brand.color} /> too.
                     </>
                   ) : (
-                    "Pick a color above first. Until then dark mode keeps the kit’s light grey."
+                    "Pick a color above first."
                   )}
                 </span>
               </span>
@@ -127,7 +127,7 @@ export function BrandForm({ saved: initial }: { saved: StrutBrand }) {
             {ownDark ? (
               <>
                 <ColorPicker label="Dark mode color" options={DARK} value={brand.colorDark} onChange={(colorDark) => set({ colorDark }, "dark")} />
-                {!brand.color && <p className="text-[13px] text-ink-3">With no color above, the light theme takes this one too.</p>}
+                {!brand.color && <p className="text-[13px] text-ink-3">With no color above, light mode uses this too.</p>}
               </>
             ) : null}
             {darkShown && darkOnDark(darkShown) && (
@@ -136,7 +136,7 @@ export function BrandForm({ saved: initial }: { saved: StrutBrand }) {
                 onUse={(colorDark) => set({ colorDark }, "dark")}
                 label="Use it in dark mode"
               >
-                {colorName(darkShown) ?? "This color"} is hard to see on a dark background. A lighter one reads better there:
+                {colorName(darkShown) ?? "This color"} is hard to see on dark. Try a lighter one:
               </Suggestion>
             )}
           </Group>
@@ -169,7 +169,7 @@ export function BrandForm({ saved: initial }: { saved: StrutBrand }) {
           <Group
             id="brand-font"
             title="Font"
-            hint="Only fonts installed on each person’s machine show: an app loads no web fonts, and each list falls back to the next name."
+            hint="Only fonts installed on each person’s computer show."
           >
             <div role="radiogroup" aria-labelledby="brand-font" className="grid gap-2 @md:grid-cols-2">
               {fonts.map((f) => {
@@ -203,7 +203,7 @@ export function BrandForm({ saved: initial }: { saved: StrutBrand }) {
       <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-[14px] border border-rule bg-surface py-2.5 pr-2.5 pl-5 shadow-soft">
         <p aria-live="polite" className="text-[13px] text-ink-3">
           {confirmReset ? (
-            <span className="text-ink">Reset every app to the kit’s own look?</span>
+            <span className="text-ink">Reset every app to the default look?</span>
           ) : note.error ? (
             <span className="text-warn">{note.error}</span>
           ) : note.ok ? (
@@ -211,7 +211,7 @@ export function BrandForm({ saved: initial }: { saved: StrutBrand }) {
               <span className="text-ok">{note.ok}</span> Open apps pick it up when they reload.
             </>
           ) : dirty ? (
-            <span className="text-ink">Not saved yet: only the preview shows it.</span>
+            <span className="text-ink">Not saved yet.</span>
           ) : (
             <span className="max-sm:hidden">Apps pick up a saved change the next time they load.</span>
           )}
@@ -311,7 +311,7 @@ function ColorPicker({
             data-own-ring
             aria-pressed={!value}
             aria-label="Default"
-            title="Default: the kit’s near-black, light grey in dark mode"
+            title="Default: near-black, light grey in dark mode"
             onClick={() => onChange(undefined)}
             className={`${swatch} ${!value ? ring : ""}`}
             style={{ background: KIT_DEFAULT }}
@@ -355,7 +355,7 @@ function ColorPicker({
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
         <HexField label={label} value={value} onChange={onChange} />
         <span className="text-[14px] text-ink">{named?.name ?? (custom ? "Custom" : "Default")}</span>
-        {value ? <TextOn hex={value} /> : <span className="text-[13px] text-ink-3">The kit’s own: near-black buttons, light grey in dark mode.</span>}
+        {value ? <TextOn hex={value} /> : <span className="text-[13px] text-ink-3">Default: near-black buttons, light grey in dark mode.</span>}
       </div>
     </div>
   );

@@ -17,10 +17,10 @@ export default async function BrandingPage() {
   await requireAdmin();
   const read: { brand: StrutBrand } | { problem: string } = await getBrand().catch((err: unknown) => {
     if (err instanceof BrandUnsupportedError) {
-      return { problem: "Branding needs a newer strut. Once it updates, the brand is set here." };
+      return { problem: "Branding needs a newer version of strut." };
     }
     console.warn(`[branding] GET /brand failed: ${err instanceof Error ? err.message : String(err)}`);
-    return { problem: "Strut isn’t answering, so the brand can’t be read right now." };
+    return { problem: "Strut isn’t answering." };
   });
 
   return (

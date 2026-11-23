@@ -16,7 +16,7 @@ export async function saveBackups(_prev: FormState, form: FormData): Promise<For
   const saved = await saveDestination(kind, values, form.get("enabled") === "on");
   if (!saved.ok) return { error: saved.error };
   revalidatePath("/backups");
-  return { ok: "Saved. ops uses it from its next backup." };
+  return { ok: "Saved. Used from the next backup." };
 }
 
 export async function backUpNow() {

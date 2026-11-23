@@ -35,7 +35,7 @@ export function useInstallWatch(first: InstallWatch | null) {
       timer = undefined;
       if (stopped || reading || document.visibilityState === "hidden") return;
       reading = true;
-      const r = await installProgress(id!).catch(() => ({ error: "Strut isn’t answering just now. Still trying.", retry: true, status: undefined }));
+      const r = await installProgress(id!).catch(() => ({ error: "Strut isn’t answering. Still trying.", retry: true, status: undefined }));
       reading = false;
       if (stopped) return;
       if (r.status === undefined) {
@@ -145,7 +145,7 @@ function InstallRow({ first, onDismiss }: { first: InstallWatch; onDismiss: () =
       </div>
       {going(w) && !note?.final && <InstallBar watch={w} label={`Installing ${w.ref}`} />}
       {w.status === "done" && w.result.missingSecrets.length > 0 && (
-        <p className="text-[13.5px] text-ink-2">Its steps still need {w.result.missingSecrets.length === 1 ? "a key" : "keys"}: set them under Installed.</p>
+        <p className="text-[13.5px] text-ink-2">Needs {w.result.missingSecrets.length === 1 ? "a key" : "keys"}. Set them under Installed.</p>
       )}
       {w.status === "failed" && (
         <p role="alert" className="text-[13.5px] break-words text-warn">

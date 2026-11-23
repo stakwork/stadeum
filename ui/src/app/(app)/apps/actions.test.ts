@@ -64,8 +64,8 @@ describe("pin", () => {
   });
 
   it("never unpins the assistant, which is the home, or strut's component library", async () => {
-    expect(await pin("strut/jamie", false)).toEqual({ error: "That is not a change stadeum makes." });
-    expect(await pin("strut/views", false)).toEqual({ error: "That is not a change stadeum makes." });
+    expect(await pin("strut/jamie", false)).toEqual({ error: "That change isn’t allowed." });
+    expect(await pin("strut/views", false)).toEqual({ error: "That change isn’t allowed." });
     expect((await db.org.findUnique({ where: { id: "org" } }))?.unpinnedApps ?? null).toBeNull();
   });
 

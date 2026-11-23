@@ -30,7 +30,7 @@ export default async function AppsAdminPage() {
       <PageHeader title="Apps" />
       {!apps || apps.length === 0 ? (
         <p className="rounded-xl border border-dashed border-dash px-5 py-8 text-[14px] text-ink-2">
-          {apps ? "No apps yet." : "Strut isn’t answering, so the apps can’t be read right now."}
+          {apps ? "No apps yet." : "Strut isn’t answering."}
         </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-rule bg-surface">
@@ -77,7 +77,7 @@ function Row({ app: a }: { app: ManagedApp }) {
           <span className="font-mono text-[12.5px] text-ink-3">{a.name}</span>
         </Link>
       </td>
-      <td className={`${td} text-[13.5px] text-ink-2`}>{a.seeded ? `Seeded by strut, ${a.active}` : liveLabel(a.active, a.live)}</td>
+      <td className={`${td} text-[13.5px] text-ink-2`}>{a.seeded ? `Built in, ${a.active}` : liveLabel(a.active, a.live)}</td>
       <td className={`${td} tabular text-ink-2`}>{a.drafts || "—"}</td>
       <td className={`${td} text-[13px]`}>
         {a.warnings ? <Dot tone="attention" label={a.warnings === 1 ? "1 warning" : `${a.warnings} warnings`} /> : <span className="text-ink-3">{"—"}</span>}

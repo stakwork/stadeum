@@ -53,7 +53,7 @@ export function DefaultsForm({ limit, reset }: { limit: number; reset: Reset }) 
         </Submit>
       </div>
       <FormNote state={state}>
-        For everyone without their own limit. The gateway stops a person’s calls at their limit.
+        For everyone without their own limit. Calls stop at the limit.
       </FormNote>
     </form>
   );

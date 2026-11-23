@@ -27,7 +27,7 @@ export default async function Home() {
       <PageHeader title="Home" />
       {!apps || apps.length === 0 ? (
         <p className="rounded-xl border border-dashed border-dash px-5 py-8 text-[14px] text-ink-2">
-          {apps ? "No apps yet." : "Strut isn’t answering, so no apps can open right now."}
+          {apps ? "No apps yet." : "Strut isn’t answering."}
         </p>
       ) : (
         <ul className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-3">

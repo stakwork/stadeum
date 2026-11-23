@@ -85,12 +85,12 @@ describe("the live release and seeding", () => {
 
 describe("the confirm notes say what everyone gets", () => {
   it("matches strut's wording", () => {
-    expect(makeLiveNote("v11", "r9")).toBe("Everyone who opens the app gets v11 now.");
-    expect(makeLiveNote("v7", "latest")).toMatch(/stays there: later publishes wait as drafts/);
-    expect(restoreNote("v2")).toBe("Everyone who opens the app gets v2 again.");
-    expect(followNote(held)).toMatch(/^Everyone gets v11, the newest publish, now/);
-    expect(followNote({ ...held, active: "v11" })).toBe("Every later publish goes live as soon as it is published.");
-    expect(holdNote("v8")).toBe("The app stays at v8. Later publishes wait as drafts until you make one live.");
+    expect(makeLiveNote("v11", "r9")).toBe("Everyone gets v11 now.");
+    expect(makeLiveNote("v7", "latest")).toBe("Everyone gets v7 now. New publishes wait as drafts.");
+    expect(restoreNote("v2")).toBe("Everyone gets v2 again.");
+    expect(followNote(held)).toBe("Everyone gets v11 now, and each new publish goes live right away.");
+    expect(followNote({ ...held, active: "v11" })).toBe("Each new publish goes live right away.");
+    expect(holdNote("v8")).toBe("The app stays at v8. New publishes wait as drafts.");
   });
 
   it("says what is live", () => {
@@ -100,8 +100,8 @@ describe("the confirm notes say what everyone gets", () => {
 
   it("says pinning moves an app between the rail and the organisation's pages, and nothing about versions", () => {
     expect(pinNote({ pinned: false, admin: false })).toBe("Everyone sees the app in their rail.");
-    expect(pinNote({ pinned: true, admin: false })).toBe("The app leaves everyone's rail. Admins find it among the organisation's pages.");
+    expect(pinNote({ pinned: true, admin: false })).toBe("The app leaves everyone's rail. Admins can still open it under Organisation.");
     expect(pinNote({ pinned: false, admin: true })).toBe("Admins see the app in their rail.");
-    expect(pinNote({ pinned: true, admin: true })).toBe("The app leaves admins' rail. Admins find it among the organisation's pages.");
+    expect(pinNote({ pinned: true, admin: true })).toBe("The app leaves admins' rail. Admins can still open it under Organisation.");
   });
 });

@@ -25,11 +25,11 @@ describe("an Update now, as the Updates page says it", () => {
       kind: "update",
       askedAt: "2026-11-10T12:03:00.000Z",
       state: "waiting",
-      note: "ops takes it up within half a minute.",
+      note: "Starting within half a minute.",
     });
     expect(viewRequest(update(), report({ phase: "backing-up", detail: "taking the snapshot" }), [], now)).toMatchObject({
       state: "waiting",
-      note: "ops is backing up first, and takes this up after.",
+      note: "ops is backing up first.",
     });
     expect(viewRequest(update(), report({}, "11:58:00"), [], now)).toMatchObject({ state: "waiting", note: "ops is not answering: last heard from 7 minutes ago." });
     expect(viewRequest(update(), null, [], now)).toMatchObject({ state: "waiting", note: "ops has not reported yet. Is its container running?" });
@@ -77,7 +77,7 @@ describe("an Update now, as the Updates page says it", () => {
       state: "ended",
       tone: "ok",
       label: "Nothing to update",
-      notes: ["Everything is current: strut and stadeum-ui run what their channels name."],
+      notes: ["Everything is up to date."],
     });
     // A check that could not pull says so.
     expect(viewRequest(update({ doneAt: t("12:04:55") }), report({ detail: "Could not check strut: pull access denied" }), [], now)).toMatchObject({
@@ -116,7 +116,7 @@ describe("an Update now, as the Updates page says it", () => {
 
 describe("a Check now, as the Updates page says it", () => {
   it("waits, is worked on while ops checks, and says what it found when", () => {
-    expect(viewRequest(check(), report({ phase: "updating" }), [], now)).toMatchObject({ state: "waiting", note: "ops is updating first, and takes this up after." });
+    expect(viewRequest(check(), report({ phase: "updating" }), [], now)).toMatchObject({ state: "waiting", note: "ops is updating first." });
     expect(viewRequest(check(), report({ phase: "checking", detail: "Asking the registries what the channels name" }), [], now)).toMatchObject({ state: "working" });
     expect(viewRequest(check({ doneAt: t("12:04:35") }), report(), [], now)).toEqual({
       id: "c1",
@@ -127,7 +127,7 @@ describe("a Check now, as the Updates page says it", () => {
       endedAt: "2026-11-10T12:04:30.000Z",
       tone: "ok",
       label: "Checked",
-      notes: ["Everything is current: strut and stadeum-ui run what their channels name."],
+      notes: ["Everything is up to date."],
     });
   });
 
@@ -141,15 +141,15 @@ describe("what a check found", () => {
 
   it("names what is out, with its commit and age, and what brings it in", () => {
     const out = strut({ checkedAt: "2026-11-10T12:04:30Z", digest: "sha256:bbb", current: false, revision: "d306035abc", created: "2026-11-10T10:00:00Z" });
-    expect(found(status([out, ui(current)]), now)).toEqual({ tone: "pending", note: "strut: d306035 is out, built 2 hours ago. Update now, or the next window, brings it in." });
+    expect(found(status([out, ui(current)]), now)).toEqual({ tone: "pending", note: "strut: d306035 is out, built 2 hours ago. Update now, or wait for the window." });
   });
 
   it("names a release once, and one waiting for an admin as such", () => {
     const newer = { checkedAt: "2026-11-10T12:04:30Z", digest: "sha256:ccc", current: false, revision: "5d6e7f8" };
     const release = { running: { id: "sha256:ops-1", revision: "1a2b3c4" }, available: { id: "sha256:ops-2", revision: "5d6e7f8aaa" } };
-    expect(found(status([strut(current), ui(newer)], release), now).note).toBe("Release 5d6e7f8 is out. Update now, or the next window, brings it in.");
+    expect(found(status([strut(current), ui(newer)], release), now).note).toBe("Release 5d6e7f8 is out. Update now, or wait for the window.");
     const held = { ...release, held: [{ service: "neo4j", from: "neo4j:5.26.32", to: "neo4j:5.26.40" }] };
-    expect(found(status([strut(current), ui(newer)], held), now)).toEqual({ tone: "pending", note: "Release 5d6e7f8 is out, and waits for you above." });
+    expect(found(status([strut(current), ui(newer)], held), now)).toEqual({ tone: "pending", note: "Release 5d6e7f8 is out. Confirm it above." });
   });
 
   it("says what could not be checked", () => {
@@ -161,7 +161,7 @@ describe("what a check found", () => {
 
   it("leaves out what is built on this box", () => {
     expect(found(status([strut(current), { service: "stadeum-ui", image: "stadeum-ui:dev", group: "stadeum", built: true }]), now).note).toBe(
-      "Everything is current: strut runs what its channel names.",
+      "Everything is up to date.",
     );
   });
 });

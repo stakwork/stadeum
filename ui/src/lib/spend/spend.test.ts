@@ -183,7 +183,7 @@ describe("limit rules", () => {
       expect(parseLimit(bad, 10_000)).toEqual({ error: expect.any(String) });
     }
     expect(parseLimit("20000", 10_000)).toEqual({
-      error: "A limit can be at most $10,000, the most a person’s key can ever spend.",
+      error: "A limit can be at most $10,000.",
     });
   });
 

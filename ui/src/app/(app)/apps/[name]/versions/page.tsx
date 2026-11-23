@@ -50,7 +50,7 @@ export default async function AppVersionsPage({ params }: Params) {
       <>
         <PageHeader title={name} />
         <p className="rounded-xl border border-dashed border-dash px-5 py-8 text-[14px] text-ink-2">
-          Strut isn&rsquo;t answering, so the versions can&rsquo;t be read right now.
+          Strut isn&rsquo;t answering.
         </p>
       </>
     );
@@ -72,10 +72,10 @@ export default async function AppVersionsPage({ params }: Params) {
         <SectionLabel id="live">What&rsquo;s live</SectionLabel>
         <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-rule bg-surface px-5 py-4">
           <div className="flex flex-col gap-1">
-            <span className="text-[15px] font-medium text-ink">{app.seeded ? `Seeded by strut, ${app.active}` : liveLabel(app.active, app.live)}</span>
+            <span className="text-[15px] font-medium text-ink">{app.seeded ? `Built in, ${app.active}` : liveLabel(app.active, app.live)}</span>
             <span className="text-[13px] text-ink-3">
               {app.seeded
-                ? "Seeded by strut: every start makes its committed version live, so it cannot be held."
+                ? "Built-in apps always run their latest version."
                 : release
                   ? `Live since ${relativeTime(release.createdAt)}${by ? `, by ${by.name || by.email}` : ""}`
                   : `${app.active}${published ? `, published ${relativeTime(published)}` : ""}`}
