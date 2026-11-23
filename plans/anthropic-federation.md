@@ -155,24 +155,48 @@ Why the box's own issuer, not its cloud's identity (AWS STS
 Fleet is the first user. Its part goes in stadeum-fleet's `PLAN.md` §7
 once this is agreed; it is here so the two are read together.
 
-- **Fleet's own access.** The federation endpoints take an `org:admin`
-  OAuth token and refuse Admin API keys, so `FLEET_ANTHROPIC_ADMIN_KEY`
-  goes. Fleet federates as its instance's role (`aws/fleet.yml`, `Role`):
-  AWS STS `GetWebIdentityToken`, audience `https://api.anthropic.com`. By
-  hand, once per account (fleet's rule 1 allows it): turn on IAM's
-  outbound web identity federation, give fleet's role
-  `sts:GetWebIdentityToken`, and make the `org:admin` rule in Anthropic's
-  console, matched to fleet's exact role ARN. Only the console can make an
+- **Fleet's own access.** The endpoints for service accounts, issuers and
+  rules take only an `org:admin` OAuth token and refuse Admin API keys,
+  so `FLEET_ANTHROPIC_ADMIN_KEY` goes. Fleet federates as its instance's
+  role (`aws/fleet.yml`, `Role`): AWS STS `GetWebIdentityToken`, audience
+  `https://api.anthropic.com`. By hand, once per account (fleet's rule 1
+  allows it): turn on IAM's outbound web identity federation, give
+  fleet's role `sts:GetWebIdentityToken`, and make the `org:admin` rule
+  in Anthropic's console, matched to fleet's exact role ARN, targeting a
+  service account with the admin role. Only the console can make an
   `org:admin` rule.
-- **An Anthropic organization of its own** for fleet's boxes, so fleet's
-  `org:admin` reaches nothing of Stakwork's own. Proposed.
+- **What that token reaches.** The whole organization: no narrower scope
+  exists, and workspaces don't bound it. Members, invites, workspaces,
+  every API key, every rule and issuer. Two limits hold for a federated
+  token: it makes and changes only `workspace:inference` and
+  `workspace:developer` rules, and it can't make a service account an
+  admin. So a compromised role can't leave itself lasting admin access.
+  Fleet's Admin API key already reaches members, invites, workspaces and
+  API keys; federation adds service accounts and rules, and drops a
+  long-lived secret.
+- **Its organization. Decided (Evan, 2026-11-22): the existing one,** with
+  fleet's boxes in a workspace of their own, for a spend limit and their
+  own usage. An organization of fleet's own stays an option: it would keep
+  fleet's `org:admin` from reaching anything else of Stakwork's, and the
+  boxes' rate limits apart from ours. It costs its own billing and logins,
+  and a rate-limit tier that starts low (tiers are per organization).
+  Take it if the existing organization comes to hold what a fleet bug
+  shouldn't touch.
 - **At claim**, the `models` step (`app/src/lib/jobs.ts`) makes, each
-  named `box-<id>`: a service account (`developer`, a member of the boxes'
-  workspace); an issuer, `https://<name>.stakwork.ai`, by discovery; and
-  a rule joining them (`subject_prefix` `stadeum`, audience
-  `https://api.anthropic.com`, scope `workspace:inference`, 3600 seconds).
-  The answers give the box the three IDs as `federation`. No model secret
-  passes through Parameter Store.
+  named `box-<id>`: a service account (`developer`, added to the boxes'
+  workspace: a service account acts only in workspaces it belongs to); an
+  issuer, the box's gateway at `https://mothership.<name>.<FLEET_DOMAIN>`
+  (fleet already makes that record), by discovery; and a rule joining
+  them (`subject_prefix` `mothership`, audience
+  `https://api.anthropic.com`, the boxes' workspace, scope
+  `workspace:inference`, 3600 seconds). The answers give the box
+  `federation` with the four IDs (`organization_id`,
+  `federation_rule_id`, `service_account_id`, `workspace_id`;
+  `docs/models.md`). No model secret passes through Parameter Store.
+- **Only to a stadeum that takes it.** A stadeum before
+  stakwork/stadeum#88 leaves a `federation` entry out ("it has no key"),
+  and the box gets no Anthropic. Fleet gives `federation` once `stable`
+  carries #88.
 - **At destroy**, the `models` step archives the rule, then the issuer and
   the service account (archiving either while a live rule names it is a
   400). The box's last token stops at its expiry, within the hour.
@@ -181,8 +205,9 @@ once this is agreed; it is here so the two are read together.
   wait of up to three hours for a key, and the keys a destroyed box left
   for staff to disable. Every per-box step is then automated, models
   included.
-- **Fleet's rule 3 holds:** the box trades its JWT with Anthropic, never
-  with fleet.
+- **Fleet's rule 3 holds:** the box's gateway trades its identity token
+  with Anthropic, never with fleet, and its signing key never leaves the
+  box.
 - **Spend per box:** a service account per box should split Anthropic's
   usage and cost analytics by box (§6, 6). A cap per box stays what it is
   today: none.
