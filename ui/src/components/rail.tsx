@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { AccountMenu, type Person } from "./account-menu";
 import { CallRailCard, useCall } from "./call";
 import { LogoMark } from "./logo-mark";
+import { SETTINGS, settingsPage, type SettingsItem } from "./settings-nav";
 
 export interface RailProps {
   orgName: string;
@@ -20,34 +21,10 @@ export interface RailProps {
   person: Person;
 }
 
-/** The pages that make up Settings: the person's own, then the organisation's (admins). */
-const SETTINGS = {
-  you: [{ href: "/me", label: "Account" }],
-  organisation: [
-    { href: "/members", label: "Members" },
-    { href: "/models", label: "Models" },
-    { href: "/spending", label: "Spending" },
-    { href: "/apps", label: "Apps" },
-    { href: "/packages", label: "Packages" },
-    { href: "/branding", label: "Branding" },
-  ],
-  server: [
-    { href: "/status", label: "Status" },
-    { href: "/updates", label: "Updates" },
-    { href: "/backups", label: "Backups" },
-  ],
-};
-
-const SETTINGS_PATHS = [...SETTINGS.you, ...SETTINGS.organisation, ...SETTINGS.server].map((p) => p.href);
-
-/**
- * The admin Apps page, an app's versions and an app an admin unpinned are
- * Settings; any other `/apps/<name>` is the app's frame.
- */
-function settingsPage(path: string, adminPages: Array<{ href: string }>): string | undefined {
-  if (/^\/apps\/[^/]+\/versions(\/|$)/.test(path)) return "/apps";
+/** The page an admin-unpinned app is, or the Settings page the path is on. */
+function currentPage(path: string, adminPages: Array<{ href: string }>): string | undefined {
   if (adminPages.some((p) => p.href === path)) return path;
-  return SETTINGS_PATHS.find((href) => path === href || (href !== "/apps" && path.startsWith(`${href}/`)));
+  return settingsPage(path);
 }
 
 /**
@@ -64,8 +41,8 @@ export function Rail({ orgName, home, apps, admin, adminApps = [], person }: Rai
   useEffect(() => setOpen(false), [path]);
 
   // The apps an admin unpinned sit among the organisation's pages, before Apps.
-  const adminPages = adminApps.map((a) => ({ href: a.href, label: a.title }));
-  const current = settingsPage(path, adminPages);
+  const adminPages: SettingsItem[] = adminApps.map((a) => ({ label: a.title, pages: [{ href: a.href, label: a.title }] }));
+  const current = currentPage(path, adminPages.flatMap((i) => i.pages));
   const call = useCall();
   const showCall = call.active && path !== "/calls";
 
@@ -127,15 +104,14 @@ export function Rail({ orgName, home, apps, admin, adminApps = [], person }: Rai
               </svg>
               Back to {orgName}
             </Link>
-            <SettingsSection label="You" pages={SETTINGS.you} current={current} />
+            <SettingsSection label="You" items={SETTINGS.you} current={current} />
             {admin && (
               <SettingsSection
                 label="Organisation"
-                pages={SETTINGS.organisation.flatMap((p) => (p.href === "/apps" ? [...adminPages, p] : [p]))}
+                items={SETTINGS.organisation.flatMap((i) => (i.label === "Apps" ? [...adminPages, i] : [i]))}
                 current={current}
               />
             )}
-            {admin && <SettingsSection label="This server" pages={SETTINGS.server} current={current} />}
             {showCall && (
               <div className="mt-auto hidden md:block">
                 <CallRailCard />
@@ -186,18 +162,18 @@ export function Rail({ orgName, home, apps, admin, adminApps = [], person }: Rai
 
 function SettingsSection({
   label,
-  pages,
+  items,
   current,
 }: {
   label: string;
-  pages: Array<{ href: string; label: string }>;
+  items: SettingsItem[];
   current: string;
 }) {
   return (
     <Section label={label}>
-      {pages.map((p) => (
-        <Item key={p.href} href={p.href} active={current === p.href}>
-          {p.label}
+      {items.map((i) => (
+        <Item key={i.pages[0]!.href} href={i.pages[0]!.href} active={i.pages.some((p) => p.href === current)}>
+          {i.label}
         </Item>
       ))}
     </Section>
