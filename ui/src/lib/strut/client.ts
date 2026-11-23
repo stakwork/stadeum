@@ -347,6 +347,7 @@ export async function listPackages(): Promise<InstalledPackage[]> {
     .map((p) => {
       const source = p.source as { ref?: unknown; url?: unknown } | undefined;
       const provides = p.provides as { secrets?: unknown } | undefined;
+      const missing = p.missing as { secrets?: unknown } | undefined;
       return {
         package: p.package as string,
         ...(str(p.version) ? { version: p.version as string } : {}),
@@ -356,6 +357,7 @@ export async function listPackages(): Promise<InstalledPackage[]> {
         secrets: strings(p.secrets),
         ...(Array.isArray(p.optional) ? { optional: strings(p.optional) } : {}),
         ...(Array.isArray(provides?.secrets) ? { provides: { secrets: strings(provides.secrets) } } : {}),
+        ...(Array.isArray(missing?.secrets) ? { missing: { secrets: strings(missing.secrets) } } : {}),
         ...(p.door === "install" || p.door === "distro" ? { door: p.door } : {}),
         items: (Array.isArray(p.items) ? p.items : [])
           .filter((i): i is Record<string, unknown> => !!i && typeof i === "object" && (ITEM_KINDS as readonly unknown[]).includes((i as { kind?: unknown }).kind) && typeof (i as { name?: unknown }).name === "string")

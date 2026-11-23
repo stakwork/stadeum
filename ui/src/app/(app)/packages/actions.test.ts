@@ -30,6 +30,7 @@ import {
   DOCS_DIGEST,
   fakeRepos,
   LEGAL_DESK,
+  STADEUM_PODS,
   STAKWORK_INDEX_KEY,
   STAKWORK_INDEX_URL,
   STRUT_CODE_REPO,
@@ -72,6 +73,8 @@ beforeEach(async () => {
   Object.assign(fake.state, { followed: [], installed: [], refusePackage: null, installMs: 0, installs: [], installWaits: false, requests: [] });
   Object.assign(fake.state, { repos: fakeRepos(), subscriptions: [], subscriptionPuts: [] });
   fake.state.deploymentSecrets.clear();
+  fake.state.strutEnv.clear();
+  fake.state.packagesOmitMissing = false;
   fake.state.secrets.clear();
   fake.state.apps = fake.state.apps.filter((a) => a.name.startsWith("strut/"));
 });
@@ -352,6 +355,29 @@ describe("a missing secret", () => {
     expect((await setSecret("STRUT_DEFAULT_MODEL", "x")).error).toMatch(/No package installed here needs that secret set for the box/);
     expect((await setSecret("SERPA_API_KEY", "   ")).error).toMatch(/Paste the value first/);
     expect([...fake.state.deploymentSecrets.keys()]).toEqual([]);
+  });
+
+  it("asks for no key strut has from its environment, as a box's PODS_URL and PODS_TOKEN; an older strut's page asks as before", async () => {
+    fake.state.installed.push({ release: STADEUM_PODS, door: "distro", source: { ref: "subscription:strut-software/strut-pods" }, modified: [] });
+    fake.state.strutEnv.add("PODS_URL");
+    fake.state.strutEnv.add("PODS_TOKEN");
+    expect((await listPackages())[0]).toMatchObject({ package: "stadeum/pods", secrets: ["PODS_TOKEN", "PODS_URL"], missing: { secrets: [] } });
+    let html = await page();
+    expect(html).not.toContain('for="secret-PODS_URL"');
+    expect(html).not.toContain('for="secret-PODS_TOKEN"');
+    expect(html).toContain("Its keys are set");
+
+    // One gone from strut's environment: only that one is asked for.
+    fake.state.strutEnv.delete("PODS_TOKEN");
+    html = await page();
+    expect(html).toContain('for="secret-PODS_TOKEN"');
+    expect(html).not.toContain('for="secret-PODS_URL"');
+
+    // A strut from before it said what is missing: the store's names, as before.
+    fake.state.packagesOmitMissing = true;
+    expect((await listPackages())[0]?.missing).toBeUndefined();
+    html = await page();
+    expect(html).toContain('for="secret-PODS_URL"');
   });
 
   it("offers no box-wide field for a secret a package reads only when set, nor one its own steps manage, a person's own, and refuses to set either; a required one still gets one", async () => {
