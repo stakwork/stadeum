@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Moves a `stable` channel, which is what a box follows in its upkeep window:
 # strut's or stadeum's to main's newest images, the Sphinx daemon's (the
-# treasury) to stakwork/sphinx master's newest, sphinx-voice's to its newest
-# release. It runs that repository's promote workflow (strut's
-# promote-image.yml, stadeum's promote-images.yml, sphinx's
-# promote-daemon.yml, sphinx-voice's promote-image.yml), waits for it, and
-# checks the tags moved.
+# treasury) to stakwork/sphinx master's newest, sphinx-voice's or
+# mothership's (the gateway) to its newest release. It runs that
+# repository's promote workflow (strut's promote-image.yml, stadeum's
+# promote-images.yml, sphinx's promote-daemon.yml, sphinx-voice's and
+# mothership's promote-image.yml), waits for it, and checks the tags moved.
 #
 #   scripts/promote.sh strut|stadeum|daemon [commit] [--dry-run]
-#   scripts/promote.sh voice [version] [--dry-run]
+#   scripts/promote.sh voice|mothership [version] [--dry-run]
 #
 # strut, stadeum and daemon: it promotes the newest images at or before
 # COMMIT (the default branch's newest without one: main, or master for
@@ -18,11 +18,13 @@
 # move to an older image than the branch's. strut's workflow also moves
 # strut-browser:stable to the Playwright version that commit pins.
 #
-# voice: sphinx-voice's images are its releases' (sphinxlightning/sphinx-voice
-# on Docker Hub, built when a GitHub Release is published). It promotes
-# VERSION (0.43 or v0.43), or the newest release, and without one refuses
-# while that release's image is still being built, or when its build failed.
-# The workflow refuses an image without both amd64 and arm64.
+# voice and mothership: their images are their releases'
+# (sphinxlightning/sphinx-voice on Docker Hub, tagged 0.43;
+# ghcr.io/stakwork/mothership, tagged v0.5.0; each built when a GitHub
+# Release is published). It promotes VERSION (0.43 or v0.43), or the newest
+# release, and without one refuses while that release's image is still being
+# built, or when its build failed. The workflow refuses an image without
+# both amd64 and arm64.
 #
 # --dry-run says what would move, and stops. Needs gh (signed in, allowed to
 # run the workflow), curl and jq.
@@ -30,7 +32,7 @@ set -euo pipefail
 
 usage() {
   echo "usage: $0 strut|stadeum|daemon [commit] [--dry-run]" >&2
-  echo "       $0 voice [version] [--dry-run]" >&2
+  echo "       $0 voice|mothership [version] [--dry-run]" >&2
   exit 2
 }
 
@@ -51,7 +53,15 @@ case "$project" in
   stadeum) repo=stakwork/stadeum branch=main promote=promote-images.yml publish=publish-images.yml images=(stadeum-ui stadeum-ops) ;;
   daemon) repo=stakwork/sphinx branch=master promote=promote-daemon.yml publish=publish-daemon.yml images=(sphinx-daemon) ;;
   voice) repo=stakwork/sphinx-voice branch=main promote=promote-image.yml publish=docker-release.yml images=(sphinx-voice) ;;
+  mothership) repo=stakwork/mothership branch=main promote=promote-image.yml publish=publish.yml images=(mothership) ;;
   *) usage ;;
+esac
+# voice and mothership are promoted by release; the image of mothership's
+# release keeps the tag's v (v0.5.0), sphinx-voice's drops it (0.43).
+by_release="" tag_v=""
+case "$project" in
+  voice) by_release=1 ;;
+  mothership) by_release=1 tag_v=v ;;
 esac
 
 for tool in gh curl jq; do
@@ -59,7 +69,7 @@ for tool in gh curl jq; do
 done
 
 # The registries answer anonymous pulls of these public images: ghcr.io
-# strut's, stadeum's and the daemon's, Docker Hub sphinx-voice's.
+# strut's, stadeum's, the daemon's and mothership's, Docker Hub sphinx-voice's.
 if [ "$project" = voice ]; then
   owner=sphinxlightning api=registry-1.docker.io
   token() { curl -fsS "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$owner/$1:pull" | jq -r .token; }
@@ -78,7 +88,8 @@ digest() { # IMAGE TAG TOKEN: the tag's digest, or nothing when there is no such
 
 from=() want=() have=() moves=""
 
-if [ "$project" = voice ]; then
+if [ -n "$by_release" ]; then
+  image=${images[0]}
   if [ -n "$at" ]; then
     version=${at#v}
   else
@@ -103,14 +114,14 @@ if [ "$project" = voice ]; then
         exit 1 ;;
     esac
   fi
-  tok=$(token sphinx-voice)
-  want[0]=$(digest sphinx-voice "$version" "$tok")
+  tok=$(token "$image")
+  want[0]=$(digest "$image" "$tag_v$version" "$tok")
   if [ -z "${want[0]}" ]; then
-    echo "no $(name sphinx-voice):$version image: publish the release v$version first" >&2
+    echo "no $(name "$image"):$tag_v$version image: publish the release v$version first" >&2
     exit 1
   fi
   from[0]="$version (release v$version)"
-  have[0]=$(digest sphinx-voice stable "$tok")
+  have[0]=$(digest "$image" stable "$tok")
   [ "${have[0]}" = "${want[0]}" ] || moves=1
 else
   if [ -n "$at" ]; then
@@ -173,11 +184,11 @@ fi
 
 # strut's and the daemon's workflows want the commit the image was built at;
 # stadeum's finds each image at or before the commit it is given;
-# sphinx-voice's takes the release's version.
+# sphinx-voice's and mothership's take the release's version.
 case "$project" in
   strut | daemon) inputs=(-f commit="${from[0]%% *}") ;;
   stadeum) inputs=(-f commit="$head_sha") ;;
-  voice) inputs=(-f version="$version") ;;
+  voice | mothership) inputs=(-f version="$version") ;;
 esac
 out=$(gh workflow run "$promote" -R "$repo" --ref "$branch" "${inputs[@]}" -f channel=stable 2>&1) ||
   { echo "$out" >&2; exit 1; }

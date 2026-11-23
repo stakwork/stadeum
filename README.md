@@ -91,7 +91,7 @@ curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/insta
 | `ui/` | stadeum-ui: single sign-on, members, status, updates, backups, per-person model access, app launcher, calls |
 | `ops/` | stadeum-ops: releases, updates and backups (the Docker socket's one holder, no port). Its image carries the release's stack files |
 | `.github/workflows/` | Checks; stadeum's images, published from main and promoted to `stable` |
-| `scripts/` | The server install, env setup, promoting a release (`promote.sh strut`, `promote.sh stadeum` or `promote.sh voice`), the end-to-end gateway check, the backup-and-restore proof, the release proof |
+| `scripts/` | The server install, env setup, promoting a release (`promote.sh strut`, `promote.sh stadeum`, `promote.sh mothership`, `promote.sh voice` or `promote.sh daemon`), the end-to-end gateway check, the backup-and-restore proof, the release proof |
 | `docs/` | Stack and gateway specs |
 
 ## Run the stack
@@ -104,7 +104,7 @@ scripts/init-env.sh            # .env with generated secrets
 docker compose --env-file .env -f stack/stadeum.yml -f stack/dev.yml up -d --wait
 ```
 
-- Every image is published: strut and strut-browser on strut's `stable` channel, stadeum-ui and ops on stadeum's (`ghcr.io/stakwork/stadeum-ui`, `ghcr.io/stakwork/stadeum-ops`), the rest pinned to a version. A box pulls and never builds.
+- Every image is published: strut and strut-browser on strut's `stable` channel, the gateway, the voice service and the treasury each on its own, stadeum-ui and ops on stadeum's (`ghcr.io/stakwork/stadeum-ui`, `ghcr.io/stakwork/stadeum-ops`), the rest pinned to a version. A box pulls and never builds.
 - `stack/dev.yml` is local mode: plain http, stadeum-ui at `http://stadeum.localhost` and strut at `http://strut.stadeum.localhost`, signed in with a password-less dev login. It builds stadeum-ui and ops from the checkout.
 - Production: drop `-f stack/dev.yml` and set `HOST` and `ACME_EMAIL`. Caddy then serves `$HOST` (stadeum-ui) and `strut.$HOST` (strut) with certificates it fetches itself.
 - strut must stay at `strut.$HOST`: the same site as stadeum-ui, so the strut frame's session cookie reaches it.
@@ -132,13 +132,14 @@ with no port. An admin sets it up on two pages in stadeum-ui.
 
 - **Updates.** In a daily window (default 03:00–05:00, in the admin's time
   zone), ops pulls strut + strut-browser (together: their Playwright
-  versions must match) on strut's `stable` channel, and stadeum's release on
+  versions must match) on strut's `stable` channel, the gateway, the voice
+  service and the treasury on theirs, and stadeum's release on
   its own: stadeum-ui and ops, and the stack files ops's image carries. If
   one moved, it drains strut and waits for its runs to finish (at most 30
   minutes; what still runs resumes after the restart), recreates what
   changed, checks its health, and puts the previous images and files back
   if it fails. A release is applied by the ops it brings. It moves every pin
-  in its files (Caddy, Redis, the gateway), except Neo4j's: a release that
+  in its files (Caddy, Redis), except Neo4j's: a release that
   upgrades Neo4j waits, whole, until the admin presses **Upgrade Neo4j** on
   the Updates page, and ops backs up first. Every 10 minutes ops asks the
   registry what each channel names (a `HEAD`, nothing pulled), and the page

@@ -15,7 +15,7 @@ but maple (`ui/src/lib/status.ts`, `SERVICES`).
 | `caddy` | `caddy:2.11.8-alpine` | TLS and routing, the only published ports: `$HOST` → stadeum-ui, `strut.$HOST` → strut | None (stadeum-ui never calls it) |
 | `neo4j` | `neo4j:5.26.32` | The graph: strut's workflows, steps and knowledge graph; bifrost's agent catalog | `GET {NEO4J_HTTP_URL}/` |
 | `redis` | `redis:7.4.2-alpine` | bifrost's plugin state | None (stadeum-ui never calls it) |
-| `bifrost` | `ghcr.io/stakwork/mothership:v0.5.0` | Model gateway: provider keys, a virtual key and a cap per person, the price table; accepts only macaroon v2; its own OIDC issuer for Anthropic | `/_plugin/trust/status` |
+| `bifrost` | `ghcr.io/stakwork/mothership:stable` | Model gateway: provider keys, a virtual key and a cap per person, the price table; accepts only macaroon v2; its own OIDC issuer for Anthropic | `/_plugin/trust/status` |
 | `maple` | `ghcr.io/mapleprivacylabs/maple-proxy:0.4.5` | Maple's inference proxy: encrypts each request to Maple's enclave. The gateway's `maple` provider | None (stadeum-ui never calls it) |
 | `strut-browser` | `ghcr.io/stakwork/strut-browser:stable` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
 | `strut` | `ghcr.io/stakwork/strut:stable` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
@@ -50,7 +50,9 @@ checked".
   as strut's `promote-image.yml` does for strut's: that is a release.
   `scripts/promote.sh strut|stadeum` runs either on main's newest images
   and waits for it; `scripts/promote.sh voice` moves sphinx-voice's `stable`
-  to its newest release (below, "voice"), and `scripts/promote.sh daemon`
+  to its newest release (below, "voice"), `scripts/promote.sh mothership`
+  the gateway's to its newest release (below, "bifrost"), and
+  `scripts/promote.sh daemon`
   the treasury's to stakwork/sphinx master's newest image (below,
   "treasury").
   `stack/dev.yml` builds them from the checkout instead (`stadeum-ui:dev`,
@@ -125,17 +127,27 @@ checked".
   private. Only bifrost uses it (`BIFROST_PLUGIN_REDIS_URL`).
 
 ### bifrost (mothership / LLM gateway)
-- `ghcr.io/stakwork/mothership:${MOTHERSHIP_TAG:-v0.5.0}`, amd64 + arm64,
+- `ghcr.io/stakwork/mothership:${MOTHERSHIP_TAG:-stable}`, amd64 + arm64,
   port 8181 (a wrapper that proxies to bifrost-http on 127.0.0.1:8080). Do
-  NOT set `APP_PORT`/`APP_HOST`. Its tags are stakwork/mothership's
+  NOT set `APP_PORT`/`APP_HOST`. Its version tags are stakwork/mothership's
   releases: the gateway left stakgraph for its own repository (its image
   was `ghcr.io/stakwork/stakgraph-gateway`, last pinned at `v0.4.399`).
   `v0.5.0` (stakwork/mothership `628da7d`) runs Bifrost v2.6.0, accepts
   only macaroon v2 (stakwork/mothership#2; `docs/mothership-spec.md`, d)
-  and can sign for itself (stakwork/mothership#1; below). A release that
-  changes the pin moves it (`MOTHERSHIP_TAG` in `.env` pins a box's; the
-  old `BIFROST_TAG` is no longer read).
-- Moving to it is one-way on two counts. Bifrost migrates `config.db` and
+  and can sign for itself (stakwork/mothership#1; below).
+- **Its channel.** mothership publishes an image per GitHub Release
+  (`:<tag>` and `:latest`, amd64 + arm64). Its `promote-image.yml` copies a
+  release's image to `:stable` by digest, and refuses one without both
+  platforms; `scripts/promote.sh mothership [version]` runs it for the
+  newest release, or the one named, and checks the tag moved. Every model
+  call strut makes goes through the gateway, so ops moves it in strut's
+  group (`stadeum.ops.update: strut`): one drain, one health check, one
+  rollback. A release's tag in `MOTHERSHIP_TAG` (`v0.5.0`) pins a box's;
+  the old `BIFROST_TAG` is no longer read. A release of its that moves
+  Bifrost can migrate `config.db` and `logs.db` one way (next): ops's
+  rollback then puts back an image that cannot open them, and going back
+  is that image plus the last backup.
+- Moving to `v0.5.0` is one-way on two counts. Bifrost migrates `config.db` and
   `logs.db` from v2.2.2 on its first boot, and some of those migrations
   cannot be undone by the old image (mothership README, "Upgrading
   Bifrost"): going back is the old image plus the last backup. And the old
@@ -779,7 +791,7 @@ checked".
   leaves a volume the snapshot lacks as it is), and the box's `backups/` at
   `/backups` (a local destination).
 - **Three labels** in `stack/stadeum.yml` say what ops does to a service:
-  `stadeum.ops.update: <group>` (strut, strut-browser, voice and treasury in `strut`;
+  `stadeum.ops.update: <group>` (strut, strut-browser, bifrost, voice and treasury in `strut`;
   stadeum-ui + ops in `stadeum`, ops's own group: the release),
   `stadeum.ops.backup: stop` (neo4j, redis, bifrost, strut, treasury, stadeum-ui) and
   `stadeum.ops.upgrade: confirm` (neo4j). A service with `restart: "no"`
@@ -869,7 +881,8 @@ across stadeum-ui's own restart.
 
 **A release** is stadeum's channel: stadeum-ops's image, stadeum-ui's, and
 the stack files ops's image carries (`ops/src/release.ts`). The files pin
-every other image, so a release moves Caddy, Redis and the gateway too.
+every image that follows no channel, so a release moves Caddy and Redis
+too.
 
 1. When the registry names another stadeum-ops (above), or an update
    runs, ops pulls stadeum-ui and ops. If either moved, ops reads the new

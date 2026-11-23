@@ -128,17 +128,21 @@ services:
 
   bifrost:
     <<: *common
-    # PINNED: the gateway moves with a stadeum release that changes this
-    # pin (its version tags are stakwork/mothership's releases; before
+    # The `stable` channel stakwork/mothership's promote workflow moves to
+    # one of its releases (`scripts/promote.sh mothership`). Every model
+    # call strut makes goes through it, so ops moves it in strut's group:
+    # one drain, one health check, one rollback. A release's tag (`v0.5.0`)
+    # pins one; ops then has nothing to move until it changes. (Before
     # v0.5.0 it was stakgraph's `stakgraph-gateway` image, whose pin was
-    # BIFROST_TAG). v0.5.0 is published for amd64 and arm64, runs Bifrost
-    # v2.6.0, accepts only macaroon v2 (the signed block chain stadeum-ui
-    # mints: docs/mothership-spec.md), and can sign for itself
+    # BIFROST_TAG.) From v0.5.0 it is published for amd64 and arm64, runs
+    # Bifrost v2.6.0, accepts only macaroon v2 (the signed block chain
+    # stadeum-ui mints: docs/mothership-spec.md), and can sign for itself
     # (BIFROST_IDENTITY_ISSUER below). It keeps the runtime price table
     # (`PUT /_plugin/pricing`) stadeum-ui keeps Maple's, Numes' and added
     # providers' prices in (docs/models.md).
-    image: ghcr.io/stakwork/mothership:${MOTHERSHIP_TAG:-v0.5.0}
+    image: ghcr.io/stakwork/mothership:${MOTHERSHIP_TAG:-stable}
     labels:
+      stadeum.ops.update: strut
       stadeum.ops.backup: stop
     depends_on:
       redis: { condition: service_healthy }
