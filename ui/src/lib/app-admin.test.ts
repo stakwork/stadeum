@@ -1,8 +1,10 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
+import { db } from "@/lib/db";
 import { startFakeStack, type FakeStack } from "@/test/fake-stack";
 import { canPin, managedApp, managedApps, versionsHref } from "./app-admin";
-import { setAppLive, setAppPinned } from "./strut/client";
+import { setAppPinned } from "./app-pins";
+import { setAppLive } from "./strut/client";
 
 let fake: FakeStack;
 const saved = { ...process.env };
@@ -11,8 +13,9 @@ beforeAll(async () => {
   fake = await startFakeStack({ token: "admin-test-token" });
 });
 afterAll(() => fake.close());
-afterEach(() => {
+afterEach(async () => {
   process.env = { ...saved };
+  await db.org.deleteMany();
 });
 
 const configure = () => Object.assign(process.env, { SHARED_API_TOKEN: fake.token, STRUT_URL: fake.strutUrl });
@@ -27,19 +30,20 @@ describe("managedApps", () => {
     await setAppLive("acme/books", { version: "v1" }, "ada-0f3c");
     fake.publish("acme/books");
     fake.publish("acme/books");
-    // Legal pinned: held at v1 by the pin.
-    await setAppPinned("acme/legal", true, "ada-0f3c");
+    // Legal held at v1; Books out of the rail.
+    await setAppLive("acme/legal", { version: "v1" }, "ada-0f3c");
+    await setAppPinned("acme/books", false);
     fake.state.appRecords.get("acme/legal")!.warnings.push({ kind: "repeat", version: "v1", times: 2, lastAt: new Date().toISOString(), message: "m", fix: "f" });
 
     const apps = await managedApps();
     // Earnings is an admin's app (§14.14), and this page is an admin's: it is listed.
-    expect(apps.map((a) => a.name)).toEqual(["strut/jamie", "acme/legal", "acme/books", "strut/earnings"]);
-    expect(apps[0]).toMatchObject({ title: "Jamie", seeded: true, held: false, drafts: 0, pinned: false });
-    expect(apps[1]).toMatchObject({ title: "Legal", active: "v1", live: "r1", held: true, drafts: 0, pinned: true, warnings: 1, seeded: false });
+    expect(apps.map((a) => a.name)).toEqual(["strut/jamie", "acme/books", "strut/earnings", "acme/legal"]);
+    expect(apps[0]).toMatchObject({ title: "Jamie", seeded: true, held: false, drafts: 0 });
     // v2, v3 and v4 are newer than the held v1 and were never made live: drafts, as strut's rows count them.
-    expect(apps[2]).toMatchObject({ title: "Books", active: "v1", held: true, drafts: 3, pinned: false, warnings: 0 });
-    // Seeded apps are read-only, but an admin-only one takes a pin: it puts the app in an admin's rail.
-    expect(apps[3]).toMatchObject({ title: "Earnings", seeded: true, admin: true });
+    expect(apps[1]).toMatchObject({ title: "Books", active: "v1", held: true, drafts: 3, pinned: false, warnings: 0 });
+    // Every app takes a pin, seeded or admin-only, and is pinned until an admin unpins it; the assistant is the home.
+    expect(apps[2]).toMatchObject({ title: "Earnings", seeded: true, admin: true, pinned: true });
+    expect(apps[3]).toMatchObject({ title: "Legal", active: "v1", live: "r1", held: true, drafts: 0, pinned: true, warnings: 1, seeded: false });
     expect(apps.map(canPin)).toEqual([false, true, true, true]);
     expect(fake.state.requests).toContain("GET /strut/apps/acme%2Fbooks/versions");
     expect(fake.state.requests).not.toContain("GET /strut/apps/strut%2Fviews/versions");

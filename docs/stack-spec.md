@@ -15,7 +15,7 @@ but maple (`ui/src/lib/status.ts`, `SERVICES`).
 | `caddy` | `caddy:2.11.8-alpine` | TLS and routing, the only published ports: `$HOST` → stadeum-ui, `strut.$HOST` → strut | None (stadeum-ui never calls it) |
 | `neo4j` | `neo4j:5.26.32` | The graph: strut's workflows, steps and knowledge graph; bifrost's agent catalog | `GET {NEO4J_HTTP_URL}/` |
 | `redis` | `redis:7.4.2-alpine` | bifrost's plugin state | None (stadeum-ui never calls it) |
-| `bifrost` | `ghcr.io/stakwork/mothership:v0.5.0` | Model gateway: provider keys, a virtual key and a cap per person, the price table; its own OIDC issuer for Anthropic | `/_plugin/trust/status` |
+| `bifrost` | `ghcr.io/stakwork/mothership:v0.5.0` | Model gateway: provider keys, a virtual key and a cap per person, the price table; accepts only macaroon v2; its own OIDC issuer for Anthropic | `/_plugin/trust/status` |
 | `maple` | `ghcr.io/mapleprivacylabs/maple-proxy:0.4.5` | Maple's inference proxy: encrypts each request to Maple's enclave. The gateway's `maple` provider | None (stadeum-ui never calls it) |
 | `strut-browser` | `ghcr.io/stakwork/strut-browser:stable` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
 | `strut` | `ghcr.io/stakwork/strut:stable` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
@@ -130,9 +130,19 @@ checked".
   NOT set `APP_PORT`/`APP_HOST`. Its tags are stakwork/mothership's
   releases: the gateway left stakgraph for its own repository (its image
   was `ghcr.io/stakwork/stakgraph-gateway`, last pinned at `v0.4.399`).
-  `v0.5.0` runs Bifrost v2.6.0 and can sign for itself (below). A release
-  that changes the pin moves it (`MOTHERSHIP_TAG` in `.env` pins a box's;
-  the old `BIFROST_TAG` is no longer read).
+  `v0.5.0` (stakwork/mothership `628da7d`) runs Bifrost v2.6.0, accepts
+  only macaroon v2 (stakwork/mothership#2; `docs/mothership-spec.md`, d)
+  and can sign for itself (stakwork/mothership#1; below). A release that
+  changes the pin moves it (`MOTHERSHIP_TAG` in `.env` pins a box's; the
+  old `BIFROST_TAG` is no longer read).
+- Moving to it is one-way on two counts. Bifrost migrates `config.db` and
+  `logs.db` from v2.2.2 on its first boot, and some of those migrations
+  cannot be undone by the old image (mothership README, "Upgrading
+  Bifrost"): going back is the old image plus the last backup. And the old
+  image accepts only v1 macaroons, the new one only v2: stadeum-ui re-mints
+  every person's delegation as v2 on its first upkeep pass, a minute after
+  it starts, which needs a strut that takes v2 (`PUT /llm/delegations`) in
+  the same release.
 - Volume `/app/data`.
 - Env: `BIFROST_ADMIN_USER=admin`, `BIFROST_ADMIN_PASS` (bcrypted on first
   boot into `/app/data`), `BIFROST_PROVISIONING_TOKEN=${SHARED_API_TOKEN}`,
@@ -589,9 +599,11 @@ checked".
 - **Packages** (admins; `ui/src/app/(app)/packages/`, strut `specs/API.md`
   §16). Installed: each package, its version, apps, workflows, steps and
   Concepts (an item edited here is marked), and the secrets it requires
-  that strut's store has no value for (`GET /secrets` names against the
-  package's `secrets` less its `optional` and its `provides.secrets`),
-  each with a write-only field that `PUT`s it to strut's deployment store.
+  that strut has no value for: strut's own `missing`, which counts its
+  environment as its gate does, so the `PODS_URL` and `PODS_TOKEN` compose
+  hands strut are never asked for (from a strut that doesn't report it,
+  `GET /secrets` names, the store's alone), less the package's `optional`
+  and its `provides.secrets`, each with a write-only field that `PUT`s it to strut's deployment store.
   An optional secret is read only when set, and nothing asks for it. A
   secret a package provides is managed by its own steps: a person's own,
   which they connect or paste in the package's app, or one its admin app

@@ -64,8 +64,9 @@ export async function pushDelegation(user: DelegationUser): Promise<DelegationSu
 }
 
 /**
- * One `GET /llm/delegations`; mint + push only when missing or past half
- * its life. Never throws. The outcome is recorded on the person's
+ * One `GET /llm/delegations`; mint + push only when missing, past half
+ * its life, or not a macaroon v2 (one minted before the cutover, which
+ * the mothership gateway refuses). Never throws. The outcome is recorded on the person's
  * MothershipUser row for their page.
  */
 export function ensureDelegation(user: DelegationUser, opts: { now?: Date; force?: boolean } = {}): Promise<DelegationResult> {
@@ -74,7 +75,7 @@ export function ensureDelegation(user: DelegationUser, opts: { now?: Date; force
     let result: DelegationResult;
     try {
       const current = (await listDelegations()).find((d) => d.actor === user.actor);
-      if (!opts.force && current && !isPastHalfLife(current.exp, now)) {
+      if (!opts.force && current && isCurrentVersion(current) && !isPastHalfLife(current.exp, now)) {
         result = { status: "fresh", actor: user.actor, exp: current.exp, delegationId: current.delegationId };
       } else {
         const pushed = await pushDelegation(user);
@@ -106,6 +107,13 @@ async function record(userId: string, r: DelegationResult, now: Date) {
     ...(r.exp ? { delegationExp: new Date(r.exp), delegationId: r.delegationId ?? null } : {}),
   };
   await db.mothershipUser.upsert({ where: { userId }, create: { userId, ...data }, update: data });
+}
+
+/** The macaroon version stadeum mints. Strut reports `v` per delegation; none = 1. */
+export const MACAROON_VERSION = 2;
+
+export function isCurrentVersion(d: Pick<DelegationSummary, "v">): boolean {
+  return (d.v ?? 1) === MACAROON_VERSION;
 }
 
 /** Renew on a visit once past half the 60-day life. Unparseable = expired. */

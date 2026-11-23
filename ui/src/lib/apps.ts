@@ -1,5 +1,6 @@
 import { cache } from "react";
 
+import { unpinnedApps } from "@/lib/app-pins";
 import { isAdmin } from "@/lib/roles";
 import { listApps as strutApps, type StrutApp } from "@/lib/strut/client";
 
@@ -17,8 +18,8 @@ export interface App {
   href: string;
   /** The assistant, Jamie: the home. */
   assistant: boolean;
-  /** Pinned by an admin (strut's `PUT /apps/:name/pin`, §14). */
-  pinned?: true;
+  /** In the rail: every app but the ones an admin unpinned (`./app-pins.ts`). */
+  pinned: boolean;
 }
 
 /**
@@ -51,9 +52,12 @@ const STRUT_APPS_TIMEOUT_MS = 5_000;
 
 export const appHref = (name: string) => (ASSISTANT.has(name) ? "/" : `/apps/${encodeURIComponent(name)}`);
 
-/** The assistant first, then the apps pinned as tabs, then the rest by title. */
-export function launcherOrder<T extends Pick<StrutApp, "name" | "title" | "pinned">>(apps: T[]): T[] {
-  const rank = (a: T) => (ASSISTANT.has(a.name) ? 0 : a.pinned ? 1 : 2);
+/** Whether `name` is the assistant, the home: never pinned or unpinned. */
+export const isAssistant = (name: string) => ASSISTANT.has(name);
+
+/** The assistant first, then the rest by title. */
+export function launcherOrder<T extends Pick<StrutApp, "name" | "title">>(apps: T[]): T[] {
+  const rank = (a: T) => (ASSISTANT.has(a.name) ? 0 : 1);
   return apps
     .filter((a) => isOpened(a.name))
     .sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title) || a.name.localeCompare(b.name));
@@ -63,31 +67,32 @@ export function launcherOrder<T extends Pick<StrutApp, "name" | "title" | "pinne
  * The launcher's apps: everyone's. Stadeum lists with its key, which strut
  * answers as full scope, so an admin-only app (`admin: true`, §14.14) is
  * in the listing and is left out here: these are every person's. An
- * admin finds those among the organisation's pages, or with these once
- * pinned (`adminApps`, `railApps`).
+ * admin's rail adds those (`adminApps`, `railApps`). `unpinned`: the apps
+ * an admin took out of the rail.
  */
-export function launcherApps(apps: StrutApp[]): App[] {
+export function launcherApps(apps: StrutApp[], unpinned: ReadonlySet<string> = new Set()): App[] {
   return launcherOrder(apps.filter((a) => !a.admin)).map((a) => ({
     name: a.name,
     title: a.title,
     ...(a.description ? { description: a.description } : {}),
     href: appHref(a.name),
     assistant: ASSISTANT.has(a.name),
-    ...(a.pinned ? { pinned: true as const } : {}),
+    pinned: !unpinned.has(a.name),
   }));
 }
 
 /**
- * Where a person's apps go in the rail. An admin-only app an admin pinned
- * joins the launcher's apps, in the launcher's order; the others sit
- * among the organisation's pages. So a box that never uses one (Workers,
- * say) never has it in the way, and one that does pins it. For anyone
- * but an admin `admin` is empty: the launcher's apps are all of theirs.
+ * Where a person's apps go in the rail. A pinned app is in it, every new
+ * app among them; an admin-only one only in an admin's. An app an admin
+ * unpinned is out of everyone's rail and sits among the organisation's
+ * pages, for an admin alone: a member does not see it. For anyone but an
+ * admin `admin` is empty.
  */
-export function railApps(launcher: App[], admin: App[]): { apps: App[]; settings: App[] } {
+export function railApps(launcher: App[], admin: App[], isAdminRail: boolean): { apps: App[]; settings: App[] } {
+  const all = [...launcher, ...admin];
   return {
-    apps: launcherOrder([...launcher, ...admin.filter((a) => a.pinned)]),
-    settings: admin.filter((a) => !a.pinned),
+    apps: launcherOrder(all.filter((a) => a.pinned)),
+    settings: isAdminRail ? launcherOrder(all.filter((a) => !a.pinned && !a.assistant)) : [],
   };
 }
 
@@ -98,16 +103,15 @@ export function railApps(launcher: App[], admin: App[]): { apps: App[]; settings
  */
 export const listApps = cache(async (): Promise<App[] | null> => {
   const apps = await strutListing();
-  return apps && launcherApps(apps);
+  return apps && launcherApps(apps, await unpinnedApps());
 });
 
 /**
  * The admin-only apps (`admin: true`, §14.14) for a person with `role`:
- * an admin's, among the organisation's pages, by title; none for anyone
- * else. Earnings has its own page (`/earnings`); the others open at their
- * name, as any app does.
+ * an admin's, by title; none for anyone else. Earnings has its own page
+ * (`/earnings`); the others open at their name, as any app does.
  */
-export function adminAppsFor(role: string, apps: StrutApp[] | null): App[] {
+export function adminAppsFor(role: string, apps: StrutApp[] | null, unpinned: ReadonlySet<string> = new Set()): App[] {
   if (!isAdmin(role) || !apps) return [];
   return apps
     .filter((a) => a.admin && isOpened(a.name) && !ASSISTANT.has(a.name))
@@ -118,12 +122,13 @@ export function adminAppsFor(role: string, apps: StrutApp[] | null): App[] {
       ...(a.description ? { description: a.description } : {}),
       href: a.name === EARNINGS ? "/earnings" : appHref(a.name),
       assistant: false,
-      ...(a.pinned ? { pinned: true as const } : {}),
+      pinned: !unpinned.has(a.name),
     }));
 }
 
 /** `adminAppsFor` on this request's listing; strut is not asked for a member. */
-export const adminApps = async (role: string) => adminAppsFor(role, isAdmin(role) ? await strutListing() : null);
+export const adminApps = async (role: string) =>
+  isAdmin(role) ? adminAppsFor(role, await strutListing(), await unpinnedApps()) : [];
 
 /**
  * Whether strut lists `name` as an admin's alone. `false` when strut does

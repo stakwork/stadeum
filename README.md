@@ -189,7 +189,9 @@ admins only) and strut's apps.
 - Apps: `ui/src/lib/apps.ts` reads strut's `GET /apps` through the strut
   client (`ui/src/lib/strut/client.ts`) and orders them: the assistant,
   Jamie (`strut/jamie`, which strut seeds on every server), first, then the
-  apps pinned as tabs, then the rest by title. `strut/views`, the component
+  rest by title. Every app is in the rail, a new one too, until an admin
+  unpins it on the Apps page (`ui/src/lib/app-pins.ts`): then it sits among
+  the organisation's pages, for admins. `strut/views`, the component
   library other apps import, is left out: the listing cannot tell a library
   from a page.
 - Opening one frames strut's own host page showing the app alone,

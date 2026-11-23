@@ -85,9 +85,11 @@ export async function health(timeoutMs?: number): Promise<StrutHealth> {
 
 export interface DelegationSummary {
   actor: string;
-  /** RFC 3339; the earlier of the UA's and the invocation's expiry. */
+  /** RFC 3339; the earliest expiry in the chain. */
   exp: string;
   delegationId: string;
+  /** The macaroon's version. A strut from before macaroon v2 reports none: read that as 1. */
+  v?: number;
 }
 
 const isSummary = (d: unknown): d is DelegationSummary =>
@@ -267,6 +269,13 @@ export interface InstalledPackage {
   optional?: string[];
   /** Its `strut.yaml`'s `provides.secrets`: those its own steps manage, a person's own value among them. */
   provides?: { secrets: string[] };
+  /**
+   * The secrets it requires that strut has no value for, read as strut's own
+   * gate reads them: its store, then its environment (where a box's
+   * `PODS_URL` and `PODS_TOKEN` are). Absent from a strut that doesn't say,
+   * and for a package that reads no secret.
+   */
+  missing?: { secrets: string[] };
   /** `distro`: the box's distro wrote it, and only the distro updates or removes it. */
   door?: "install" | "distro";
   items: InstalledPackageItem[];
@@ -340,6 +349,7 @@ export async function listPackages(): Promise<InstalledPackage[]> {
     .map((p) => {
       const source = p.source as { ref?: unknown; url?: unknown } | undefined;
       const provides = p.provides as { secrets?: unknown } | undefined;
+      const missing = p.missing as { secrets?: unknown } | undefined;
       return {
         package: p.package as string,
         ...(str(p.version) ? { version: p.version as string } : {}),
@@ -349,6 +359,7 @@ export async function listPackages(): Promise<InstalledPackage[]> {
         secrets: strings(p.secrets),
         ...(Array.isArray(p.optional) ? { optional: strings(p.optional) } : {}),
         ...(Array.isArray(provides?.secrets) ? { provides: { secrets: strings(provides.secrets) } } : {}),
+        ...(Array.isArray(missing?.secrets) ? { missing: { secrets: strings(missing.secrets) } } : {}),
         ...(p.door === "install" || p.door === "distro" ? { door: p.door } : {}),
         items: (Array.isArray(p.items) ? p.items : [])
           .filter((i): i is Record<string, unknown> => !!i && typeof i === "object" && (ITEM_KINDS as readonly unknown[]).includes((i as { kind?: unknown }).kind) && typeof (i as { name?: unknown }).name === "string")
@@ -766,8 +777,6 @@ export interface StrutApp {
   description?: string;
   /** The version people open. */
   activeVersion: string;
-  /** Set only on an app pinned as a tab (`PUT /apps/:name/pin`). */
-  pinned?: boolean;
   /** The live release's id, only while the app is held (§14.5). */
   live?: string;
   /** The live version's usage warnings in the last day (§14.6), when it has any. */
@@ -792,7 +801,6 @@ export async function listApps(timeoutMs?: number): Promise<StrutApp[]> {
     title: typeof a.title === "string" && a.title ? a.title : a.name,
     ...(typeof a.description === "string" && a.description ? { description: a.description } : {}),
     activeVersion: typeof a.activeVersion === "string" ? a.activeVersion : "",
-    ...(a.pinned === true ? { pinned: true } : {}),
     ...(typeof a.live === "string" && a.live ? { live: a.live } : {}),
     ...(typeof a.warnings === "number" && a.warnings > 0 ? { warnings: a.warnings } : {}),
     ...(a.admin === true ? { admin: true as const } : {}),
@@ -810,7 +818,6 @@ export interface StrutAppVersions {
   live: string;
   /** Oldest first. `by` is the actor who made it live. */
   releases: Array<{ id: string; version: string; createdAt: string; by?: string }>;
-  pinned?: boolean;
 }
 
 export async function getAppVersions(name: string): Promise<StrutAppVersions> {
@@ -834,7 +841,6 @@ export async function getAppVersions(name: string): Promise<StrutAppVersions> {
       createdAt: String(r.createdAt ?? ""),
       ...(typeof r.by === "string" && r.by ? { by: r.by } : {}),
     })),
-    ...(d.pinned === true ? { pinned: true } : {}),
   };
 }
 
@@ -872,15 +878,6 @@ export async function setAppLive(name: string, target: LiveTarget, actor: string
   if (!res.ok) await fail("PUT", path, res);
   const d = (await res.json()) as { active?: string; live?: string };
   return { active: d.active ?? "", live: d.live ?? "latest" };
-}
-
-/** `PUT /apps/:name/pin`. Pinning an app that follows latest also holds it at its live version. */
-export async function setAppPinned(name: string, pinned: boolean, actor: string): Promise<{ pinned: boolean; live: string }> {
-  const path = appPath(name, "/pin");
-  const res = await strutFetch("PUT", path, { pinned }, undefined, actor);
-  if (!res.ok) await fail("PUT", path, res);
-  const d = (await res.json()) as { pinned?: boolean; live?: string };
-  return { pinned: d.pinned === true, live: d.live ?? "latest" };
 }
 
 // ── the brand (strut specs/API.md §14.12) ───────────────────────────────

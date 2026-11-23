@@ -21,11 +21,12 @@ import { desiredGrants, ensureVirtualKey } from "./virtual-key";
  * `mothership.<HOST>` (stack/caddy/Caddyfile). docs/models.md, "A grant's
  * key".
  *
- * The key's budget, its expiry and its deletion are what bound the machine,
- * not the macaroon's narrowing: a macaroon carries each link's HMAC, so
- * code holding it can drop strut's link and present the person's whole
- * delegation (found by strut's side, 2026-11-20). That works only beside
- * a virtual key the gateway honours, and this one stops at its budget.
+ * The key's budget, its expiry and its deletion bound the machine, and so
+ * does the macaroon's narrowing: a macaroon v2 is a signed block chain
+ * whose proof key is the last block's, so code holding the grant's can
+ * append blocks but never drop strut's to reach the person's whole
+ * delegation (v1 could be unwrapped that way: found by strut's side,
+ * 2026-11-20; mothership `plans/phases/phase-13-signed-block-chain.md`).
  *
  * The gateway is the record: nothing is kept here. A grant's key is named
  * `grant:<name>:<random>`, which no person's own key can be (an actor has

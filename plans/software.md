@@ -966,7 +966,9 @@ Each is its own PR.
 
 **Answered (owner, 2026-11-19): every recommendation below, Workflows
 included.** The owner then chose repository webhooks for real-time
-updates (§7), which adds the Webhooks permission.
+updates (§7), which adds the Webhooks permission. On 2026-11-22 the owner
+added Actions read, so a job can read why its pull request's checks
+failed (item 4).
 
 1. **Which App?** *A new "Stadeum" App,* not Hive's (registered as
    "Stadeum AI", slug `stadeum-ai`). Hive's install
@@ -978,18 +980,29 @@ updates (§7), which adds the Webhooks permission.
 4. **Permissions?**
    - Repository:
      - Contents read and write; Pull requests read and write; Workflows
-       read and write; Checks read; Commit statuses read; Metadata read.
-       That's what strut's `git/*` and `github/*` steps use (`pr-status`
-       reads only check runs and commit statuses).
+       read and write; Checks read; Commit statuses read; Actions read;
+       Metadata read. That's what strut's `git/*` and `github/*` steps
+       use (`pr-status` reads check runs and commit statuses, and with
+       `logs` each failed Actions job's log, stakwork/strut#831).
      - Webhooks read and write, for the package's repository webhooks
        (§7).
    - Account: none (Email addresses only when sign-in with GitHub comes).
-   - Not Actions, Issues or Administration.
+   - Not Actions write, Issues or Administration.
 
    Workflows is included (owner). Without it, GitHub refuses a push that
    touches `.github/workflows`, and coding jobs touch CI. With it, a job
    could change CI. Adding a permission later makes every org's owner
    approve again.
+
+   Actions read is included (owner, 2026-11-22). Where nothing on the box
+   can build a change (an Android app on a pod without Android), the
+   repository's CI is where it runs. A check run says only that it
+   failed; why is in its job's log, which GitHub gives only with Actions
+   read. Without it, `pr-status` says on each failed check that it has no
+   log. Read only: re-running a workflow (Actions write) stays out, and a
+   job pushes a fix instead. An org that installed the App before this
+   keeps the old permissions until its owner accepts the new one on
+   GitHub.
 5. **Callback and setup URLs?**
    - One callback URL, matched exactly, with wildcards off:
      `https://auth.stakwork.ai/api/connect/github/callback`. Sign-in with

@@ -35,7 +35,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { decodeMacaroon, verify } from "gatekey";
+import { decodeToken, verify } from "gatekey";
 
 import { brandStyles } from "@/lib/brand";
 import type { StrutBrand } from "@/lib/strut/client";
@@ -314,6 +314,10 @@ export interface FakeState {
   issuer: string | null;
   /** strut's deployment secret store (`PUT /secrets/:name`). */
   deploymentSecrets: Map<string, string>;
+  /** Names strut has a value for in its environment, which `GET /secrets` never lists: what compose hands it, as a box's `PODS_URL` and `PODS_TOKEN`. */
+  strutEnv: Set<string>;
+  /** Set to answer `GET /packages` as a strut from before stakwork/strut#829: no `missing`. */
+  packagesOmitMissing: boolean;
   customers: Array<{
     id: string;
     name: string;
@@ -336,7 +340,8 @@ export interface FakeState {
   trust: Map<string, { org_id: string; pubkey: string; issuer_url: string; revocation_poll_seconds: number }>;
   realmId: string;
   agents: unknown[];
-  delegations: Map<string, { actor: string; exp: string; delegationId: string; apiKey: string; baseUrl: string }>;
+  /** `v` is the macaroon version strut reports; set it to 1 (or delete it) to stand in for a copy minted before v2. */
+  delegations: Map<string, { actor: string; exp: string; delegationId: string; apiKey: string; baseUrl: string; v?: number }>;
   secrets: Map<string, string>;
   /** `GET /apps`, in strut's order (by name). Starts as SEEDED_APPS. */
   apps: FakeApp[];
@@ -469,6 +474,8 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     clientConfig: { log_retention_days: 365, enable_logging: true, disable_content_logging: false, drop_excess_requests: false },
     issuer: "http://mothership.fake.localhost",
     deploymentSecrets: new Map(),
+    strutEnv: new Set(),
+    packagesOmitMissing: false,
     customers: [],
     calls: [],
     vks: [],
@@ -851,7 +858,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     const one = path.match(/^\/apps\/([^/]+)\/(versions|usage|active|pin)$/);
     if (one) return appRoute(req, res, decodeURIComponent(one[1]!), one[2]!, body);
     if (path === "/llm/delegations" && m === "GET") {
-      return send(res, 200, [...state.delegations.values()].map(({ actor, exp, delegationId }) => ({ actor, exp, delegationId })));
+      return send(res, 200, [...state.delegations.values()].map(({ actor, exp, delegationId, v }) => ({ actor, exp, delegationId, ...(v ? { v } : {}) })));
     }
     const del = path.match(/^\/llm\/delegations\/([^/]+)$/);
     if (del) {
@@ -863,15 +870,15 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
         let shape;
         try {
           shape = checkDelegationShape(body.macaroon);
-          const mac = decodeMacaroon(body.macaroon);
+          const mac = decodeToken(body.macaroon);
           const trusted = state.trust.get(mac.org_id);
           if (!trusted) throw new Error(`org ${mac.org_id} is not in the trust registry`);
-          if (mac.user_authorization.user_id !== who) throw new Error("macaroon user_id is not the actor");
+          if (mac.blocks[0]!.caveats.user_id !== who) throw new Error("macaroon user_id is not the actor");
           verify(mac, { type: "single", key: { alg: "ecdsa-secp256k1-sha256", key: trusted.pubkey } }, new Date());
         } catch (err) {
           return send(res, 400, { error: err instanceof Error ? err.message : String(err) });
         }
-        state.delegations.set(who, { actor: who, exp: shape.exp, delegationId: shape.delegationId, apiKey: body.apiKey, baseUrl: body.baseUrl });
+        state.delegations.set(who, { actor: who, exp: shape.exp, delegationId: shape.delegationId, apiKey: body.apiKey, baseUrl: body.baseUrl, v: 2 });
         return send(res, 200, { actor: who, exp: shape.exp, delegationId: shape.delegationId });
       }
     }
@@ -1098,7 +1105,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
             items: release.items.map((i) => ({ kind: i.kind, name: i.kind === "concept" ? i.name : `${ref}/${i.name}`, status: same ? "present" : here ? "updated" : "installed" })),
           },
         ],
-        missing: { secrets: secrets.filter((s) => !state.deploymentSecrets.has(s)).sort(), binaries: [], runtimes: [] },
+        missing: { secrets: secrets.filter((s) => !state.deploymentSecrets.has(s) && !state.strutEnv.has(s)).sort(), binaries: [], runtimes: [] },
         warnings: [],
       },
       // Strut's phases, each with the counts it reports.
@@ -1205,6 +1212,8 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
         secrets: readableSecrets(rec.release),
         ...(rec.release.requires?.optional?.length ? { optional: rec.release.requires.optional } : {}),
         ...(rec.release.provides ? { provides: rec.release.provides } : {}),
+        // Strut's word on what it has no value for: its store, then its environment.
+        ...(state.packagesOmitMissing ? {} : { missing: { secrets: requiredSecrets(rec.release).filter((s) => !state.deploymentSecrets.has(s) && !state.strutEnv.has(s)) } }),
         door: rec.door,
         items: rec.release.items.map((i) => ({
           kind: i.kind,
@@ -1455,7 +1464,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       Object.assign(s, { held: [{ package: release.package, by: `subscription:${holder}` }], applied: { ref: s.ref, commit: to, digest: release.digest, at: at(), packages: [] }, checkedAt: at() });
       return { id: s.id, status: "held", ...(from ? { from } : {}), to, held: s.held };
     }
-    const read = (name: string) => (s.actor ? state.secrets.get(`${s.actor}/${name}`) : undefined) ?? state.deploymentSecrets.get(name);
+    const read = (name: string) => (s.actor ? state.secrets.get(`${s.actor}/${name}`) : undefined) ?? state.deploymentSecrets.get(name) ?? (state.strutEnv.has(name) ? "from strut's environment" : undefined);
     const missing = (release.requires?.secrets ?? []).filter((n) => !read(n)).sort();
     if (missing.length) {
       // It waits: nothing of it is installed, and what it installed before goes out.

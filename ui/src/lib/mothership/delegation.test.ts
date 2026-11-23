@@ -76,6 +76,20 @@ describe("ensureDelegation", () => {
     expect(fake.state.delegations.get(user.actor)!.delegationId).toBe(before);
   });
 
+  it("re-mints a copy strut holds from before macaroon v2, even when fresh", async () => {
+    const user = await db.user.findUniqueOrThrow({ where: { email: "ada@acme.test" } });
+    for (const v of [1, undefined]) {
+      const held = fake.state.delegations.get(user.actor)!;
+      // A strut from before v2 reports no `v`; one that knows v2 reports 1 for an old copy.
+      fake.state.delegations.set(user.actor, { ...held, v });
+      const r = await ensureDelegation(user);
+      expect(r.status).toBe("pushed");
+      expect(r.delegationId).not.toBe(held.delegationId);
+      expect(fake.state.delegations.get(user.actor)!.v).toBe(2);
+    }
+    expect((await ensureDelegation(user)).status).toBe("fresh");
+  });
+
   it("renews past half-life", async () => {
     const user = await db.user.findUniqueOrThrow({ where: { email: "ada@acme.test" } });
     const later = new Date(Date.now() + 31 * 24 * 3600 * 1000);
