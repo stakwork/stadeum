@@ -15,7 +15,7 @@ but maple (`ui/src/lib/status.ts`, `SERVICES`).
 | `caddy` | `caddy:2.11.8-alpine` | TLS and routing, the only published ports: `$HOST` → stadeum-ui, `strut.$HOST` → strut | None (stadeum-ui never calls it) |
 | `neo4j` | `neo4j:5.26.32` | The graph: strut's workflows, steps and knowledge graph; bifrost's agent catalog | `GET {NEO4J_HTTP_URL}/` |
 | `redis` | `redis:7.4.2-alpine` | bifrost's plugin state | None (stadeum-ui never calls it) |
-| `bifrost` | `ghcr.io/stakwork/mothership:v0.5.0` | Model gateway: provider keys, a virtual key and a cap per person, the price table; accepts only macaroon v2 | `/_plugin/trust/status` |
+| `bifrost` | `ghcr.io/stakwork/mothership:v0.5.0` | Model gateway: provider keys, a virtual key and a cap per person, the price table; accepts only macaroon v2; its own OIDC issuer for Anthropic | `/_plugin/trust/status` |
 | `maple` | `ghcr.io/mapleprivacylabs/maple-proxy:0.4.5` | Maple's inference proxy: encrypts each request to Maple's enclave. The gateway's `maple` provider | None (stadeum-ui never calls it) |
 | `strut-browser` | `ghcr.io/stakwork/strut-browser:stable` | The Playwright server strut's browser steps drive | None (stadeum-ui never calls it) |
 | `strut` | `ghcr.io/stakwork/strut:stable` | The product: workflows, apps, the assistant | `GET {STRUT_URL}/health` with the key |
@@ -87,8 +87,10 @@ checked".
 - **bifrost's providers' endpoints alone are routed**, at
   `mothership.{HOST}`: `/openai/*`, `/anthropic/*` and `/genai/*`, for a
   machine outside the box that strut grants model calls (a pod's apps),
-  with a grant's key (`docs/models.md`, "A grant's key"). Everything else
-  there is a 404: strut and stadeum-ui call the rest on the network. Its
+  with a grant's key (`docs/models.md`, "A grant's key"); and its two issuer
+  documents, `/.well-known/openid-configuration` and
+  `/.well-known/mothership-jwks.json`, public keys for Anthropic to check the
+  identity tokens it signs. Everything else there is a 404: strut and stadeum-ui call the rest on the network. Its
   admin UI is reached from inside, e.g. a local override that publishes
   `127.0.0.1:8181:8181`.
 - **Routes for the box's network alone**: the `{HOST}` site answers
@@ -128,9 +130,9 @@ checked".
   NOT set `APP_PORT`/`APP_HOST`. Its tags are stakwork/mothership's
   releases: the gateway left stakgraph for its own repository (its image
   was `ghcr.io/stakwork/stakgraph-gateway`, last pinned at `v0.4.399`).
-  `v0.5.0` (stakwork/mothership `628da7d`) runs Bifrost v2.6.0 and
-  accepts only macaroon v2 (stakwork/mothership#2;
-  `docs/mothership-spec.md`, d). A release that
+  `v0.5.0` (stakwork/mothership `628da7d`) runs Bifrost v2.6.0, accepts
+  only macaroon v2 (stakwork/mothership#2; `docs/mothership-spec.md`, d)
+  and can sign for itself (stakwork/mothership#1; below). A release that
   changes the pin moves it (`MOTHERSHIP_TAG` in `.env` pins a box's; the
   old `BIFROST_TAG` is no longer read).
 - Moving to it is one-way on two counts. Bifrost migrates `config.db` and
@@ -152,6 +154,13 @@ checked".
 - `BIFROST_PLUGIN_ENFORCE_MACAROONS` and `BIFROST_PLUGIN_ENFORCE_BUDGETS` are
   fixed `true`: a call without a valid macaroon is a 401, one over a cap a
   402. `docs/mothership-spec.md` has the contract.
+- `BIFROST_IDENTITY_ISSUER=https://mothership.${HOST}` (`http://` in
+  `stack/dev.yml`): the gateway is its own OIDC issuer. It keeps a P-256
+  signing key in `/app/data/identity/` (so in the backup), serves
+  `/.well-known/openid-configuration` and `/.well-known/mothership-jwks.json`
+  (the public key), and rewrites a signed identity token for Anthropic every
+  30 s. Nothing uses it until an admin connects Anthropic without a key
+  (`docs/models.md`).
 
 ### maple
 - `ghcr.io/mapleprivacylabs/maple-proxy:${MAPLE_PROXY_TAG:-0.4.5}`, port 8080

@@ -32,7 +32,7 @@ export default async function ModelsPage() {
         <>
           <section aria-labelledby="providers" className="flex flex-col gap-3">
             <SectionLabel id="providers">Providers</SectionLabel>
-            <Providers providers={view.providers} />
+            <Providers providers={view.providers} issuer={view.issuer} />
             <p className="text-[13px] text-ink-3">
               Keys are stored only in the gateway. Each call counts against the caller&rsquo;s spending limit.
             </p>

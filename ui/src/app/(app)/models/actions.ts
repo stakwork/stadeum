@@ -4,11 +4,14 @@ import { revalidatePath } from "next/cache";
 
 import { allowProviderModels, applyModels, readModelSettings, saveModelSettings, type ApplyResult } from "@/lib/models/apply";
 import { parseModelsForm, splitName } from "@/lib/models/plan";
+import { federationOfFields } from "@/lib/models/federation";
 import {
   addOtherProvider,
   checkProviderKey,
+  hasKey,
   providerStates,
   removeProviderKey,
+  setProviderFederation,
   setProviderKey,
   type ProviderState,
 } from "@/lib/models/providers";
@@ -51,7 +54,8 @@ export async function saveKey(provider: string, _prev: Result, form: FormData): 
   if (problem) return { error: problem };
   let state: ProviderState;
   try {
-    const had = (await providerStates()).find((p) => p.id === provider)?.preview;
+    const before = (await providerStates()).find((p) => p.id === provider);
+    const had = before && hasKey(before);
     state = await setProviderKey(provider, value);
     if (!had) await allowProviderModels(state.strut);
   } catch (err) {
@@ -87,12 +91,39 @@ export async function testKey(provider: string): Promise<Result> {
   try {
     const state = await checkProviderKey(provider);
     revalidatePath("/models");
-    if (!state.preview) return { error: "No key is set." };
+    if (!hasKey(state)) return { error: "No key is set." };
     if (state.check?.ok) return { ok: "The key works." };
     return { error: state.check ? refused(state) : "No answer from the gateway. Try again." };
   } catch (err) {
     return { error: gatewaySays(err) };
   }
+}
+
+/**
+ * Connect Anthropic without a key: the IDs of the federation rule an admin
+ * made in Anthropic's console. The gateway writes them on Anthropic's key
+ * and checks it at once, which is an exchange at Anthropic.
+ */
+export async function saveFederation(provider: string, _prev: Result, form: FormData): Promise<Result> {
+  await requireAdmin();
+  const federation = federationOfFields({
+    organizationId: form.get("organizationId"),
+    ruleId: form.get("ruleId"),
+    serviceAccountId: form.get("serviceAccountId"),
+    workspaceId: form.get("workspaceId"),
+  });
+  let state: ProviderState;
+  try {
+    const before = (await providerStates()).find((p) => p.id === provider);
+    const had = before && hasKey(before);
+    state = await setProviderFederation(provider, federation);
+    if (!had) await allowProviderModels(state.strut);
+  } catch (err) {
+    return { error: gatewaySays(err) };
+  }
+  await carryOut();
+  if (state.check?.ok === false) return { error: `Saved, but ${refused(state)}` };
+  return { ok: state.check?.ok ? "Connected. Anthropic took the gateway’s identity." : "Saved." };
 }
 
 /** Remove a provider's key (a custom provider goes whole): nobody can use its models until a new one is set. */
@@ -140,7 +171,7 @@ export async function saveModels(_prev: Result, form: FormData): Promise<Result>
   const typed = String(form.get("other") ?? "").trim();
   if (typed) {
     const provider = states.find((s) => s.strut === splitName(typed)!.provider)!;
-    if (!provider.preview) return { error: `Set ${provider.label}’s key above first, then allow its models.` };
+    if (!hasKey(provider)) return { error: `Set ${provider.label}’s key above first, then allow its models.` };
   }
   await saveModelSettings(parsed);
   let result: ApplyResult;
@@ -151,7 +182,7 @@ export async function saveModels(_prev: Result, form: FormData): Promise<Result>
     return { error: `Saved, but the gateway isn’t answering: ${gatewaySays(err)}` };
   }
   revalidatePath("/models");
-  const priced = states.some((s) => s.kind !== "builtin" && s.preview);
+  const priced = states.some((s) => s.kind !== "builtin" && hasKey(s));
   const notes = applyNotes(result, priced);
   return notes.length ? { error: `Saved. ${notes.join(" ")}` } : { ok: "Saved." };
 }

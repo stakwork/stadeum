@@ -132,10 +132,11 @@ services:
     # pin (its version tags are stakwork/mothership's releases; before
     # v0.5.0 it was stakgraph's `stakgraph-gateway` image, whose pin was
     # BIFROST_TAG). v0.5.0 is published for amd64 and arm64, runs Bifrost
-    # v2.6.0, and accepts only macaroon v2 (the signed block chain
-    # stadeum-ui mints: docs/mothership-spec.md). It keeps the runtime price
-    # table (`PUT /_plugin/pricing`) stadeum-ui keeps Maple's, Numes' and
-    # added providers' prices in (docs/models.md).
+    # v2.6.0, accepts only macaroon v2 (the signed block chain stadeum-ui
+    # mints: docs/mothership-spec.md), and can sign for itself
+    # (BIFROST_IDENTITY_ISSUER below). It keeps the runtime price table
+    # (`PUT /_plugin/pricing`) stadeum-ui keeps Maple's, Numes' and added
+    # providers' prices in (docs/models.md).
     image: ghcr.io/stakwork/mothership:${MOTHERSHIP_TAG:-v0.5.0}
     labels:
       stadeum.ops.backup: stop
@@ -165,6 +166,12 @@ services:
       # so a stale .env cannot turn it off.
       BIFROST_PLUGIN_ENFORCE_MACAROONS: "true"
       BIFROST_PLUGIN_ENFORCE_BUDGETS: "true"
+      # The gateway is its own OIDC issuer, so Anthropic can trust it with
+      # no API key (docs/models.md, "Anthropic without a key"). It keeps
+      # its signing key in its volume (so in the backup) and serves the
+      # public half at mothership.HOST/.well-known/ (the Caddyfile). Unused
+      # until an admin connects Anthropic that way on the Models page.
+      BIFROST_IDENTITY_ISSUER: https://mothership.${HOST}
     volumes:
       - bifrost:/app/data
     # Healthcheck is baked into the image (wget :8181/health).

@@ -4,8 +4,9 @@ import type { BifrostClient } from "@/lib/mothership/bifrost-client";
 import { withLock } from "@/lib/mothership/lock";
 import { desiredGrants, syncGrants } from "@/lib/mothership/virtual-key";
 import { getModelCatalog, putDeploymentSetting, type StrutModelCatalog } from "@/lib/strut/client";
+import { gatewayIssuer, type Issuer } from "./federation";
 import { planModels, priceTable, splitName, type ModelPlan, type ModelSettings } from "./plan";
-import { keyedProviders, providerStates, type ProviderState } from "./providers";
+import { hasKey, keyedProviders, providerStates, type ProviderState } from "./providers";
 import { readModelSettings, saveModelSettings } from "./settings";
 
 /**
@@ -110,6 +111,8 @@ export interface ModelRow {
 
 export interface ModelsView {
   providers: ProviderState[];
+  /** What the gateway publishes as its own issuer, for connecting Anthropic without a key; null when it publishes none. */
+  issuer: Issuer | null;
   /** Each provider with a key, and its models: strut's catalog plus any the admin typed in. Null when strut does not answer. */
   groups: Array<{ provider: ProviderState; models: ModelRow[] }> | null;
   plan: ModelPlan | null;
@@ -118,11 +121,18 @@ export interface ModelsView {
 /** What the Models page draws. Throws when the gateway does not answer. */
 export async function modelsView(): Promise<ModelsView> {
   const providers = await providerStates();
-  const [catalog, settings] = await Promise.all([getModelCatalog().catch(() => null as StrutModelCatalog | null), readModelSettings()]);
-  if (!catalog) return { providers, groups: null, plan: null };
+  const [catalog, settings, issuer] = await Promise.all([
+    getModelCatalog().catch(() => null as StrutModelCatalog | null),
+    readModelSettings(),
+    gatewayIssuer().catch((err: unknown) => {
+      console.warn(`[models] the gateway's issuer could not be read: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }),
+  ]);
+  if (!catalog) return { providers, issuer, groups: null, plan: null };
   const plan = planModels(settings, catalog, keyedProviders(providers));
   const groups = providers
-    .filter((p) => p.preview)
+    .filter(hasKey)
     .map((p) => {
       const known = catalog.models.filter((m) => m.provider === p.strut);
       const typed = (settings.models ?? [])
@@ -142,7 +152,7 @@ export async function modelsView(): Promise<ModelsView> {
       });
       return { provider: p, models };
     });
-  return { providers, groups, plan };
+  return { providers, issuer, groups, plan };
 }
 
 export { saveModelSettings, readModelSettings, type ModelSettings };

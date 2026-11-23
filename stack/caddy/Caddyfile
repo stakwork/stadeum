@@ -32,9 +32,13 @@
 # plugin's routes (/_plugin/*) and its dashboard are never routed here.
 # Caddy cleans the path before it matches, so `..` cannot step out of them.
 # The key is `<virtual key>.<macaroon>`: the gateway itself splits it into
-# the key's own header and `x-macaroon` (stakgraph gateway/wrapper/authsplit.go),
+# the key's own header and `x-macaroon` (mothership wrapper/authsplit.go),
 # and refuses a call without both, as on the box's network. docs/models.md,
 # "A grant's key".
+#
+# Also the gateway's two issuer documents, for Anthropic to check the
+# identity tokens it signs (docs/models.md, "Anthropic without a key"):
+# public keys only, and nothing else under /.well-known/.
 {$SCHEME}://mothership.{$HOST} {
 	@provider path /openai/* /anthropic/* /genai/*
 	handle @provider {
@@ -42,6 +46,10 @@
 			# Streamed completions: pass every chunk on at once.
 			flush_interval -1
 		}
+	}
+	@issuer path /.well-known/openid-configuration /.well-known/mothership-jwks.json
+	handle @issuer {
+		reverse_proxy bifrost:8181
 	}
 	respond 404
 }

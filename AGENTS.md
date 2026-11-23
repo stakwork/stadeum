@@ -14,7 +14,7 @@ work on it. Read the rules before adding anything.
 | --- | --- | --- |
 | **strut** (`ghcr.io/stakwork/strut`) | The product: workflows, apps, the assistant, jobs, the graph's contents, packages | Holds the org signing key or the Docker socket |
 | **neo4j** | The graph strut keeps | Updated by anything but a person |
-| **bifrost** + **redis** (`ghcr.io/stakwork/mothership`) | Every model call: provider keys, a virtual key and a cap per person | Lets a call through without a valid delegation |
+| **bifrost** + **redis** (`ghcr.io/stakwork/mothership`) | Every model call: provider keys, a virtual key and a cap per person; its own OIDC identity, for Anthropic without a key | Lets a call through without a valid delegation |
 | **voice** (`sphinxlightning/sphinx-voice`) | A person's voice call with the assistant: the LiveKit room, the agent in it, each turn run through strut as the person | Has a published port, holds the org key or the Docker socket, or keeps what was said: strut's conversation does |
 | **treasury** (`ghcr.io/stakwork/sphinx-daemon`) | The Lightning wallet strut sells through, the "Support" contact workers DM, and "Jamie" in the tribes people link from Peel: an account of its own, its seed, the payments it took, the messages and each `@jamie`, handed to strut with its host key, and the replies strut posts back | Has a published port, answers anyone but strut, or runs beside another box on the same account |
 | **stadeum-ui** (`ui/`) | Who people are (sign-in, members, roles), the org signing key's use, each person's delegation, the admin pages, the Calls page | Draws an app, or knows what a workflow or document is |
@@ -79,8 +79,12 @@ work on it. Read the rules before adding anything.
      key, on the box's network only.
    - No deployment key or shared token ever reaches a browser. A person's
      browser holds only that person's short-lived credentials.
+   - The gateway's identity signing key (Anthropic without a key,
+     `docs/models.md`) is in the gateway's volume, read by the gateway
+     alone. Its public half is published.
    - The gateway's provider endpoints alone are public, at
-     `mothership.$HOST`, for a machine strut grants model calls (a pod).
+     `mothership.$HOST`, for a machine strut grants model calls (a pod),
+     with its two issuer documents (public keys).
      It holds a key of its own on the person's budget: capped, expiring
      within a day, deleted at release (`docs/models.md`, "A grant's
      key"). The gateway's admin API, plugin routes and dashboard stay on
@@ -220,7 +224,7 @@ order of the work, each step its own PR:
 | Path | What |
 | --- | --- |
 | `stack/stadeum.yml` | The deployment (docker compose), on published images (the voice service's on Docker Hub): a release's, which ops writes onto a box. `stack/local.yml` is a box's own override, never in a release. `stack/dev.yml` overlays local mode: plain http on `*.localhost`, stadeum-ui and ops built here |
-| `stack/caddy/Caddyfile` | The routes: `$HOST` → stadeum-ui, `strut.$HOST` → strut, `mothership.$HOST` → the gateway's provider endpoints alone |
+| `stack/caddy/Caddyfile` | The routes: `$HOST` → stadeum-ui, `strut.$HOST` → strut, `mothership.$HOST` → the gateway's provider endpoints and its issuer documents alone |
 | `stack/bootstrap/` | First boot: the org signing key and its registration with the gateway |
 | `ui/` | stadeum-ui: Next.js 15, Auth.js v5, Prisma on SQLite (`/data/stadeum.db`) |
 | `ui/src/lib/mothership/` | Each person's virtual key and delegation, minted, pushed to strut, renewed; a grant's key for a machine outside strut (`grant-key.ts`, `ui/src/app/api/mothership/keys/`) |
@@ -235,7 +239,7 @@ order of the work, each step its own PR:
 | `.github/workflows/` | Checks, and stadeum's images: published from main, promoted to `stable` |
 | `scripts/` | `install.sh` (a box on a fresh VM, in one command: Docker, the release's stack files from stadeum-ops's image, `.env`, the DNS check, the stack; or a restore), `install-test.sh` (the install's answers on a re-run, kept or replaced), `init-env.sh` (generates `.env`'s secrets), `promote.sh` (moves strut's or stadeum's `stable` to main's newest images, the Sphinx daemon's to stakwork/sphinx master's newest, or sphinx-voice's to its newest release), the gateway end-to-end check, the backup-and-restore proof, the release proof |
 | `docs/` | `stack-spec.md` (the stack, service by service), `mothership-spec.md` (the gateway contract), `models.md` (who picks a model, where the keys live) |
-| `plans/` | Work not built yet, one file each, with what is decided and what is open: `software.md` (roadmap step 7: GitHub, repositories and pods as packages, through the connect seam), `github-app.md` (the App, the state and the exchange `software.md` generalises), `treasury.md` (step 9: built, kept for its decisions and what is open), `pods.md` (what Stadeum does for pods, a machine for every coding job; the plan itself is `stakwork/pods`'s `PLAN.md`, proposed), `group-calls.md` (Jamie from a box in a group call, end-to-end encrypted, heard and spoken by strut's own models: the box's `voice` service joins it, proposed), `experiments.md` (measuring and improving how a workspace is set up in a pod, as claims, cases and tests in strut's Knowledge app, proposed), `anthropic-federation.md` (Anthropic without a key: the box is its own OIDC issuer and trades a JWT for an hour's token, which stadeum-ui writes into the gateway; fleet makes each box's issuer and rule in place of its key pool, proposed), `jamie-in-slack.md` (Jamie in a company's Slack workspace: stadeum-ui is the box's Slack host, and the connect seam links each person's Slack account in strut and installs the box's own Slack app, proposed) |
+| `plans/` | Work not built yet, one file each, with what is decided and what is open: `software.md` (roadmap step 7: GitHub, repositories and pods as packages, through the connect seam), `github-app.md` (the App, the state and the exchange `software.md` generalises), `treasury.md` (step 9: built, kept for its decisions and what is open), `pods.md` (what Stadeum does for pods, a machine for every coding job; the plan itself is `stakwork/pods`'s `PLAN.md`, proposed), `group-calls.md` (Jamie from a box in a group call, end-to-end encrypted, heard and spoken by strut's own models: the box's `voice` service joins it, proposed), `experiments.md` (measuring and improving how a workspace is set up in a pod, as claims, cases and tests in strut's Knowledge app, proposed), `anthropic-federation.md` (Anthropic without a key: the box's gateway is its own OIDC issuer and Bifrost trades its JWT for an hour's token; built for a box, `docs/models.md`; fleet making each box's issuer and rule in place of its key pool is still proposed), `jamie-in-slack.md` (Jamie in a company's Slack workspace: stadeum-ui is the box's Slack host, and the connect seam links each person's Slack account in strut and installs the box's own Slack app, proposed) |
 
 ## Running
 

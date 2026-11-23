@@ -5,15 +5,18 @@ import { ensureGatewayLogRetention } from "@/lib/mothership/gateway-settings";
 import { ensureVirtualKey } from "@/lib/mothership/virtual-key";
 import { startFakeStack, type FakeKey, type FakeStack } from "@/test/fake-stack";
 import { allowProviderModels, applyModels, modelsView, STRUT_DEFAULT_MODEL, STRUT_MODELS } from "./apply";
+import { gatewayIssuer, IDENTITY_TOKEN_FILE } from "./federation";
 import { GIVEN_REFUSAL } from "./given";
 import {
   addOtherProvider,
   applyGivenProviders,
   checkProviderKey,
+  keyedProviders,
   otherNameProblem,
   providerSays,
   providerStates,
   removeProviderKey,
+  setProviderFederation,
   setProviderKey,
 } from "./providers";
 import { readModelSettings, saveModelSettings } from "./settings";
@@ -346,5 +349,97 @@ describe("providers given at install", () => {
     await applyGivenProviders();
     expect(net("openai").base_url).toBeUndefined();
     expect(net("openai").allow_private_network).toBeUndefined();
+  });
+});
+
+describe("Anthropic without a key", () => {
+  const ORG = "0d6f2c3a-1b2c-4d5e-8f90-123456789abc";
+  const good = { organizationId: ORG, ruleId: "fdrl_good1", serviceAccountId: "svac_box1" };
+  afterAll(() => {
+    delete process.env.STADEUM_MODEL_PROVIDERS;
+  });
+
+  it("writes the federation on Anthropic's key slot, with no value, and the gateway checks it", async () => {
+    const before = slot("anthropic");
+    const state = await setProviderFederation("anthropic", { ...good, workspaceId: "wrkspc_main" });
+    expect(state).toMatchObject({ id: "anthropic", preview: "", federation: { ...good, workspaceId: "wrkspc_main" }, check: { ok: true } });
+    const keys = fake.state.providerKeys.get("anthropic")!;
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toMatchObject({
+      id: before.id,
+      name: "anthropic-key-1",
+      value: "",
+      anthropic_key_config: {
+        workload_identity: {
+          federation_rule_id: "fdrl_good1",
+          organization_id: ORG,
+          service_account_id: "svac_box1",
+          workspace_id: "wrkspc_main",
+          identity_source: { type: "file", path: IDENTITY_TOKEN_FILE },
+        },
+      },
+    });
+    // It counts as a key: strut is told Anthropic's models are there.
+    expect(keyedProviders(await providerStates()).has("anthropic")).toBe(true);
+    expect((await checkProviderKey("anthropic")).check).toEqual({ ok: true });
+  });
+
+  it("shows a rule Anthropic refuses as refused, in the gateway's words", async () => {
+    const state = await setProviderFederation("anthropic", { ...good, ruleId: "fdrl_wrong" });
+    expect(state.check).toEqual({ ok: false, detail: expect.stringContaining("not accepted by any federation rule") });
+  });
+
+  it("refuses malformed IDs, and any provider but Anthropic, writing nothing", async () => {
+    const was = JSON.stringify(slot("anthropic"));
+    await expect(setProviderFederation("anthropic", { ...good, organizationId: "acme" })).rejects.toThrow("organization ID is a UUID");
+    await expect(setProviderFederation("anthropic", { ...good, ruleId: "rule1" })).rejects.toThrow("starts fdrl_");
+    await expect(setProviderFederation("anthropic", { ...good, serviceAccountId: "" })).rejects.toThrow("starts svac_");
+    await expect(setProviderFederation("anthropic", { ...good, workspaceId: "main" })).rejects.toThrow("starts wrkspc_");
+    await expect(setProviderFederation("openai", good)).rejects.toThrow("Only Anthropic");
+    expect(JSON.stringify(slot("anthropic"))).toBe(was);
+  });
+
+  it("a key pasted over it wins, though the gateway keeps the federation beside it", async () => {
+    await setProviderFederation("anthropic", good);
+    const state = await setProviderKey("anthropic", "sk-good-anthropic-9876");
+    expect(state).toMatchObject({ preview: "sk-****9876", check: { ok: true } });
+    expect(state.federation).toBeUndefined();
+    expect(slot("anthropic").anthropic_key_config?.workload_identity?.federation_rule_id).toBe("fdrl_good1");
+  });
+
+  it("removing it takes the federated key out", async () => {
+    await setProviderFederation("anthropic", good);
+    await removeProviderKey("anthropic");
+    const anthropic = (await providerStates()).find((p) => p.id === "anthropic")!;
+    expect(anthropic.preview).toBe("");
+    expect(anthropic.federation).toBeUndefined();
+    expect(fake.state.providerKeys.get("anthropic")).toHaveLength(0);
+  });
+
+  it("is given at install, as a host's federation: written by upkeep, shown as given, not changed here", async () => {
+    process.env.STADEUM_MODEL_PROVIDERS = JSON.stringify([
+      { provider: "anthropic", federation: { organization_id: ORG, federation_rule_id: "fdrl_good2", service_account_id: "svac_box2" } },
+    ]);
+    expect(await applyGivenProviders()).toBe(1);
+    expect(slot("anthropic")).toMatchObject({ value: "", anthropic_key_config: { workload_identity: { federation_rule_id: "fdrl_good2" } } });
+    const anthropic = (await providerStates()).find((p) => p.id === "anthropic")!;
+    expect(anthropic).toMatchObject({ given: true, federation: { ruleId: "fdrl_good2", serviceAccountId: "svac_box2" }, check: { ok: true } });
+    await expect(setProviderFederation("anthropic", good)).rejects.toThrow(GIVEN_REFUSAL);
+    await expect(setProviderKey("anthropic", "sk-good-mine")).rejects.toThrow(GIVEN_REFUSAL);
+    delete process.env.STADEUM_MODEL_PROVIDERS;
+  });
+
+  it("reads the gateway's issuer and key set from its own documents; none from a gateway that publishes none", async () => {
+    const issuer = await gatewayIssuer();
+    expect(issuer).toMatchObject({ issuer: "http://mothership.fake.localhost", subject: "mothership", audience: "https://api.anthropic.com" });
+    expect(JSON.parse(issuer!.jwks).keys[0]).toMatchObject({ kty: "EC", crv: "P-256", alg: "ES256" });
+    expect(JSON.parse(issuer!.jwks).keys[0].d).toBeUndefined();
+    const was = fake.state.issuer;
+    fake.state.issuer = null;
+    try {
+      expect(await gatewayIssuer()).toBeNull();
+    } finally {
+      fake.state.issuer = was;
+    }
   });
 });

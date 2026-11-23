@@ -3,6 +3,7 @@ import type { BifrostClient } from "@/lib/mothership/bifrost-client";
 import { KNOWN_CUSTOM, PROVIDERS, RESERVED_PROVIDER_NAMES } from "@/lib/mothership/constants";
 import { BifrostHttpError } from "@/lib/mothership/http";
 import type { BifrostKey, BifrostProviderEntry } from "@/lib/mothership/types";
+import { federationInput, federationOfKey, federationProblem, type Federation } from "./federation";
 import { GIVEN_REFUSAL, givenProviders, type GivenProvider } from "./given";
 
 /**
@@ -25,6 +26,10 @@ import { GIVEN_REFUSAL, givenProviders, type GivenProvider } from "./given";
  * A built-in the box's host gives (models/given.ts) is written by upkeep,
  * with its address when it has one, and an admin can test it but not change
  * or remove it.
+ *
+ * Anthropic's key may instead be federated (models/federation.ts): no
+ * value, and the IDs of the rule in Anthropic's console that trusts the
+ * gateway. It counts as a key everywhere a pasted one does (hasKey).
  */
 
 export type ProviderKind = "builtin" | "known" | "other";
@@ -42,8 +47,10 @@ export interface ProviderState {
   given?: boolean;
   /** One line about a known provider. */
   note?: string;
-  /** bifrost's masked preview of the key; "" when none is set. */
+  /** bifrost's masked preview of the key; "" when none is set, or the key is federated. */
   preview: string;
+  /** Anthropic's key is federated: the gateway signs for itself, with these IDs. */
+  federation?: Federation;
   /** bifrost's last check of the key (listing the provider's models with it), when it made one. */
   check?: { ok: boolean; detail?: string };
   /** A built-in the gateway has no provider for, so no key can be set. */
@@ -51,6 +58,8 @@ export interface ProviderState {
 }
 
 const previewOf = (k: BifrostKey): string => (typeof k.value === "string" ? k.value : (k.value?.value ?? ""));
+/** A key that works when set: a pasted one, or a federated one. */
+const isSet = (k: BifrostKey): boolean => !!(previewOf(k) || federationOfKey(k));
 
 /**
  * The provider's own sentence out of bifrost's description, which wraps the
@@ -87,7 +96,7 @@ async function keysOf(client: BifrostClient, id: string): Promise<BifrostKey[] |
 }
 
 /** What a provider is, before its keys are read. */
-type Shape = Omit<ProviderState, "preview" | "check" | "missing">;
+type Shape = Omit<ProviderState, "preview" | "federation" | "check" | "missing">;
 
 const builtinShape = (id: string): Shape | undefined => {
   const p = PROVIDERS.find((x) => x.id === id);
@@ -101,8 +110,9 @@ const otherShape = (e: BifrostProviderEntry): Shape => ({ id: e.name, strut: e.n
 
 function stateOf(shape: Shape, keys: BifrostKey[] | null): ProviderState {
   if (keys === null) return { ...shape, preview: "", ...(shape.kind === "builtin" ? { missing: true } : {}) };
-  const set = keys.find((k) => previewOf(k));
-  return { ...shape, preview: set ? previewOf(set) : "", check: checkOf(set) };
+  const set = keys.find(isSet);
+  const federation = set && federationOfKey(set);
+  return { ...shape, preview: set ? previewOf(set) : "", ...(federation ? { federation } : {}), check: checkOf(set) };
 }
 
 /**
@@ -128,8 +138,11 @@ export async function providerStates(client?: BifrostClient): Promise<ProviderSt
   );
 }
 
+/** The provider has a key: pasted, or federated. */
+export const hasKey = (s: ProviderState): boolean => !!(s.preview || s.federation);
+
 /** strut's names of the providers that have a key. */
-export const keyedProviders = (states: ProviderState[]) => new Set(states.filter((s) => s.preview).map((s) => s.strut));
+export const keyedProviders = (states: ProviderState[]) => new Set(states.filter(hasKey).map((s) => s.strut));
 
 /** The custom provider's address as bifrost wants it: a root, without `/v1` or a trailing slash. */
 export function rootOf(url: string): string {
@@ -161,12 +174,24 @@ async function ensureCustomProvider(c: BifrostClient, name: string, baseUrl: str
   });
 }
 
-/** Write the key: replace the provider's first key (a built-in's env slot), or add one. Then bifrost checks it. */
-async function writeKey(c: BifrostClient, shape: Shape, value: string): Promise<ProviderState> {
+/** What a key holds: a pasted value, or Anthropic's federation. */
+type Secret = { value: string } | { federation: Federation };
+
+/**
+ * Write the key: replace the provider's first key (a built-in's env slot),
+ * or add one. Then bifrost checks it: it lists the provider's models with
+ * it, which for a federated key means an exchange at Anthropic.
+ */
+async function writeKey(c: BifrostClient, shape: Shape, secret: Secret): Promise<ProviderState> {
   const keys = await keysOf(c, shape.id);
   if (keys === null) throw new Error(`The gateway has no ${shape.label} provider.`);
   const slot = keys[0];
-  const input = { name: slot?.name ?? `${shape.id}-key-1`, value, models: slot?.models?.length ? slot.models : ["*"], weight: slot?.weight || 1 };
+  const input = {
+    name: slot?.name ?? `${shape.id}-key-1`,
+    models: slot?.models?.length ? slot.models : ["*"],
+    weight: slot?.weight || 1,
+    ...("value" in secret ? { value: secret.value } : { value: "", anthropic_key_config: federationInput(secret.federation) }),
+  };
   const written = slot ? await c.updateProviderKey(shape.id, slot.id, input) : await c.createProviderKey(shape.id, input);
   const checked = await c.checkProviderKey(shape.id, written.id).catch(() => written);
   return stateOf(shape, [checked, ...keys.slice(1)]);
@@ -190,7 +215,22 @@ export async function setProviderKey(id: string, value: string, client?: Bifrost
   const shape = await shapeOf(c, id);
   if (!shape) throw new Error("Unknown provider.");
   if (shape.kind === "known") await ensureCustomProvider(c, shape.id, shape.baseUrl!);
-  return writeKey(c, shape, value);
+  return writeKey(c, shape, { value });
+}
+
+/**
+ * Connect Anthropic without a key: its key becomes a federated one, with
+ * the IDs of the rule in Anthropic's console that trusts the gateway.
+ * Throws when the IDs are malformed, when the gateway refuses (one too old
+ * to federate), or for any other provider.
+ */
+export async function setProviderFederation(id: string, federation: Federation, client?: BifrostClient): Promise<ProviderState> {
+  if (id !== "anthropic") throw new Error("Only Anthropic can be connected without a key.");
+  if (isGiven(id)) throw new Error(GIVEN_REFUSAL);
+  const problem = federationProblem(federation);
+  if (problem) throw new Error(problem);
+  const c = client ?? (await governanceClient());
+  return writeKey(c, builtinShape(id)!, { federation });
 }
 
 /** A name an Other provider may take: aieo's rule for a gateway provider (strut src/aieo/resolve.ts), not one taken. */
@@ -219,7 +259,7 @@ export async function addOtherProvider(name: string, baseUrl: string, value: str
     custom_provider_config: { base_provider_type: "openai" },
   });
   try {
-    return await writeKey(c, { id: name, strut: name, label: name, kind: "other", baseUrl: root }, value);
+    return await writeKey(c, { id: name, strut: name, label: name, kind: "other", baseUrl: root }, { value });
   } catch (err) {
     await c.deleteProvider(name).catch(() => undefined);
     throw err;
@@ -232,7 +272,7 @@ export async function checkProviderKey(id: string, client?: BifrostClient): Prom
   const shape = await shapeOf(c, id);
   if (!shape) throw new Error("Unknown provider.");
   const keys = await keysOf(c, id);
-  const set = keys?.find((k) => previewOf(k));
+  const set = keys?.find(isSet);
   if (!keys || !set) return stateOf(shape, keys ?? (shape.kind === "known" ? [] : null));
   const checked = await c.checkProviderKey(id, set.id);
   return stateOf(shape, keys.map((k) => (k.id === set.id ? checked : k)));
@@ -252,7 +292,7 @@ export async function removeProviderKey(id: string, client?: BifrostClient): Pro
     return;
   }
   for (const k of (await keysOf(c, id)) ?? []) {
-    if (previewOf(k)) await c.deleteProviderKey(id, k.id);
+    if (isSet(k)) await c.deleteProviderKey(id, k.id);
   }
 }
 
@@ -290,7 +330,7 @@ export async function applyGivenProviders(client?: BifrostClient): Promise<numbe
   for (const g of given) {
     try {
       await setAddress(c, g);
-      await writeKey(c, builtinShape(g.id)!, g.key);
+      await writeKey(c, builtinShape(g.id)!, g.federation ? { federation: g.federation } : { value: g.key });
       written++;
     } catch (err) {
       console.warn(`[models] given provider ${g.id} not written: ${err instanceof Error ? err.message : String(err)}`);
