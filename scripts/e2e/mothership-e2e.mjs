@@ -31,6 +31,9 @@
 // The macaroon is v2 (a signed block chain with a proof key): a run's
 // spend lands on its own counter and on block 0's (the person's grant),
 // and a token with its last block dropped is refused (`invalid_proof`).
+// The gateway keys every block after block 0 under the grant's run id
+// (`ua_…:<run id>`, stakwork/mothership#3), so that is the id a run has
+// in its counters, its logs and `/_plugin/runs/:id` (gatewayRunId).
 //
 // Provider: real when bifrost holds an Anthropic key (set on stadeum's
 // Models page); otherwise a fake Anthropic upstream served from this
@@ -319,6 +322,10 @@ function mintDelegation(org, actor, ceilingUsd) {
   return { token, delegationId: runId, grantRunId: grant.caveats.run_id };
 }
 
+// The id the gateway gives a run under a delegation: the run's own id
+// (strut's run id, or the delegation's) keyed under the grant's.
+const gatewayRunId = (delegation, runId) => `${delegation.grantRunId}:${runId}`;
+
 /**
  * The gateway's `invalid_proof` refusal. Its provider-shaped error body
  * carries the message, not the code (the code is in its log: `verify FAIL
@@ -449,7 +456,7 @@ try {
   // bifrost's own request log: the call, under alice's VK and customer, with
   // the macaroon's claims stamped as metadata.
   const log = await eventually(async () =>
-    ((await gov("GET", "/api/logs?limit=50")).logs ?? []).find((l) => l.metadata?.["run-id"] === a.runId),
+    ((await gov("GET", "/api/logs?limit=50")).logs ?? []).find((l) => l.metadata?.["run-id"] === gatewayRunId(del, a.runId)),
   );
   show(
     "bifrost log for the run",
@@ -473,10 +480,10 @@ try {
   const user =
     (await eventually(async () => {
       const u = await plugin("GET", userUrl);
-      return u.recent_runs?.some((r) => r.run_id === a.runId) ? u : null;
+      return u.recent_runs?.some((r) => r.run_id === gatewayRunId(del, a.runId)) ? u : null;
     })) ?? (await plugin("GET", userUrl));
   show(`GET /_plugin/users/${ALICE}`, { total_cost: user.total_cost, request_count: user.request_count, runs: user.recent_runs?.map((r) => r.run_id) });
-  check("bifrost's per-person spend includes the run", !!user.recent_runs?.some((r) => r.run_id === a.runId) && user.total_cost > 0);
+  check("bifrost's per-person spend includes the run", !!user.recent_runs?.some((r) => r.run_id === gatewayRunId(del, a.runId)) && user.total_cost > 0);
   const budgetOf = async () => (await gov("GET", `/api/governance/customers/${customer.id}`)).customer?.budgets?.[0];
   const usageAfter = (await eventually(async () => {
     const b = await budgetOf();
@@ -486,14 +493,16 @@ try {
   check("alice's customer budget was charged", (usageAfter?.current_usage ?? 0) > usageBefore);
 
   // v2: every block is a layer with its own counter. The run's spend lands
-  // on strut's run block and on block 0, alice's grant (`ua_…`).
+  // on strut's run block and on block 0, alice's grant (`ua_…`). Block 0
+  // keeps its own id; the blocks under it are keyed under it.
   const runState = async (id) => (await http("GET", `${BIFROST}/_plugin/runs/${encodeURIComponent(id)}/state`, { headers: { Authorization: `Bearer ${T}` } })).json;
   const spent = async (id) => eventually(async () => ((await runState(id))?.cost_usd > 0 ? runState(id) : null));
-  const [runSpent, grantSpent, delegationSpent] = [await spent(a.runId), await spent(del.grantRunId), await spent(del.delegationId)];
+  const [aRun, aDelegation] = [gatewayRunId(del, a.runId), gatewayRunId(del, del.delegationId)];
+  const [runSpent, grantSpent, delegationSpent] = [await spent(aRun), await spent(del.grantRunId), await spent(aDelegation)];
   show("gateway counters", {
-    run: runSpent && { id: a.runId, cost_usd: runSpent.cost_usd },
+    run: runSpent && { id: aRun, cost_usd: runSpent.cost_usd },
     "block 0": grantSpent && { id: del.grantRunId, cost_usd: grantSpent.cost_usd },
-    "block 1": delegationSpent && { id: del.delegationId, cost_usd: delegationSpent.cost_usd },
+    "block 1": delegationSpent && { id: aDelegation, cost_usd: delegationSpent.cost_usd },
   });
   check("the run's spend is on its own counter", (runSpent?.cost_usd ?? 0) > 0);
   check("and on block 0's, alice's grant (ua_…)", del.grantRunId.startsWith("ua_") && (grantSpent?.cost_usd ?? 0) > 0);
@@ -543,10 +552,11 @@ try {
   const cErr = await errorsOf("e2e-llm-capped", c);
   show("capped run", { runId: c.runId, status: c.run.status, cap: RUN_CAP_USD, error: cErr });
   check("the run is stopped once it is over its cap", c.run.status !== "success" && /run_cost_exceeded|spent \$|cap/i.test(cErr));
-  const state = await http("GET", `${BIFROST}/_plugin/runs/${c.runId}/state`, { headers: { Authorization: `Bearer ${T}` } });
-  show(`GET /_plugin/runs/${c.runId}/state`, state.json ?? `${state.status} ${state.text.slice(0, 200)}`);
-  const root = await http("GET", `${BIFROST}/_plugin/runs/${del.delegationId}/state`, { headers: { Authorization: `Bearer ${T}` } });
-  show(`alice's delegation ${del.delegationId} state`, root.json ?? `${root.status} ${root.text.slice(0, 200)}`);
+  const cRun = gatewayRunId(del, c.runId);
+  const state = await http("GET", `${BIFROST}/_plugin/runs/${encodeURIComponent(cRun)}/state`, { headers: { Authorization: `Bearer ${T}` } });
+  show(`GET /_plugin/runs/${cRun}/state`, state.json ?? `${state.status} ${state.text.slice(0, 200)}`);
+  const root = await http("GET", `${BIFROST}/_plugin/runs/${encodeURIComponent(aDelegation)}/state`, { headers: { Authorization: `Bearer ${T}` } });
+  show(`alice's delegation ${aDelegation} state`, root.json ?? `${root.status} ${root.text.slice(0, 200)}`);
   if (!REAL) check("only the first step reached the provider", upstreamSeen.filter((u) => u.path?.includes("/messages")).length - upstreamSeen.slice(0, beforeCap).filter((u) => u.path?.includes("/messages")).length === 1);
 
   section("4. over the person's delegation ceiling");
@@ -564,8 +574,10 @@ try {
   const c2Err = await errorsOf("e2e-llm-ceiling", c2);
   show("carol run 2", { status: c2.run.status, error: c2Err });
   check("carol's next run is stopped: her delegation ceiling is spent", c2.run.status !== "success" && c2Err.includes(cdel.delegationId));
-  const cstate = await plugin("GET", `/_plugin/runs/${cdel.delegationId}/state`);
-  show(`carol's delegation ${cdel.delegationId} state`, { cost_usd: cstate.cost_usd, max_cost_usd: cstate.max_cost_usd, steps: cstate.steps });
+  const carolDelegation = gatewayRunId(cdel, cdel.delegationId);
+  check("the refusal names carol's delegation by the gateway's id for it", c2Err.includes(carolDelegation));
+  const cstate = await plugin("GET", `/_plugin/runs/${encodeURIComponent(carolDelegation)}/state`);
+  show(`carol's delegation ${carolDelegation} state`, { cost_usd: cstate.cost_usd, max_cost_usd: cstate.max_cost_usd, steps: cstate.steps });
 
   section("5. an OpenAI-compatible provider through the gateway, billed to alice");
   if (!server) server = await startFakeUpstream();
@@ -601,13 +613,13 @@ try {
   check("the custom provider got the model id without its prefix, with the gateway's key", xcalls.length > 0 && xcalls.every((c) => c.model === "fake-1" && c.authorization === `Bearer ${COMPAT_KEY}`));
   check("the macaroon is not forwarded to the custom provider", xcalls.every((c) => !c.macaroonForwarded));
   const xlog = await eventually(async () =>
-    ((await gov("GET", "/api/logs?limit=50")).logs ?? []).find((l) => l.metadata?.["run-id"] === x.runId),
+    ((await gov("GET", "/api/logs?limit=50")).logs ?? []).find((l) => l.metadata?.["run-id"] === gatewayRunId(del, x.runId)),
   );
   show("bifrost log for the run", xlog && { provider: xlog.provider, model: xlog.model, status: xlog.status, customer: xlog.customer_name });
   check("bifrost logged the call under alice, on the custom provider", !!xlog && xlog.status === "success" && xlog.customer_name === ALICE && xlog.provider === COMPAT);
   const xwant = (1000 * COMPAT_PRICE.input_per_mtok + 100 * COMPAT_PRICE.output_per_mtok) / 1e6;
   const xrun = await eventually(async () => {
-    const st = await plugin("GET", `/_plugin/runs/${x.runId}/state`).catch(() => null);
+    const st = await plugin("GET", `/_plugin/runs/${encodeURIComponent(gatewayRunId(del, x.runId))}/state`).catch(() => null);
     return st && st.cost_usd > 0 ? st : null;
   });
   show("the run's spend at the gateway", { cost_usd: xrun?.cost_usd, priced_at: xwant });
