@@ -24,7 +24,13 @@
 //      `<virtual key>.<macaroon>` works in `x-api-key` and in
 //      `Authorization: Bearer`, billed to the person; the site has nothing
 //      but the providers' endpoints; the gateway stops the key at its own
-//      budget, after its expiry, and once it is deleted.
+//      budget, after its expiry, and once it is deleted. The macaroon is a
+//      grant as strut makes one (a third block off the delegation), and
+//      with that block stripped the gateway refuses it.
+//
+// The macaroon is v2 (a signed block chain with a proof key): a run's
+// spend lands on its own counter and on block 0's (the person's grant),
+// and a token with its last block dropped is refused (`invalid_proof`).
 //
 // Provider: real when bifrost holds an Anthropic key (set on stadeum's
 // Models page); otherwise a fake Anthropic upstream served from this
@@ -35,7 +41,7 @@ import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { createDecipheriv, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { attenuate, bytesToHex, ed25519PublicKey, encodeToken, hexToBytes, signRoot, verify } from "gatekey";
+import { attenuate, bytesToHex, decodeToken, ed25519PublicKey, encodeToken, hexToBytes, signRoot, verify } from "gatekey";
 
 const BIFROST = "http://bifrost:8181";
 const STRUT = "http://strut:3000";
@@ -310,7 +316,35 @@ function mintDelegation(org, actor, ceilingUsd) {
     ),
   );
   verify(token, { type: "single", key: { alg: "ecdsa-secp256k1-sha256", key: org.pubkey } }, now);
-  return { token, delegationId: runId };
+  return { token, delegationId: runId, grantRunId: grant.caveats.run_id };
+}
+
+/**
+ * The gateway's `invalid_proof` refusal. Its provider-shaped error body
+ * carries the message, not the code (the code is in its log: `verify FAIL
+ * … code=invalid_proof`); mothership `auth/go/verify.go`, ErrInvalidProof.
+ */
+const INVALID_PROOF = /proof is not the private key of the last block's next_key|invalid_proof/;
+
+/** A token with its last block dropped and the proof kept: what a holder would try to reach the block above. */
+function dropLastBlock(token) {
+  const t = decodeToken(token);
+  return encodeToken({ ...t, blocks: t.blocks.slice(0, -1) });
+}
+
+/** A grant as strut makes one (strut src/mothership.ts, `grant`): one more block off the delegation, with a key of its own. */
+function grantMacaroon(delegationToken, { name = "e2e.grant", capUsd = 50, seconds = 3600 } = {}) {
+  const now = new Date();
+  return encodeToken(
+    attenuate(decodeToken(delegationToken), {
+      run_id: `grant-${nonce()}`,
+      agent: name,
+      max_cost_usd: capUsd,
+      iat: now.toISOString(),
+      exp: new Date(now.getTime() + seconds * 1000).toISOString(),
+      nonce: nonce(),
+    }),
+  );
 }
 
 // ── Strut ───────────────────────────────────────────────────────────────
@@ -451,6 +485,19 @@ try {
   show("alice customer budget", { max_limit: usageAfter?.max_limit, reset: usageAfter?.reset_duration, current_usage_before: usageBefore, current_usage_after: usageAfter?.current_usage });
   check("alice's customer budget was charged", (usageAfter?.current_usage ?? 0) > usageBefore);
 
+  // v2: every block is a layer with its own counter. The run's spend lands
+  // on strut's run block and on block 0, alice's grant (`ua_…`).
+  const runState = async (id) => (await http("GET", `${BIFROST}/_plugin/runs/${encodeURIComponent(id)}/state`, { headers: { Authorization: `Bearer ${T}` } })).json;
+  const spent = async (id) => eventually(async () => ((await runState(id))?.cost_usd > 0 ? runState(id) : null));
+  const [runSpent, grantSpent, delegationSpent] = [await spent(a.runId), await spent(del.grantRunId), await spent(del.delegationId)];
+  show("gateway counters", {
+    run: runSpent && { id: a.runId, cost_usd: runSpent.cost_usd },
+    "block 0": grantSpent && { id: del.grantRunId, cost_usd: grantSpent.cost_usd },
+    "block 1": delegationSpent && { id: del.delegationId, cost_usd: delegationSpent.cost_usd },
+  });
+  check("the run's spend is on its own counter", (runSpent?.cost_usd ?? 0) > 0);
+  check("and on block 0's, alice's grant (ua_…)", del.grantRunId.startsWith("ua_") && (grantSpent?.cost_usd ?? 0) > 0);
+
   if (!REAL) {
     const calls = upstreamSeen.filter((u) => u.path?.includes("/messages"));
     const keys = [...new Set(calls.map((u) => u.xApiKey))];
@@ -482,6 +529,12 @@ try {
   const vkOnly = await http("POST", `${BIFROST}/anthropic/v1/messages`, { headers: { "x-api-key": vk.value, "anthropic-version": "2023-06-01" }, body: msg });
   show("bifrost, alice's VK without a macaroon", `${vkOnly.status} ${vkOnly.text.slice(0, 200)}`);
   check("bifrost refuses a VK without a macaroon", vkOnly.status === 401);
+  const shortened = await http("POST", `${BIFROST}/anthropic/v1/messages`, {
+    headers: { "x-api-key": vk.value, "x-macaroon": dropLastBlock(del.token), "anthropic-version": "2023-06-01" },
+    body: msg,
+  });
+  show("bifrost, alice's VK with her macaroon's last block dropped", `${shortened.status} ${shortened.text.slice(0, 200)}`);
+  check("bifrost refuses a macaroon with its last block dropped (invalid_proof)", shortened.status === 401 && INVALID_PROOF.test(shortened.text));
   if (!REAL) check("neither refused gateway call reached the provider", upstreamSeen.length === before);
 
   section("3. over the cap");
@@ -562,8 +615,9 @@ try {
 
   section(`6. a grant's key, from outside the box: ${MOTHERSHIP}`);
   const gk = await grantKey(customer);
-  const joined = `${gk.value}.${del.token}`;
-  check("a virtual key holds no '.', so the gateway's split finds the macaroon", /^sk-bf-[A-Za-z0-9_-]+$/.test(gk.value) && !del.token.includes("."));
+  const granted = grantMacaroon(del.token);
+  const joined = `${gk.value}.${granted}`;
+  check("a virtual key holds no '.', so the gateway's split finds the macaroon", /^sk-bf-[A-Za-z0-9_-]+$/.test(gk.value) && !granted.includes("."));
   const anthropicCall = (key) => viaCaddy("POST", "/anthropic/v1/messages", { "x-api-key": key, "anthropic-version": "2023-06-01" }, msg);
   const seenBefore = upstreamSeen.length;
   const g1 = await anthropicCall(joined);
@@ -592,12 +646,16 @@ try {
   show("other paths on the site, with the admin's credentials", shut);
   check("the site has nothing but the providers' endpoints", shut.every((l) => l.endsWith(" 404")));
 
+  const stripped = await anthropicCall(`${gk.value}.${dropLastBlock(granted)}`);
+  show("the grant's key with the grant's block stripped from its macaroon", `${stripped.status} ${stripped.text.slice(0, 160)}`);
+  check("a grant stripped back to strut's delegation is refused (invalid_proof)", stripped.status === 401 && INVALID_PROOF.test(stripped.text));
+
   const alone = await anthropicCall(gk.value);
   show("the grant's key without the macaroon", `${alone.status} ${alone.text.slice(0, 120)}`);
   check("the grant's key alone is refused", alone.status === 401);
 
   const capped = await grantKey(customer, { capUsd: 0.000001 });
-  const cappedKey = `${capped.value}.${del.token}`;
+  const cappedKey = `${capped.value}.${granted}`;
   const k1 = await anthropicCall(cappedKey);
   const k2 = (await eventually(async () => {
     const r = await anthropicCall(cappedKey);
@@ -607,7 +665,7 @@ try {
   check("the gateway stops a grant's key at its own budget", k1.status === 200 && k2.status === 402);
 
   const brief = await grantKey(customer, { seconds: 3 });
-  const briefKey = `${brief.value}.${del.token}`;
+  const briefKey = `${brief.value}.${granted}`;
   await new Promise((r) => setTimeout(r, 5000));
   const late = await anthropicCall(briefKey);
   show("a grant's key past its expiry", `${late.status} ${late.text.slice(0, 160)}`);
