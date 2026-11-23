@@ -1082,6 +1082,8 @@ Each is its own PR.
     - `stadeum/code`: Set Up takes optional "additional information",
       written on the workspace as `note`; right after it, Code finds the
       chat about the workspace and opens Jamie there; the card links it.
+      In review: stakwork/strut-code#11 (`stadeum/code` 0.8.0), not to be
+      promoted to `stable` until stakwork/strut#858 is merged and released.
     - `stadeum/pods`: `setup` calls `conversation/start` in place of
       `job/start`; the `Pod Setup` page's posture (row 27).
 
