@@ -153,11 +153,18 @@ export const shortName = (pkg: string, name: string) => (name.startsWith(`${pkg}
 export const boxSecrets = (pkg: InstalledPackage) => pkg.secrets.filter((s) => !pkg.optional?.includes(s) && !pkg.provides?.secrets.includes(s));
 
 /**
- * The box's secrets of a package's that strut's deployment store has no
- * value for. `set` is `GET /secrets`'s names: null when strut could not
- * say, and then nothing is claimed missing.
+ * The box's secrets of a package's that have no value. Strut says which
+ * (`missing`), counting its environment as its own gate does, so a value
+ * the box hands strut there (`PODS_URL`, `PODS_TOKEN`) is never asked for.
+ * From a strut that doesn't say, `set` is `GET /secrets`'s names, the
+ * store's alone: null when strut could not say, and then nothing is
+ * claimed missing.
  */
-export const secretsNeeded = (pkg: InstalledPackage, set: ReadonlySet<string> | null) => (set ? boxSecrets(pkg).filter((s) => !set.has(s)) : []);
+export const secretsNeeded = (pkg: InstalledPackage, set: ReadonlySet<string> | null) => {
+  const missing = pkg.missing?.secrets;
+  if (missing) return boxSecrets(pkg).filter((s) => missing.includes(s));
+  return set ? boxSecrets(pkg).filter((s) => !set.has(s)) : [];
+};
 
 /**
  * The secret names a person may set from this page: the box's secret of an

@@ -580,9 +580,11 @@ checked".
 - **Packages** (admins; `ui/src/app/(app)/packages/`, strut `specs/API.md`
   §16). Installed: each package, its version, apps, workflows, steps and
   Concepts (an item edited here is marked), and the secrets it requires
-  that strut's store has no value for (`GET /secrets` names against the
-  package's `secrets` less its `optional` and its `provides.secrets`),
-  each with a write-only field that `PUT`s it to strut's deployment store.
+  that strut has no value for: strut's own `missing`, which counts its
+  environment as its gate does, so the `PODS_URL` and `PODS_TOKEN` compose
+  hands strut are never asked for (from a strut that doesn't report it,
+  `GET /secrets` names, the store's alone), less the package's `optional`
+  and its `provides.secrets`, each with a write-only field that `PUT`s it to strut's deployment store.
   An optional secret is read only when set, and nothing asks for it. A
   secret a package provides is managed by its own steps: a person's own,
   which they connect or paste in the package's app, or one its admin app

@@ -105,6 +105,17 @@ describe("secrets", () => {
     expect(secretsNeeded(pkg, null)).toEqual([]);
   });
 
+  it("takes strut's word for what is missing, which counts its environment, over the store's names", () => {
+    // The box hands strut PODS_URL and PODS_TOKEN in its environment: GET /secrets never lists them.
+    const pods: InstalledPackage = { package: "stadeum/pods", secrets: ["PODS_URL", "PODS_TOKEN"], missing: { secrets: [] }, items: [] };
+    expect(secretsNeeded(pods, new Set())).toEqual([]);
+    expect(secretsNeeded(pods, null)).toEqual([]);
+    expect(secretsNeeded({ ...pods, missing: { secrets: ["PODS_TOKEN"] } }, new Set(["PODS_TOKEN"]))).toEqual(["PODS_TOKEN"]);
+    // Still only what the box sets: never what its steps manage or read only when set.
+    const github: InstalledPackage = { package: "stadeum/github", secrets: ["GITHUB_TOKEN"], optional: ["GITHUB_TOKEN"], provides: { secrets: ["GITHUB_TOKEN"] }, missing: { secrets: ["GITHUB_TOKEN"] }, items: [] };
+    expect(secretsNeeded(github, new Set())).toEqual([]);
+  });
+
   it("sets only a name an installed package declares, never a setting stadeum keeps", () => {
     expect(settableSecret("COURTLISTENER_API_KEY", [pkg])).toBe(true);
     expect(settableSecret("GITHUB_TOKEN", [pkg])).toBe(false);
