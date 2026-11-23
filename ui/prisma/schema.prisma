@@ -61,6 +61,9 @@ model Org {
   spendLimitUsd       Float?
   /// How often every person's spending resets: 1d | 1w | 1M. Null: the constants' default.
   spendReset          String?
+  /// The apps an admin took out of the rail: a JSON list of strut's app
+  /// names. Every other app strut lists is in it, so a new one is (lib/app-pins.ts).
+  unpinnedApps        String?
   updatedAt           DateTime  @updatedAt
 }
 

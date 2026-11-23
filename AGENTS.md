@@ -36,12 +36,15 @@ work on it. Read the rules before adding anything.
    person, Calls, the connect seam's confirm page, the members and the
    admin pages. The list of apps comes
    from strut, never from a list in this repo.
+   - **The rail** holds every app strut lists, so a new one is in it,
+     until an admin unpins it on the Apps page. That is stadeum's alone
+     (`Org.unpinnedApps`, `ui/src/lib/app-pins.ts`), never strut's pin,
+     which holds a version. An unpinned app is out of everyone's rail and
+     sits among the org's admin pages, for an admin alone.
    - **Admin-only apps** (`admin: true`, strut `specs/API.md` §14.14)
-     sit among the org's admin pages, for an admin alone, framed and
-     signed in as the admin. One an admin pins (strut's pin, on the Apps
-     page) is in an admin's Apps in the rail instead, so a box that never
-     uses one never has it in the way. Strut lists them to stadeum's key,
-     so a member's rail leaves them out, a member gets a 404 for one, and
+     are an admin's alone, framed and signed in as the admin, in an
+     admin's rail as any app is. Strut lists them to stadeum's key, so a
+     member's rail leaves them out, a member gets a 404 for one, and
      strut refuses a member's session one anyway.
      **Earnings** (`strut/earnings`) is one, at its own `/earnings`:
      stadeum knows no payment. Each shows only when strut lists it.

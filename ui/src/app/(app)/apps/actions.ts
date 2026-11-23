@@ -2,9 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
-import { isOpened } from "@/lib/apps";
+import { setAppPinned } from "@/lib/app-pins";
+import { isAssistant, isOpened } from "@/lib/apps";
 import { requireAdmin } from "@/lib/session";
-import { setAppLive, setAppPinned, StrutHttpError, type LiveTarget } from "@/lib/strut/client";
+import { setAppLive, StrutHttpError, type LiveTarget } from "@/lib/strut/client";
 
 /** A refusal in strut's own words; `instead`: the version a refused Restore can make live as it is now. */
 export type ChangeResult = { error?: string; instead?: string };
@@ -32,15 +33,13 @@ export async function makeLive(name: string, target: LiveTarget, instead?: strin
   return {};
 }
 
-/** Pin or unpin: `PUT /apps/:name/pin`, as this admin. */
+/** Pin the app to the rail, or take it out: stadeum's, nothing in strut moves. */
 export async function pin(name: string, pinned: boolean): Promise<ChangeResult> {
-  const me = await requireAdmin();
-  if (!isOpened(name) || typeof pinned !== "boolean") return { error: "That is not a change stadeum makes." };
-  try {
-    await setAppPinned(name, pinned, me.actor);
-  } catch (err) {
-    return { error: refusal(err) };
+  await requireAdmin();
+  if (typeof name !== "string" || name.length > 200 || !isOpened(name) || isAssistant(name) || typeof pinned !== "boolean") {
+    return { error: "That is not a change stadeum makes." };
   }
+  await setAppPinned(name, pinned);
   revalidatePath("/", "layout");
   return {};
 }

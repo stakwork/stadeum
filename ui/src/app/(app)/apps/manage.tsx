@@ -107,7 +107,7 @@ function Confirm(props: {
   );
 }
 
-/** Pin the app near the top of everyone's apps, or stop. */
+/** Pin the app to the rail, or take it out. */
 export function PinToggle({ name, pinned, note }: { name: string; pinned: boolean; note: string }) {
   return (
     <Confirm
