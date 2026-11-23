@@ -35,16 +35,7 @@ import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { createDecipheriv, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import {
-  bytesToHex,
-  decodeMacaroon,
-  ed25519PublicKey,
-  encodeMacaroon,
-  hexToBytes,
-  signInvocation,
-  signUserAuthorizationSingle,
-  verify,
-} from "gatekey";
+import { attenuate, bytesToHex, ed25519PublicKey, encodeToken, hexToBytes, signRoot, verify } from "gatekey";
 
 const BIFROST = "http://bifrost:8181";
 const STRUT = "http://strut:3000";
@@ -65,7 +56,7 @@ const ALICE = "alice@acme.test"; // delegated
 const BOB = "bob@acme.test"; // never delegated
 const CAROL = "carol@acme.test"; // delegated with a tiny ceiling
 const CAROL_CEILING_USD = 0.00001;
-// alice's delegation ceiling (invocation max_cost_usd). Must be >= Strut's
+// alice's delegation ceiling (block 1's max_cost_usd). Must be >= Strut's
 // default per-run cap ($100, STRUT_RUN_MAX_COST_USD), or every uncapped
 // workflow fails with "workflow cap $100 exceeds the delegation ceiling".
 const CEILING_USD = 1000;
@@ -296,21 +287,30 @@ function viaCaddy(method, path, headers = {}, body) {
 }
 
 // ── macaroon (docs/mothership-spec.md §d) ───────────────────────────────
+// What stadeum-ui's mint.ts does: block 0 (the org grants the person),
+// block 1 (the person hands strut the run, with the ceiling), proof = a
+// fresh key of strut's.
 const nonce = () => bytesToHex(new Uint8Array(randomBytes(16)));
 function mintDelegation(org, actor, ceilingUsd) {
   const userPriv = new Uint8Array(randomBytes(32));
   const now = new Date();
   const iat = now.toISOString();
   const exp = new Date(now.getTime() + 24 * 3600 * 1000).toISOString();
-  const agents = ["strut-agent"];
-  const ua = signUserAuthorizationSingle(
-    { user_id: actor, user_pubkey: { alg: "ed25519", key: bytesToHex(ed25519PublicKey(userPriv)) }, agents, iat, exp, nonce: nonce() },
-    org.privkey,
+  const grant = signRoot(
+    org.orgId,
+    { run_id: `ua_${randomUUID()}`, user_id: actor, agents: ["strut-agent"], iat, exp, nonce: nonce() },
+    { alg: "ed25519", key: bytesToHex(ed25519PublicKey(userPriv)) },
+    { alg: "ecdsa-secp256k1-sha256", priv: org.privkey },
   );
-  const invocation = signInvocation({ agents, run_id: randomUUID(), max_cost_usd: ceilingUsd, max_steps: 0, iat, exp, nonce: nonce() }, userPriv);
-  const token = encodeMacaroon({ v: 1, org_id: org.orgId, user_authorization: ua, invocation, attenuations: [] });
-  verify(decodeMacaroon(token), { type: "single", key: { alg: "ecdsa-secp256k1-sha256", key: org.pubkey } }, now);
-  return { token, delegationId: invocation.run_id };
+  const runId = randomUUID();
+  const token = encodeToken(
+    attenuate(
+      { v: 2, org_id: org.orgId, blocks: [grant], proof: bytesToHex(userPriv) },
+      { run_id: runId, agent: "strut-agent", max_cost_usd: ceilingUsd, iat, exp, nonce: nonce() },
+    ),
+  );
+  verify(token, { type: "single", key: { alg: "ecdsa-secp256k1-sha256", key: org.pubkey } }, now);
+  return { token, delegationId: runId };
 }
 
 // ── Strut ───────────────────────────────────────────────────────────────

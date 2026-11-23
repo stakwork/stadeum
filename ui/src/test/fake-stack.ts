@@ -33,7 +33,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { decodeMacaroon, verify } from "gatekey";
+import { decodeToken, verify } from "gatekey";
 
 import { brandStyles } from "@/lib/brand";
 import type { StrutBrand } from "@/lib/strut/client";
@@ -280,7 +280,8 @@ export interface FakeState {
   trust: Map<string, { org_id: string; pubkey: string; issuer_url: string; revocation_poll_seconds: number }>;
   realmId: string;
   agents: unknown[];
-  delegations: Map<string, { actor: string; exp: string; delegationId: string; apiKey: string; baseUrl: string }>;
+  /** `v` is the macaroon version strut reports; set it to 1 (or delete it) to stand in for a copy minted before v2. */
+  delegations: Map<string, { actor: string; exp: string; delegationId: string; apiKey: string; baseUrl: string; v?: number }>;
   secrets: Map<string, string>;
   /** `GET /apps`, in strut's order (by name). Starts as SEEDED_APPS. */
   apps: FakeApp[];
@@ -751,7 +752,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     const one = path.match(/^\/apps\/([^/]+)\/(versions|usage|active|pin)$/);
     if (one) return appRoute(req, res, decodeURIComponent(one[1]!), one[2]!, body);
     if (path === "/llm/delegations" && m === "GET") {
-      return send(res, 200, [...state.delegations.values()].map(({ actor, exp, delegationId }) => ({ actor, exp, delegationId })));
+      return send(res, 200, [...state.delegations.values()].map(({ actor, exp, delegationId, v }) => ({ actor, exp, delegationId, ...(v ? { v } : {}) })));
     }
     const del = path.match(/^\/llm\/delegations\/([^/]+)$/);
     if (del) {
@@ -763,15 +764,15 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
         let shape;
         try {
           shape = checkDelegationShape(body.macaroon);
-          const mac = decodeMacaroon(body.macaroon);
+          const mac = decodeToken(body.macaroon);
           const trusted = state.trust.get(mac.org_id);
           if (!trusted) throw new Error(`org ${mac.org_id} is not in the trust registry`);
-          if (mac.user_authorization.user_id !== who) throw new Error("macaroon user_id is not the actor");
+          if (mac.blocks[0]!.caveats.user_id !== who) throw new Error("macaroon user_id is not the actor");
           verify(mac, { type: "single", key: { alg: "ecdsa-secp256k1-sha256", key: trusted.pubkey } }, new Date());
         } catch (err) {
           return send(res, 400, { error: err instanceof Error ? err.message : String(err) });
         }
-        state.delegations.set(who, { actor: who, exp: shape.exp, delegationId: shape.delegationId, apiKey: body.apiKey, baseUrl: body.baseUrl });
+        state.delegations.set(who, { actor: who, exp: shape.exp, delegationId: shape.delegationId, apiKey: body.apiKey, baseUrl: body.baseUrl, v: 2 });
         return send(res, 200, { actor: who, exp: shape.exp, delegationId: shape.delegationId });
       }
     }

@@ -32,19 +32,19 @@ How a signed-in person gets to run LLM steps on Strut. Extracted from Hive
 - `PUT /api/governance/virtual-keys/{id}` replaces the whole provider set (re-send existing configs with ids).
 - Store VK value encrypted + vkId + customerId.
 
-### d. Mint the macaroon (`macaroon-issuer.ts:154-305`, `strut-delegation.ts:253-272`)
+### d. Mint the macaroon (macaroon v2: mothership `plans/phases/phase-13-signed-block-chain.md`; `ui/src/lib/mothership/mint.ts`)
+A v2 macaroon is a chain of signed blocks plus a proof key: each block is `{caveats, next_key, sig}`, signed by the key the block before named (block 0 by the org), and `proof` is the private half of the last block's `next_key`. A holder can append a block but never drop one, so strut cannot get the person's grant back from its own block. (v1, `gatekey` 0.x, Hive's format, could be unwrapped that way; the mothership gateway accepts only v2, stakgraph's only v1.)
 - User key: **ed25519**, 32-byte random seed, `ed25519PublicKey(seed)`, private encrypted at rest (`macaroon-user-keys.ts:108-156`).
 - `iat = now`, `exp = now + 60 days`, ISO strings; nonces = 16 random bytes hex.
-- `ua = signUserAuthorizationSingle({user_id: actor, user_pubkey:{alg:"ed25519", key:userPubHex}, agents:["strut-agent"], iat, exp, nonce}, orgPriv)`
-- `inv = signInvocation({agents:["strut-agent"], run_id: randomUUID(), max_cost_usd: 10000, max_steps: 0, iat, exp, nonce}, userPriv)`
-- `token = encodeMacaroon({v:1, org_id, user_authorization: ua, invocation: inv, attenuations: []})` (base64url).
-- Self-test with gatekey `verify(decodeMacaroon(token), {type:"single", key:{alg:"ecdsa-secp256k1-sha256", key: orgPubHex}}, new Date())` before pushing.
-- Strut's shape check (`strut/src/mothership.ts:123-161`): v=1, no attenuations, inv.agents has `strut-agent`, max_steps 0, max_cost_usd>0, run_id set, valid exps.
+- Block 0, the org's grant to the person: `signRoot(orgId, {run_id: "ua_" + randomUUID(), user_id: actor, agents: ["strut-agent"], iat, exp, nonce}, {alg: "ed25519", key: userPubHex}, {alg: "ecdsa-secp256k1-sha256", priv: orgPriv})`. No cap of its own; the gateway counts the person's total under its `run_id`.
+- Block 1, the person's run for strut: `attenuate({v: 2, org_id, blocks: [block0], proof: hex(userPriv)}, {run_id: randomUUID(), agent: "strut-agent", max_cost_usd: 10000, iat, exp, nonce})`. It names a fresh key and the token's `proof` becomes it, so the person's key never leaves stadeum. No `max_steps`: a present optional caveat must be non-zero, and absent is no cap.
+- `token = encodeToken(...)` (base64url of the JCS JSON). Self-test with gatekey `verify(token, {type:"single", key:{alg:"ecdsa-secp256k1-sha256", key: orgPubHex}}, new Date())` before pushing.
+- Strut's shape check (`strut/src/mothership.ts`, `checkDelegationMacaroon`): v=2, exactly the two blocks (strut appends its own per run), block 1's `agent` is `strut-agent`, its `max_cost_usd` > 0 (the delegation ceiling) and its `run_id` set (the delegation id), valid exps. `ui/src/test/strut-shape.ts` mirrors it.
 
 ### e. Push to Strut (`strut-delegation.ts:194-245,301-361`)
 - `PUT {strut}/llm/delegations/{encodeURIComponent(actor)}`, headers `Content-Type: application/json`, `Authorization: Bearer` (shared token), body `{macaroon, apiKey: vk.value, baseUrl: gatewayRoot}` (`baseUrl` = gateway ROOT, `^https?://`) → `{actor, exp, delegationId}`.
-- `GET {strut}/llm/delegations` lists (404 = mothership not mounted); `DELETE` removes; `GET /llm/mothership` → `{enabled:true}`.
-- Renewal: re-push if missing or past half-life (`isPastHalfLife`, `:501`); re-mint within 15 days of exp.
+- `GET {strut}/llm/delegations` lists `[{actor, exp, delegationId, v}]` (404 = mothership not mounted; a strut from before v2 sends no `v`, read as 1); `DELETE` removes; `GET /llm/mothership` → `{enabled:true}`.
+- Renewal: re-push if missing, past half-life (`isPastHalfLife`, `:501`) or not `v: 2`; re-mint within 15 days of exp. Upkeep runs it for everyone a minute after stadeum-ui starts, so a release that moves to v2 replaces every old copy on its first pass.
 
 ## Strut side
 
@@ -64,7 +64,7 @@ How a signed-in person gets to run LLM steps on Strut. Extracted from Hive
 
 ## gatekey
 
-npm `gatekey@0.1.1`, ESM-only (source: stakgraph `gateway/auth/ts`). Exports used: `signUserAuthorizationSingle`, `signInvocation`, `encodeMacaroon`, `decodeMacaroon`, `verify`, `ed25519PublicKey`, `ecdsaPublicKey`, `bytesToHex`, `hexToBytes`.
+npm `gatekey@1.x` (macaroon v2), ESM-only (source: stakwork/mothership `auth/ts`; 0.x is v1, stakgraph's `gateway/auth/ts`). Exports used: `signRoot`, `attenuate`, `encodeToken`, `decodeToken`, `verify`, `ed25519PublicKey`, `ecdsaPublicKey`, `bytesToHex`, `hexToBytes`.
 
 ## Hive code worth copying (replace Prisma with stadeum's store)
 
@@ -134,10 +134,15 @@ stadeum-ui starts only after it exits 0 (`depends_on: service_completed_successf
 
 ## Answers (phase 2, from gateway source at stakgraph `643e12fd` — no gateway changes since the `stakgraph-gateway:latest` image of 2026-10-23 — and the live stack)
 
+The gateway has since moved to stakwork/mothership (the same code, its own
+repository and image) and to macaroon v2; the answers hold there, with the
+v2 changes marked.
+
 - **`realm_id` is not required.** `CheckRealmMembership`
   (`gateway/internal/auth/enforcement.go:124-150`) only rejects when the
-  macaroon carries `realm_budgets` and the gateway's realm is not among them.
-  Our macaroons carry none, so they pass with or without a realm. Stadeum
+  macaroon carries `realm_budgets` and the gateway's realm is not among them
+  (v2: when a block sets `realms`, checked on every block that does). Our
+  macaroons carry none, so they pass with or without a realm. Stadeum
   sets it (= slug) anyway, as Hive and the UI do.
 - **An empty `issuer_url` is accepted.** It is validated only when non-empty
   (`gateway/internal/trust/types.go:175`). Live: the row reads back
@@ -154,9 +159,10 @@ stadeum-ui starts only after it exits 0 (`depends_on: service_completed_successf
   for a call without one). `BIFROST_PLUGIN_ENFORCE_BUDGETS=true` turns the
   cap walk into 402s, and only works with macaroons enforced
   (`internal/auth/config.go`, `BudgetsEnforced`). The cap walk checks
-  `cost:run:<run_id>` for every layer: the delegation's own `run_id`
-  (person ceiling = invocation `max_cost_usd`) and Strut's per-run link (run
-  cap). bifrost's own `enforce_auth_on_inference: true` (baked config) also
+  `cost:run:<run_id>` for every block: block 0's `ua_…` run (the person's
+  total; it has no cap of its own), the delegation's own `run_id` (person
+  ceiling = block 1's `max_cost_usd`) and Strut's per-run block (run cap).
+  v2 checks every block's caps; v1 compared each link with its parent's. bifrost's own `enforce_auth_on_inference: true` (baked config) also
   requires a VK.
 - **`baseUrl: http://bifrost:8181` is right** for the delegation: strut
   runs on the same network (UI hand-over question 1).
