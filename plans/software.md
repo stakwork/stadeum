@@ -132,7 +132,7 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 2 | Where does it live? | **In packages, as much as possible. Stadeum keeps only generic seams.** | **owner** |
 | 3 | The model for GitHub tokens | **Hive's:** GitHub App user tokens that never expire, with no refresh and no private key (§1, §10). | **owner** (Hive's "works great") |
 | 4 | How a person connects | **The web flow, through a connect seam in stadeum:** two routes, and a third to refresh tokens that expire, that any OAuth provider's package can use. The client secret stays in stadeum-ui. The token goes to strut as the person's secret. Everything else is the package's (§2). | **owner** (2026-11-19: web flow over device flow); the seam's shape is proposed |
-| 5 | Which repositories the box works on | **The ones in its workspaces.** `stadeum/code` keeps them, and its app, Code, is where workspaces are made. A workspace's repositories are picked from what each forge package's token reaches (strut's `git/repositories`, §5 item 26), or added by address. The GitHub package has no picker. `stadeum/code` checks them for new commits and is where the parser plugs in (§3.1, §14.4). | proposed (revised 2026-11-20: the list was the GitHub package's; revised 2026-11-23: the list is the workspaces') |
+| 5 | Which repositories the box works on | **The ones in its workspaces.** `stadeum/code` keeps them, and its app, Code, is where workspaces are made. A workspace's repositories are picked from what each forge package's token reaches (strut's `git/repositories`, §5 item 26), or added by address. The GitHub app keeps a read-only list of what its connection reaches, which is not the box's list: repositories are chosen for a workspace in the Code app. `stadeum/code` checks them for new commits and is where the parser plugs in (§3.1, §14.4). | proposed (revised 2026-11-20: the list was the GitHub package's; revised 2026-11-23: the list is the workspaces'); the GitHub app's read-only list is the **owner**'s (2026-11-23: *"the repo list is fine!"*) |
 | 6 | Unattended work: ingestion, subscriptions to private packages, a job with no person | **It runs as a person. There is no box token.** By default the person is whoever set up GitHub on the box, and changing who is for later. A run nobody launched acts as the owner of the workflow it runs: whoever installed the package or subscribed to it. An admin changes who by giving the workflow another owner, which strut has today (§3.1, §14.4; §5, item 15). | **owner** (2026-11-20: no box token, everything is a person, and the default); that the person is the workflow's owner is proposed (revised 2026-11-20: it was a person on each repository) |
 | 7 | A `software` package that requires the others | **No.** Strut pins a required package by digest, and a `git+` subscription doesn't gate a required package on its own secrets (§3.3). Software is a **bundle** (§5, item 5): stadeum never holds a list of the packages. | proposed; **owner** (2026-11-20): no stopgap, bundles come first. Built 2026-11-20 |
 | 8 | Repositories and pods: one package or two? | **Two:** `stadeum/github` and `stadeum/pods`. Pods reads the repositories through the graph, not by requiring the package (§3.4). | proposed |
@@ -150,8 +150,8 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 20 | What a workspace is | **A node of its own,** linked to each of its repositories, so a repository can be in several workspaces. It has no main repository: what runs it is its own `.pod/` (row 22), not one repository's (§14.4). | **owner** (2026-11-20: a node of its own); no main repository is proposed (2026-11-23) |
 | 21 | Where a workspace's systems and how they connect are written | **One Concept page for each workspace:** a diagram of its systems and how they connect, the system in words, and how to run it. Its bake writes it, so only a workspace that was baked has one (§14.2). | **owner** (2026-11-21: one page with a diagram, written at the bake); its name and place in the tree are proposed |
 | 22 | Where a workspace's setup (`.pod/`) lives | **In strut, with the workspace,** not in a repository. A pod has `/workspaces/.pod` beside `/workspaces/<repo>`. Pods keeps it as files on the `Workspace` node (§5, item 24): `claim` writes it into a bare pod, and `bake` saves it back. No setup pull request goes to any repository (§3.2). | **owner** (2026-11-23: *".pod lives in strut"*); how pods keeps it is proposed |
-| 23 | Who makes workspaces | **People, in the Code app:** they pick the repositories, and Jamie sets the workspace up and bakes it in a job they can watch. **Jamie too,** when a job needs a workspace that doesn't exist. Making one starts its setup through `on: created` (§5, item 25), so Code names no other package (§3.2, §14.4). | **owner** (2026-11-23); the mechanism is proposed |
-| 24 | The default workspace | **Every repository picked on GitHub.** When an org granted all of its repositories, the five most recently pushed. `stadeum/code` makes it when the box has none (§14.4). | **owner** (2026-11-23); five, and when it is made, are proposed |
+| 23 | Who makes workspaces | **Anyone the Code app is shown to,** from the repositories their own token reaches: they pick the repositories, and Jamie sets the workspace up and bakes it in a job they can watch, as them and on their bill. **Jamie too,** when a job needs a workspace that doesn't exist. Making one starts its setup through `on: created` (§5, item 25), so Code names no other package (§3.2, §14.4). | **owner** (2026-11-23, anyone included: *"anyone can make a workspace"*); the mechanism is proposed |
+| 24 | The default workspace | **Every repository picked on GitHub.** When an org granted all of its repositories, the five most recently pushed. **It waits for Set up:** the Code app suggests it while the box has no workspace, and writes it only when someone presses Set up, so its setup runs as them (§14.4). | **owner** (2026-11-23, *"default waits for Set up"*); five, and a suggestion that is written only at Set up, are proposed |
 | 25 | How packages extend strut | **Through generic seams, never code in strut that knows a package's domain.** Packages meet in the graph by type name. Strut adds files on a node, workflows on graph writes, and a forge's steps by host, beside panels (§5, items 14 and 24 to 26; strut `plans/package-seams.md`). | **owner** (2026-11-23: the goal); the seams are proposed |
 
 ## 1. What Hive does
@@ -473,12 +473,16 @@ For an admin, the same app also shows:
     else by changing the workflows' owner, which strut has today.
   - On a box with no App, each person pastes a fine-grained token of
     their own instead (§8).
-- **No repository picker** (revised 2026-11-23, row 5). What the App's
-  installations grant is listed where workspaces are made, in the Code
-  app (§14.4). The package's `repositories` step, named on its
-  `provides.git` entry, answers strut's `git/repositories` (§5, item
-  26). Granting reach is still not choosing to work on it: the box works
-  on a repository once it is in a workspace.
+- **A read-only repository list** (owner, 2026-11-23: *"the repo list is
+  fine!"*; row 5). Each org's card lists what the App's installation
+  reaches, read from GitHub: what the connection reaches, a different
+  thing from a workspace's repositories. Repositories are chosen for a
+  workspace in the Code app (§14.4), from what each person's own token
+  reaches: the package's `repositories` step, named on its `provides.git`
+  entry, answers strut's `git/repositories` (§5, item 26). The list has
+  no Add… and the app reads no other package's nodes, so the package
+  names none. Granting reach is still not choosing to work on it: the box
+  works on a repository once it is in a workspace.
 
   A repository's webhook (§7) is made when it joins the box. The package
   declares `on: created: Repository` (§5, item 25), so it runs as the
@@ -525,8 +529,9 @@ the sketch above:
   `repositories`.
 - The picker writes nothing. `stadeum/code` lets only its own Code app
   change the list, so the picker opens that app with the address filled
-  in, and the admin presses Add there. The picker goes with §14.4's
-  revision (2026-11-23).
+  in, and the admin presses Add there. Revised 2026-11-23: the list
+  stays, read only, and its Add… goes, so the package names no other
+  (stakwork/strut-github#5).
 - Connect is offered only on the box's own page for the app. Anywhere
   else the app offers a pasted token.
 - Disconnect revokes a token the App issued, and only removes one the
@@ -577,7 +582,8 @@ repository would write the same `.pod/`. So a pod for a workspace is:
   `stadeum/pods/pushed` check goes.
 - **Setting a workspace up** is pods' own. `on: created: Workspace` (§5,
   item 25) runs pods' `setup`. When the workspace was made outside a job
-  (a person in the Code app, or `stadeum/code`'s default), `setup` starts
+  (a person in the Code app, the default included, which is written only
+  when someone presses Set up), `setup` starts
   a job on the `Pod Setup` page as the person who made it. A job that
   makes a workspace sets it up itself, as the `Code Change` page says
   today. `on: deleted: Workspace` deletes the workspace's images.
@@ -1024,7 +1030,8 @@ Each is its own PR.
     - Strut: files on a node, `on:`, and a forge's steps by host (§5,
       items 24 to 26), one PR each (strut `plans/package-seams.md`).
     - `stadeum/github`: `repositories` named on its `provides.git` entry;
-      the picker goes; webhooks on `on: created: Repository`, with item 7.
+      the app's list stays, read only, and its Add… goes; webhooks on
+      `on: created: Repository`, with item 7.
     - `stadeum/code`: the Code app makes workspaces, with no main
       repository and the default workspace; the `workspace` job tool; the
       `Code Change` page on `git/pull-request` (§14.4).
@@ -1033,6 +1040,14 @@ Each is its own PR.
       request; `pod` and the bundle learn `/workspaces/.pod` (§3.2; pods
       `PLAN.md` §1).
     - Panels (item 14) last.
+
+    **Built (2026-11-23),** all but panels and the webhooks:
+    stakwork/strut#851 (items 24 to 26, released and promoted),
+    stakwork/pods#30 (published to `strut-pods@main`),
+    stakwork/strut-code#10 (`stadeum/code` 0.7.0, the default suggested
+    and written at Set up) and stakwork/strut-github#5 (`stadeum/github`
+    0.4.0, its list read only, without the webhooks), each merged to
+    `main`. The last two reach boxes once promoted to `stable`.
 
 ## 13. The GitHub App's settings
 
@@ -1383,17 +1398,19 @@ one app shows it.
     `hive`'s, with `hive` and `mcp`, and in a larger test's as well.
   - **The default workspace** (owner, row 24) is every repository picked
     on GitHub, or the five most recently pushed when an org granted all
-    of its repositories. `check` makes it when the box has no workspace
-    and a forge reaches repositories (strut's `git/repositories`, §5 item
-    26). It is named after their owner (`stakwork`), and set up like any
-    other (open question 21).
+    of its repositories, named after their owner (`stakwork`). **It waits
+    for Set up** (owner, 2026-11-23). While the box has no workspace and
+    a forge reaches repositories (strut's `git/repositories`, §5 item
+    26), the Code app suggests it with a Set up button. Nothing is written
+    until someone presses it, so no setup job starts unasked, and pods'
+    `on: created` needs no exception.
   - Adding a repository no longer makes a workspace of its own.
 
 **Its app, Code,** is every person's, and it is about making workspaces:
 
 ```text
 Code
-  stakwork   the 8 repos picked on GitHub     ready · baked yesterday    its page
+  stakwork   the 8 repos picked on GitHub     suggested                  [Set up]
   hive       hive · stakgraph · staklink      setting up… (job)
   + New workspace
       [x] hive  [x] stakgraph  [x] staklink  [ ] peel  [ ] sphinx 🔒 …
@@ -1417,7 +1434,8 @@ Code
   delete it. Deleting one deletes its page and its files, and pods'
   `on: deleted` drops its images.
 - **Who may:** anyone the app is shown to, from what their own token
-  reaches. The setup runs as them and on their bill (open question 20).
+  reaches (owner, 2026-11-23: *"anyone can make a workspace"*). The
+  setup runs as them and on their bill.
 
 There is no Add a repository apart from a workspace, no Workspaces…
 dialog and no Make main. Today's rule, that only an admin changes the
@@ -1569,7 +1587,8 @@ repository must be configurable for it. So:
 16. ~~**A package that names another.**~~ Proposed answer (2026-11-23):
     the graph write is the event. A package's `on:` runs its workflow
     when another package writes a node of a type (§5, item 25), so
-    neither names the other, and the GitHub picker is gone (§3.1). What
+    neither names the other, and the GitHub app's list no longer opens
+    the Code app (§3.1). What
     is left: GitHub's `on-event` runs `stadeum/code`'s `check` for a
     pushed repository. With `on:`, it can instead write the pushed head on
     the `Repository`, and code's `on: updated: Repository` runs `check`
@@ -1585,14 +1604,14 @@ repository must be configurable for it. So:
     the seam writes only a person's secrets. Is it an admin's pasted
     value (§5, item 1), or does the Slack package's plan bring back a
     connect that isn't a person's?
-20. **Who may make a workspace** (§14.4). Proposed: anyone the Code app
-    is shown to, from the repositories their own token reaches, with the
-    setup job run as them and on their bill. Or admins only, as the list
-    is today?
-21. **The default workspace's setup** (row 24). `check` makes it as its
-    workflow's owner, so `on: created` would start a setup job (about 20
-    minutes and $0.66 for hive alone, pods' Pod Setup trial) that nobody
-    asked for. Should the default wait for a person to press Set up?
+20. ~~**Who may make a workspace.**~~ Answered (owner, 2026-11-23):
+    *"anyone can make a workspace"*, from the repositories their own
+    token reaches, with the setup run as them and on their bill (row 23,
+    §14.4).
+21. ~~**The default workspace's setup.**~~ Answered (owner, 2026-11-23):
+    *"default waits for Set up"*. The Code app suggests it and writes it
+    only when someone presses Set up, so no setup job (about 20 minutes
+    and $0.66 for hive alone) starts unasked (row 24, §14.4).
 
 ## Later: workspaces that actually work (notes, not planned)
 
