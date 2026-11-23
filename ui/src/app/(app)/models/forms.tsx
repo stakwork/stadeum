@@ -6,8 +6,9 @@ import { useFormStatus } from "react-dom";
 import { buttonClass } from "@/components/button";
 import { Dot } from "@/components/state";
 import type { ModelRow } from "@/lib/models/apply";
+import type { Issuer } from "@/lib/models/federation";
 import type { ProviderState } from "@/lib/models/providers";
-import { addProvider, removeKey, saveKey, saveModels, testKey, type Result } from "./actions";
+import { addProvider, removeKey, saveFederation, saveKey, saveModels, testKey, type Result } from "./actions";
 
 const small =
   "inline-flex h-8 items-center justify-center rounded-lg border border-rule-strong bg-surface px-3 text-[13px] font-medium text-ink transition-colors duration-150 hover:border-ink-3 disabled:pointer-events-none disabled:opacity-50";
@@ -32,9 +33,11 @@ function Submit({ children, className }: { children: React.ReactNode; className:
   );
 }
 
+const keyed = (p: ProviderState) => !!(p.preview || p.federation);
+
 function KeyState({ p }: { p: ProviderState }) {
   if (p.missing) return <Dot tone="muted" label="Not in this gateway" />;
-  if (!p.preview) return <Dot tone="muted" label="No key" />;
+  if (!keyed(p)) return <Dot tone="muted" label="No key" />;
   if (p.check?.ok) return <Dot tone="ok" label="Working" />;
   if (p.check) return <Dot tone="attention" label="Refused" />;
   return <Dot tone="pending" label="Not checked yet" />;
@@ -44,9 +47,11 @@ function KeyState({ p }: { p: ProviderState }) {
  * One provider: its key as the gateway shows it (masked), whether the key
  * works, and Set, Test and Remove. The key goes from this form to the
  * gateway and nowhere else. A provider the box's host gives has Test alone.
+ * Anthropic can instead be connected without a key (FederationForm).
  */
-function ProviderRow({ p }: { p: ProviderState }) {
+function ProviderRow({ p, issuer }: { p: ProviderState; issuer: Issuer | null }) {
   const [editing, setEditing] = useState(false);
+  const [federating, setFederating] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [said, setSaid] = useState<Result>({});
   const [pending, start] = useTransition();
@@ -70,7 +75,9 @@ function ProviderRow({ p }: { p: ProviderState }) {
           {p.note && <span className="text-[13px] text-ink-2">{p.note}</span>}
           {p.given && <span className="text-[13px] text-ink-2">Given by this box&rsquo;s host.</span>}
           {(p.kind === "other" || p.given) && p.baseUrl && <span className="font-mono text-[12.5px] text-ink-3">{p.baseUrl}</span>}
-          <span className="font-mono text-[12.5px] text-ink-3">{p.preview || "—"}</span>
+          <span className="font-mono text-[12.5px] text-ink-3">
+            {p.preview || (p.federation ? `Without a key · ${p.federation.ruleId}` : "—")}
+          </span>
         </div>
         <span className="w-[150px] text-[13px]">
           <KeyState p={p} />
@@ -78,16 +85,37 @@ function ProviderRow({ p }: { p: ProviderState }) {
         {!p.missing && (
           <div className="flex flex-wrap gap-2 md:w-[262px] md:justify-end">
             {!p.given && (
-              <button type="button" className={small} onClick={() => setEditing((e) => !e)} aria-expanded={editing}>
+              <button
+                type="button"
+                className={small}
+                onClick={() => {
+                  setEditing((e) => !e);
+                  setFederating(false);
+                }}
+                aria-expanded={editing}
+              >
                 {p.preview ? "Replace key" : "Set key"}
               </button>
             )}
-            {p.given && p.preview && (
+            {!p.given && p.id === "anthropic" && (
+              <button
+                type="button"
+                className={small}
+                onClick={() => {
+                  setFederating((f) => !f);
+                  setEditing(false);
+                }}
+                aria-expanded={federating}
+              >
+                {p.federation ? "Change connection" : "Connect without a key"}
+              </button>
+            )}
+            {p.given && keyed(p) && (
               <button type="button" className={small} disabled={pending} onClick={() => run(() => testKey(p.id))}>
                 Test
               </button>
             )}
-            {!p.given && p.preview && (
+            {!p.given && keyed(p) && (
               <>
                 <button type="button" className={small} disabled={pending} onClick={() => run(() => testKey(p.id))}>
                   Test
@@ -130,16 +158,128 @@ function ProviderRow({ p }: { p: ProviderState }) {
           </button>
         </form>
       )}
+      {federating && (
+        <FederationForm
+          p={p}
+          issuer={issuer}
+          onDone={(r) => {
+            if (!r.error || r.error.startsWith("Saved")) setFederating(false);
+            setSaid(r);
+          }}
+          onCancel={() => setFederating(false)}
+        />
+      )}
       <Said result={said} />
     </li>
   );
 }
 
-export function Providers({ providers }: { providers: ProviderState[] }) {
+/** A value to copy into Anthropic's console. */
+function Copyable({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[12.5px] text-ink-3">{label}</span>
+      <span className="select-all break-all font-mono text-[13px] text-ink">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * Connect Anthropic without a key: the gateway signs its own identity
+ * tokens (models/federation.ts), so the admin registers it in Anthropic's
+ * console and pastes back the IDs it gives. Nothing here is a secret.
+ */
+function FederationForm({
+  p,
+  issuer,
+  onDone,
+  onCancel,
+}: {
+  p: ProviderState;
+  issuer: Issuer | null;
+  onDone: (r: Result) => void;
+  onCancel: () => void;
+}) {
+  const [, action] = useActionState<Result, FormData>(async (prev, form) => {
+    const r = await saveFederation(p.id, prev, form);
+    onDone(r);
+    return r;
+  }, {});
+  if (!issuer) {
+    return (
+      <div className="flex flex-col gap-3 rounded-lg border border-dashed border-dash px-4 py-3 text-[13px] text-ink-2">
+        <p>
+          This gateway can&rsquo;t sign for itself yet: it needs mothership v0.5.0 or later, with BIFROST_IDENTITY_ISSUER set
+          (stack/stadeum.yml). Update the box, then come back.
+        </p>
+        <button type="button" className={`${buttonClass.quiet} h-9 self-start`} onClick={onCancel}>
+          Close
+        </button>
+      </div>
+    );
+  }
+  const f = p.federation;
+  return (
+    <form action={action} className="flex flex-col gap-4 rounded-lg border border-rule-soft px-4 py-4">
+      <div className="flex flex-col gap-2 text-[13px] text-ink-2">
+        <p>
+          The gateway signs its own identity, so no Anthropic key is stored on this box. In Anthropic&rsquo;s console, under
+          Workload identity, connect a workload with a custom OIDC provider:
+        </p>
+        <Copyable label="Issuer URL" value={issuer.issuer} />
+        <details className="text-[13px]">
+          <summary className="cursor-pointer text-ink-2">Anthropic can&rsquo;t reach this box? Paste its key set instead</summary>
+          <pre className="mt-2 max-h-48 select-all overflow-auto rounded-[10px] border border-rule bg-paper p-3 font-mono text-[12px] leading-relaxed text-ink-2">{issuer.jwks}</pre>
+        </details>
+        <p>Then a service account, and a federation rule for it that matches:</p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Copyable label="Subject" value={issuer.subject} />
+          <Copyable label="Audience" value={issuer.audience} />
+          <Copyable label="Scope" value="workspace:inference" />
+        </div>
+        <p>And paste its IDs here:</p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {(
+          [
+            ["organizationId", "Organization ID", "00000000-0000-0000-0000-000000000000", f?.organizationId, true],
+            ["ruleId", "Federation rule ID", "fdrl_…", f?.ruleId, true],
+            ["serviceAccountId", "Service account ID", "svac_…", f?.serviceAccountId, true],
+            ["workspaceId", "Workspace ID (only if the rule is in several)", "wrkspc_…", f?.workspaceId, false],
+          ] as const
+        ).map(([name, label, placeholder, value, required]) => (
+          <div key={name} className="flex flex-col gap-1.5">
+            <label htmlFor={`fed-${name}`} className="text-[13px] font-medium text-ink">
+              {label}
+            </label>
+            <input
+              id={`fed-${name}`}
+              name={name}
+              required={required}
+              defaultValue={value ?? ""}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={placeholder}
+              className={field}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-3">
+        <Submit className={`${buttonClass.primary} h-10`}>Connect</Submit>
+        <button type="button" className={`${buttonClass.quiet} h-10`} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+export function Providers({ providers, issuer }: { providers: ProviderState[]; issuer: Issuer | null }) {
   return (
     <ul className="divide-y divide-rule-soft overflow-hidden rounded-xl border border-rule bg-surface">
       {providers.map((p) => (
-        <ProviderRow key={p.id} p={p} />
+        <ProviderRow key={p.id} p={p} issuer={issuer} />
       ))}
       {/* A new list (a provider added or removed) starts the form afresh: the new row says how its key fared. */}
       <AddProvider key={providers.map((p) => p.id).join(",")} />

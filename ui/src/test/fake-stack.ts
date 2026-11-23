@@ -3,8 +3,10 @@
  * A fake of the stadeum stack on one port, for tests and local runs:
  *   /bifrost  — gateway: /_plugin/* (Bearer) and /api/* (Basic): customers,
  *               virtual keys (with their expiry, and deleted), each
- *               provider's keys and their check, the
- *               client config (bifrost transports/v2.2.2 handlers)
+ *               provider's keys (Anthropic's federated ones too) and their
+ *               check, the client config (bifrost transports/v2.6.0
+ *               handlers); and, unauthenticated, the issuer documents a
+ *               mothership gateway publishes (`state.issuer`)
  *   /strut    — strut: /health, /apps (the list, each app's versions,
  *               usage, what is live and the pin), /brand, /auth/ticket and
  *               the app page a ticket opens (it posts `strut:ready` to its
@@ -159,9 +161,26 @@ export interface FakeKey {
   value: string | { value: string; ref: string; type: "env" };
   models: string[];
   weight: number;
+  /** As written: `{ workload_identity: { federation_rule_id, … } }`, plain strings. */
+  anthropic_key_config?: { workload_identity?: Record<string, any> };
   status?: string;
   description?: string;
 }
+
+/** The public key set the fake gateway publishes as its issuer's (a real P-256 key's, never used to sign here). */
+export const FAKE_JWKS = {
+  keys: [
+    {
+      kty: "EC",
+      crv: "P-256",
+      x: "apa4hQBDBHA0tuFPhM_syCtvuKlqcw6IYBwCx1wQ4WM",
+      y: "LuOxnNFMeBunbzdjRJaatihHrAA0u8x3yOotQPraGSQ",
+      use: "sig",
+      alg: "ES256",
+      kid: "Kk0NX1iaH4MWcLbe0mHm_EjkwxZHPj6_XzlJSMJcP_c",
+    },
+  ],
+};
 
 /** strut's `GET /llm/models` (aieo's aliases, strut src/llm.ts `listModelOptions`). */
 export const FAKE_MODEL_CATALOG = {
@@ -180,10 +199,45 @@ export const FAKE_MODEL_CATALOG = {
 };
 
 /** What bifrost's GET shows of a key: a masked preview, never the value. */
+/** Bifrost's reading of a secret it holds: `{ value, type }`, unmasked for the federation's IDs. */
+const plainSecret = (v: unknown) => ({ value: typeof v === "string" ? v : "", type: "plain_text" });
+
 const redactKey = (k: FakeKey) => ({
   ...k,
-  value: typeof k.value === "string" ? `${k.value.slice(0, 3)}****${k.value.slice(-4)}` : { ...k.value, value: k.value.value ? "****" : "" },
+  value:
+    typeof k.value === "string"
+      ? k.value
+        ? `${k.value.slice(0, 3)}****${k.value.slice(-4)}`
+        : plainSecret("")
+      : { ...k.value, value: k.value.value ? "****" : "" },
+  ...(k.anthropic_key_config?.workload_identity
+    ? {
+        anthropic_key_config: {
+          workload_identity: Object.fromEntries(
+            Object.entries(k.anthropic_key_config.workload_identity).map(([f, v]) =>
+              f === "identity_source" ? [f, { ...v, path: plainSecret(v?.path) }] : [f, plainSecret(v)],
+            ),
+          ),
+        },
+      }
+    : {}),
 });
+
+/**
+ * Bifrost's checks on a key it is given (handlers/provider_keys.go, core
+ * schemas AnthropicWorkloadIdentityConfig.Validate): a value, or Anthropic's
+ * federation with its three IDs. Undefined when the key is fine.
+ */
+function keyProblem(provider: string, body: any): string | undefined {
+  const wi = body?.anthropic_key_config?.workload_identity;
+  if (wi && provider === "anthropic") {
+    for (const f of ["federation_rule_id", "organization_id", "service_account_id"]) {
+      if (typeof wi[f] !== "string" || !wi[f]) return `anthropic_key_config.workload_identity.${f} is required`;
+    }
+    return undefined;
+  }
+  return typeof body?.value !== "string" || !body.value ? "Key value must not be empty" : undefined;
+}
 
 /** One logged model call. */
 export interface FakeCall {
@@ -256,6 +310,8 @@ export interface FakeState {
   pricing: Record<string, unknown> | null;
   /** The gateway's client config (`GET /api/config`'s `client_config`). */
   clientConfig: Record<string, unknown>;
+  /** The issuer a mothership gateway publishes (`BIFROST_IDENTITY_ISSUER`); null: an older gateway, which publishes none (404). */
+  issuer: string | null;
   /** strut's deployment secret store (`PUT /secrets/:name`). */
   deploymentSecrets: Map<string, string>;
   customers: Array<{
@@ -411,6 +467,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     ),
     pricing: {},
     clientConfig: { log_retention_days: 365, enable_logging: true, disable_content_logging: false, drop_excess_requests: false },
+    issuer: "http://mothership.fake.localhost",
     deploymentSecrets: new Map(),
     customers: [],
     calls: [],
@@ -470,6 +527,18 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
 
   function bifrost(req: IncomingMessage, res: ServerResponse, path: string, url: URL, body: any) {
     const m = req.method;
+    // The issuer's documents (mothership wrapper/identity.go): public, no auth.
+    if (path === "/.well-known/openid-configuration" || path === "/.well-known/mothership-jwks.json") {
+      if (!state.issuer) return send(res, 404, { error: "not found" });
+      if (path === "/.well-known/mothership-jwks.json") return send(res, 200, FAKE_JWKS);
+      return send(res, 200, {
+        issuer: state.issuer,
+        jwks_uri: `${state.issuer}/.well-known/mothership-jwks.json`,
+        response_types_supported: ["id_token"],
+        subject_types_supported: ["public"],
+        id_token_signing_alg_values_supported: ["ES256"],
+      });
+    }
     if (path.startsWith("/_plugin/")) {
       if (req.headers.authorization !== `Bearer ${token}`) return send(res, 401, "unauthorized");
       if (path === "/_plugin/admin-credentials") return send(res, 200, { admin_username: adminUser, admin_password: adminPass });
@@ -662,18 +731,30 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     send(res, 404, { error: "not found" });
   }
 
-  /** `/api/providers/:p/keys[/:id[/refresh-models]]`. A key "works" when its value starts with `sk-good`. */
+  /**
+   * `/api/providers/:p/keys[/:id[/refresh-models]]`. A key "works" when its
+   * value starts with `sk-good`; a federated one when its rule's ID starts
+   * `fdrl_good`.
+   */
   function providerKeyRoute(res: ServerResponse, m: string, provider: string, id: string | undefined, refresh: boolean, body: any) {
     const list = state.providerKeys.get(provider);
     if (!list) return send(res, 404, { error: `Provider not found: ${provider}` });
     // Bifrost answers `keys: null` for a provider with none.
     if (!id && m === "GET") return send(res, 200, { keys: list.length ? list.map(redactKey) : null, total: list.length });
     if (!id && m === "POST") {
-      if (typeof body?.value !== "string" || !body.value) return send(res, 400, { error: "Key value must not be empty" });
+      const problem = keyProblem(provider, body);
+      if (problem) return send(res, 400, { error: problem });
       if ([...state.providerKeys.values()].flat().some((k) => k.name === body.name)) {
         return send(res, 409, { error: "API key names must be unique across providers. Choose a different name" });
       }
-      const key: FakeKey = { id: randomUUID(), name: body.name, value: body.value, models: body.models ?? [], weight: body.weight ?? 1 };
+      const key: FakeKey = {
+        id: randomUUID(),
+        name: body.name,
+        value: body.value ?? "",
+        models: body.models ?? [],
+        weight: body.weight ?? 1,
+        ...(body.anthropic_key_config ? { anthropic_key_config: body.anthropic_key_config } : {}),
+      };
       list.push(key);
       return send(res, 200, redactKey(key));
     }
@@ -681,19 +762,38 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     if (!key) return send(res, 404, { error: "Provider key not found" });
     if (refresh && m === "POST") {
       const value = typeof key.value === "string" ? key.value : key.value.value;
+      const rule = key.anthropic_key_config?.workload_identity?.federation_rule_id;
+      // A value wins over the federation (core providers/anthropic, resolveKey).
+      const works = value ? value.startsWith("sk-good") : typeof rule === "string" && rule.startsWith("fdrl_good");
       Object.assign(
         key,
-        value.startsWith("sk-good")
+        works
           ? { status: "success", description: "" }
-          : { status: "list_models_failed", description: 'provider API error: {"code":"invalid-argument","error":"Incorrect API key provided."}' },
+          : value || !rule
+            ? { status: "list_models_failed", description: 'provider API error: {"code":"invalid-argument","error":"Incorrect API key provided."}' }
+            : {
+                status: "list_models_failed",
+                description: "anthropic workload identity token exchange failed (401): the assertion was not accepted by any federation rule (request_id req_fake)",
+              },
       );
       return send(res, 200, redactKey(key));
     }
     if (m === "GET") return send(res, 200, redactKey(key));
     if (m === "PUT") {
-      // Bifrost replaces the key with the body (mergeUpdatedKey): fields left out are lost.
-      if (typeof body?.value !== "string" || !body.value) return send(res, 400, { error: "Key value must not be empty" });
-      Object.assign(key, { name: body.name, value: body.value, models: body.models ?? [], weight: body.weight ?? 0, status: undefined, description: undefined });
+      // Bifrost replaces the key with the body (mergeUpdatedKey): fields left
+      // out are lost, except anthropic_key_config, which it keeps (a value
+      // written over a federated key leaves the federation in place, unused).
+      const problem = keyProblem(provider, body);
+      if (problem) return send(res, 400, { error: problem });
+      Object.assign(key, {
+        name: body.name,
+        value: body.value ?? "",
+        models: body.models ?? [],
+        weight: body.weight ?? 0,
+        status: undefined,
+        description: undefined,
+        ...(body.anthropic_key_config ? { anthropic_key_config: body.anthropic_key_config } : {}),
+      });
       return send(res, 200, redactKey(key));
     }
     if (m === "DELETE") {

@@ -1,9 +1,24 @@
 # Anthropic without a key: the box signs for itself
 
-> **Status (2026-11-21): proposed.** Nothing is built. Read against stadeum
-> `main` @4c2da09, stakwork/stadeum-fleet `main` @aad11efc, the gateway's
-> bifrost `core` v1.10.1, and Anthropic's Workload Identity Federation
-> docs (platform.claude.com/docs/en/manage-claude/: `authentication`,
+> **Status (2026-11-23): built for a box, differently; fleet's part (§5)
+> still proposed.** Bifrost v2.5 learned to federate Anthropic itself: a
+> key with `anthropic_key_config.workload_identity` reads an identity token
+> from a file, exchanges it, keeps the hour's token and renews it. So the
+> box's *gateway* is the issuer, not stadeum-ui (stakwork/mothership,
+> `wrapper/identity.go`, `BIFROST_IDENTITY_ISSUER`): it holds the signing
+> key in its volume, publishes the key set at
+> `mothership.$HOST/.well-known/`, and rewrites the token file every 30 s.
+> §1–§3 below are replaced: stadeum-ui signs nothing and renews nothing; it
+> writes the federated key where a pasted one goes. §4 is built
+> (`docs/models.md`, "Anthropic without a key"), with Bifrost's names
+> (`federation_rule_id`) and the service account's ID, which Bifrost
+> requires. §6.1 is answered: Bifrost sends the minted token as a bearer.
+> The `sub` is `mothership`, not `stadeum`.
+>
+> Proposed 2026-11-21, read against stadeum `main` @4c2da09,
+> stakwork/stadeum-fleet `main` @aad11efc, the gateway's bifrost `core`
+> v1.10.1, and Anthropic's Workload Identity Federation docs
+> (platform.claude.com/docs/en/manage-claude/: `authentication`,
 > `workload-identity-federation`, `wif-reference`, `wif-admin-api`,
 > `wif-providers/aws`). Evan agreed the renewal (§3) the same day.
 

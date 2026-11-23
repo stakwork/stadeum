@@ -134,13 +134,31 @@ export interface GatewayPriceRow {
 export interface BifrostKey {
   id: string;
   name: string;
-  value?: string | { value?: string; ref?: string; type?: string };
+  value?: BifrostSecret;
   models?: string[];
   weight?: number;
+  /** Anthropic only: the key has no value and the gateway federates instead (models/federation.ts). */
+  anthropic_key_config?: { workload_identity?: BifrostWorkloadIdentity };
   /** bifrost's last list-models call with the key: `success` or `list_models_failed`. */
   status?: string;
   /** Why that call failed, in the provider's words. */
   description?: string;
+}
+
+/** A value bifrost reads back: a string, or `{ value, ref, type }` (an env reference, or a plain value since v2.5). */
+export type BifrostSecret = string | { value?: string; ref?: string; type?: string };
+
+/**
+ * `anthropic_key_config.workload_identity` (bifrost core schemas/account.go,
+ * transports/v2.6.0): what the gateway exchanges its identity token with.
+ * Read back unmasked: none of it is a secret.
+ */
+export interface BifrostWorkloadIdentity {
+  federation_rule_id?: BifrostSecret;
+  organization_id?: BifrostSecret;
+  service_account_id?: BifrostSecret;
+  workspace_id?: BifrostSecret;
+  identity_source?: { type?: string; path?: BifrostSecret };
 }
 
 export interface ListProviderKeysResponse {
@@ -151,9 +169,19 @@ export interface ListProviderKeysResponse {
 /** What stadeum writes to a key: the whole key, since bifrost's PUT replaces it. */
 export interface BifrostKeyInput {
   name: string;
+  /** "" for a federated key. */
   value: string;
   models: string[];
   weight: number;
+  anthropic_key_config?: {
+    workload_identity: {
+      federation_rule_id: string;
+      organization_id: string;
+      service_account_id: string;
+      workspace_id?: string;
+      identity_source: { type: "file"; path: string };
+    };
+  };
 }
 
 /** `GET /api/config`: only the client section, which stadeum reads back whole. */

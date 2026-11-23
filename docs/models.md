@@ -236,6 +236,17 @@ STADEUM_MODEL_PROVIDERS='[{"provider":"anthropic","key":"sk-…","url":"https://
   left alone when it is already right, and the gateway checks the key as
   it does a pasted one. An entry that can't be read is left out, with a
   line in the log.
+- **Anthropic may be given without a key.** `federation` in place of
+  `key`, with the IDs of the rule in Anthropic's console that trusts the
+  box's gateway (next section): none of them a secret, so nothing of
+  Anthropic's is in `.env`. It takes no `url`: the gateway's identity token
+  goes to Anthropic itself.
+
+  ```
+  STADEUM_MODEL_PROVIDERS='[{"provider":"anthropic","federation":{"organization_id":"…","federation_rule_id":"fdrl_…","service_account_id":"svac_…","workspace_id":"wrkspc_…"}}]'
+  ```
+
+  `workspace_id` only when the rule is in more than one workspace.
 - **Shown, not changed.** The Models page marks each one "Given by this
   box's host", with its address, and offers Test alone. Setting or
   removing its key is refused. The admin still picks which of its models
@@ -247,6 +258,51 @@ STADEUM_MODEL_PROVIDERS='[{"provider":"anthropic","key":"sk-…","url":"https://
   in the gateway. To hand a provider back to the admin, give it once more
   without a `url` (its own address comes back), then remove the entry:
   the admin can then replace or remove its key.
+
+## Anthropic without a key
+
+The gateway is its own OIDC issuer, so Anthropic's workload identity
+federation trusts it and no `sk-ant-…` key is stored on the box
+(`ui/src/lib/models/federation.ts`; mothership's `wrapper/identity.go`).
+
+- **What the gateway does.** With `BIFROST_IDENTITY_ISSUER`
+  (`https://mothership.$HOST`, stack/stadeum.yml) it keeps a P-256 signing
+  key in its volume, made on its first boot, and serves the public half at
+  `mothership.$HOST/.well-known/openid-configuration` and
+  `/.well-known/mothership-jwks.json` (the Caddyfile routes both). Every 30
+  seconds it writes a signed identity token to a file: `iss` the issuer,
+  `sub` `mothership`, `aud` `https://api.anthropic.com`, 30 minutes of life,
+  a fresh `jti`. Bifrost trades it at Anthropic's `/v1/oauth/token` for an
+  hour's token, keeps it, renews it before it runs out, and sends it on each
+  call. Nothing on the box renews anything; a person's or a grant's call
+  sees no difference.
+- **What the admin does.** On the Models page, Anthropic's **Connect
+  without a key** shows what to enter in Anthropic's console (Workload
+  identity, a custom OIDC provider): the issuer URL, and the key set to
+  paste instead for a box Anthropic can't reach (a laptop on
+  `*.localhost`, a private network). Then a service account, and a
+  federation rule for it matching subject `mothership`, audience
+  `https://api.anthropic.com`, scope `workspace:inference`. The admin
+  pastes back the organization, rule, service account and (when the rule
+  spans several) workspace IDs. Stadeum writes them on Anthropic's key in
+  the gateway, where a pasted key goes, with no value; the gateway checks
+  it at once, which is an exchange at Anthropic, and the row says Working
+  or Refused with Anthropic's words.
+- **A host can give it instead** (`federation` in
+  `STADEUM_MODEL_PROVIDERS`, above): fleet makes each box's issuer,
+  service account and rule (`plans/anthropic-federation.md`, §5).
+- **What counts.** A federated key is a key everywhere a pasted one is:
+  strut is told Anthropic's models are there, people's keys allow them.
+  Pasting a key over it wins (the gateway keeps the federation beside it,
+  unused); Remove takes it out.
+- **Where the secret lives.** The signing key is in the gateway's volume,
+  so in the backup, and nowhere else. Whoever holds it can sign tokens
+  until the rule is archived in Anthropic's console: as with a leaked key,
+  but for this box alone. It is never replaced on its own; a new one (the
+  file deleted) is picked up within a minute by an issuer registered by
+  discovery, and has to be pasted again into one registered inline.
+- **A gateway that can't sign** (older than mothership v0.5.0, or the
+  variable unset) publishes no issuer: the page says so and offers no form.
 
 ## Maple and Numes through the gateway
 
