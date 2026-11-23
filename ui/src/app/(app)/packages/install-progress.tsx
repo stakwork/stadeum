@@ -133,7 +133,7 @@ function InstallRow({ first, onDismiss }: { first: InstallWatch; onDismiss: () =
           ) : (
             <>
               {name}
-              {w.door === "distro" && <span className="text-ink-3"> · by the box’s distro</span>}
+              {w.door === "distro" && <span className="text-ink-3"> · automatically</span>}
             </>
           )}
         </span>

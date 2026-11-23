@@ -94,7 +94,7 @@ export function readCallAnswer(data: unknown): { ok: true; answer: CallAnswer } 
   if (!data || typeof data !== "object") return unreadable;
   const d = data as Record<string, unknown>;
   if (d.encrypted !== true) {
-    return { ok: false, error: "This box can’t make an encrypted call yet: its voice service needs an update." };
+    return { ok: false, error: "Calls can’t be encrypted yet: the voice service needs an update." };
   }
   const url = typeof d.url === "string" ? mediaUrl(d.url) : null;
   if (!url) return { ok: false, error: "The call named a LiveKit server the browser can’t use: only wss://, or ws:// on this machine." };

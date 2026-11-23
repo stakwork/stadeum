@@ -158,7 +158,7 @@ describe("the store's link", () => {
 
     const other = "y".repeat(52);
     const r = await followIndex(other, STAKWORK_INDEX_URL);
-    expect(r.error).toMatch(/already follows an index at index\.stakwork\.ai under another key/);
+    expect(r.error).toMatch(/already follow an index at index\.stakwork\.ai under another key/);
     expect(fake.state.followed.map((i) => i.key)).toEqual([STAKWORK_INDEX_KEY]);
   });
 
@@ -220,10 +220,10 @@ describe("install's refusals", () => {
     // Strut takes the request, then refuses it as the install goes: the record says why.
     const lost = await installed("openlaw/legal-desk", "index-stakwork-ai");
     expect(lost).toMatchObject({ status: "failed", ref: "openlaw/legal-desk" });
-    expect(lost.error).toMatch(/^This box doesn’t follow that index any more\./);
+    expect(lost.error).toMatch(/^You don’t follow that index any more\./);
     await followStakwork();
-    expect((await installed("nobody/nothing", "index-stakwork-ai")).error).toMatch(/^No index this box follows lists that publisher\./);
-    expect((await installed("openlaw/legal-desk", "elsewhere")).error).toMatch(/^This box doesn’t follow that index any more\./);
+    expect((await installed("nobody/nothing", "index-stakwork-ai")).error).toMatch(/^No index you follow lists that publisher\./);
+    expect((await installed("openlaw/legal-desk", "elsewhere")).error).toMatch(/^You don’t follow that index any more\./);
 
     await installed("openlaw/legal-desk", "index-stakwork-ai");
     // The index lists a newer release; the box has the old one.
@@ -351,8 +351,8 @@ describe("a missing secret", () => {
   it("refuses a name no installed package reads, a setting stadeum keeps, and an empty value", async () => {
     await followStakwork();
     await installed("openlaw/legal-desk", "index-stakwork-ai");
-    expect((await setSecret("GITHUB_TOKEN", "x")).error).toMatch(/No package installed here needs that secret set for the box/);
-    expect((await setSecret("STRUT_DEFAULT_MODEL", "x")).error).toMatch(/No package installed here needs that secret set for the box/);
+    expect((await setSecret("GITHUB_TOKEN", "x")).error).toMatch(/No package installed here needs that secret set for the whole team/);
+    expect((await setSecret("STRUT_DEFAULT_MODEL", "x")).error).toMatch(/No package installed here needs that secret set for the whole team/);
     expect((await setSecret("SERPA_API_KEY", "   ")).error).toMatch(/Paste the value first/);
     expect([...fake.state.deploymentSecrets.keys()]).toEqual([]);
   });
@@ -405,8 +405,8 @@ describe("a missing secret", () => {
     // Nor is a person's token said to be the box's, set.
     expect(html).not.toMatch(/Its keys are set: <span[^>]*>GITHUB_TOKEN/);
 
-    expect((await setSecret("GITHUB_TOKEN", "a-box-token")).error).toMatch(/No package installed here needs that secret set for the box/);
-    expect((await setSecret("PACER_LOGIN", "a-login")).error).toMatch(/No package installed here needs that secret set for the box/);
+    expect((await setSecret("GITHUB_TOKEN", "a-box-token")).error).toMatch(/No package installed here needs that secret set for the whole team/);
+    expect((await setSecret("PACER_LOGIN", "a-login")).error).toMatch(/No package installed here needs that secret set for the whole team/);
     expect(await setSecret("COURTLISTENER_API_KEY", "cl-secret")).toEqual({});
     expect([...fake.state.deploymentSecrets.keys()]).toEqual(["COURTLISTENER_API_KEY"]);
   });
@@ -610,8 +610,8 @@ describe("from a repository", () => {
     expect(await listPackages()).toEqual([]);
     expect((await listApps()).map((a) => a.name)).not.toContain("stadeum/code/code");
     expect(await followedProgress(r.followed.id)).toEqual({ followed: null });
-    expect((await checkFollowed(r.followed.id)).error).toMatch(/doesn’t follow that any more/);
-    expect((await unfollow("../../secrets")).error).toBe("That isn’t something the box follows.");
+    expect((await checkFollowed(r.followed.id)).error).toMatch(/isn’t followed any more/);
+    expect((await unfollow("../../secrets")).error).toBe("That isn’t something followed here.");
   });
 });
 
@@ -730,7 +730,7 @@ describe("a bundle, and the Software card", () => {
     // The admin connects GitHub and stops following stadeum/code by hand: at its next check, the bundle takes both.
     fake.state.secrets.set(`${adminActor}/GITHUB_TOKEN`, "ghu_ada");
     expect(await unfollow(hand.followed.id)).toEqual({ uninstalled: ["stadeum/code"] });
-    expect(await page()).toContain(`was left to ${hand.followed.id}, which the box no longer follows: check now, and this takes it.`);
+    expect(await page()).toContain(`was left to ${hand.followed.id}, which is no longer followed: check now, and this takes it.`);
     const c = await checkFollowed(SOFTWARE);
     if (c.error !== undefined) throw new Error(c.error);
     const after = await readEnds(SOFTWARE, c.before);
@@ -743,7 +743,7 @@ describe("a bundle, and the Software card", () => {
 
     // From a repository won't follow a second time a package the bundle keeps.
     expect((await followRepository(`git+${STRUT_CODE_REPO}@main`)).error).toBe(
-      `The box follows that already, as part of ${SOFTWARE_REF}, and keeps it up to date with it. To follow it on its own, stop following that first.`,
+      `That’s followed already, as part of ${SOFTWARE_REF}, which keeps it up to date. To follow it on its own, stop following that first.`,
     );
     expect(fake.state.subscriptions.map((s) => s.id)).toEqual([SOFTWARE]);
   });

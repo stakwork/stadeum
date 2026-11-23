@@ -153,7 +153,7 @@ export const STADEUM_CODE: FakeRelease = {
   urls: [],
   version: "0.1.0",
   digest: digest("3c"),
-  description: "The box's repositories and workspaces.",
+  description: "Your team's repos and workspaces, kept up to date, so agents can read and change your code.",
   detail: { apps: [{ name: "code", title: "Code", can: { spends: false, acts: true, code: true } }], workflows: 2, steps: 3, concepts: 1, secrets: [], can: { spends: false, acts: true, code: true }, readme: true },
   items: [
     { kind: "app", name: "code" },
@@ -194,7 +194,7 @@ export const STADEUM_GITHUB: FakeRelease = {
   urls: [],
   version: "0.1.0",
   digest: digest("6a"),
-  description: "GitHub for the box.",
+  description: "GitHub integration for the Stadeum GitHub App. Run agents in your repos and open PRs.",
   requires: { optional: ["GITHUB_TOKEN"] },
   provides: { secrets: ["GITHUB_TOKEN"], git: [{ host: "github.com", secret: "GITHUB_TOKEN" }] },
   detail: { apps: [{ name: "github", title: "GitHub", can: { spends: false, acts: true, code: true } }], workflows: 1, steps: 2, concepts: 0, secrets: [], can: { spends: false, acts: true, code: true }, readme: true },
@@ -240,7 +240,7 @@ export const STADEUM_SOFTWARE: FakeRelease = {
   urls: [],
   version: "0.1.0",
   digest: digest("8c"),
-  description: "GitHub, the box's repositories, and a pod for every coding job",
+  description: "Everything for coding with agents: GitHub, your repos, and a cloud machine for each job.",
   bundle: [`git+${STRUT_GITHUB_REPO}@stable`, `git+${STRUT_PODS_REPO}@stable`, `git+${STRUT_CODE_REPO}@stable`],
   items: [],
 };

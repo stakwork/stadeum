@@ -91,7 +91,7 @@ export type InstallOutcome = InstallWatch | (Failed & { status?: never });
 export async function install(pkg: string, index: string, digest?: string): Promise<InstallOutcome> {
   const me = await requireAdmin();
   if (typeof pkg !== "string" || !PACKAGE_NAME_RE.test(pkg)) return { error: "That isn’t a package name." };
-  if (typeof index !== "string" || !INDEX_ID_RE.test(index)) return { error: "That isn’t an index this box follows." };
+  if (typeof index !== "string" || !INDEX_ID_RE.test(index)) return { error: "That isn’t an index you follow." };
   if (digest !== undefined && (typeof digest !== "string" || !DIGEST_RE.test(digest))) return { error: "That isn’t a release." };
   try {
     const watch = installWatch(await startPackageInstall(pkg, { index, ...(digest ? { digest } : {}) }, me.actor));
@@ -162,7 +162,7 @@ export async function followIndex(key: string, url: string): Promise<FollowOutco
     const same = followed.find((i) => i.key === key);
     if (same) return { index: same };
     if (followed.some((i) => i.id === id)) {
-      return { error: `This box already follows an index at ${hostOf(url)} under another key. Remove that one first if you mean to replace it.` };
+      return { error: `You already follow an index at ${hostOf(url)} under another key. Remove that one first if you mean to replace it.` };
     }
     const index = await followPackageIndex(id, { key, urls: [url], label: hostOf(url) });
     revalidatePath("/packages");
@@ -175,7 +175,7 @@ export async function followIndex(key: string, url: string): Promise<FollowOutco
 /** `DELETE /packages/indexes/:id`. What was installed through it stays. */
 export async function unfollowIndex(id: string): Promise<{ error?: string }> {
   await requireAdmin();
-  if (typeof id !== "string" || !INDEX_ID_RE.test(id)) return { error: "That isn’t an index this box follows." };
+  if (typeof id !== "string" || !INDEX_ID_RE.test(id)) return { error: "That isn’t an index you follow." };
   try {
     await unfollowPackageIndex(id);
   } catch (err) {
@@ -201,7 +201,7 @@ export async function setSecret(name: string, value: string): Promise<{ error?: 
   if (value.length > 64 * 1024) return { error: "That is longer than any key." };
   try {
     const [installed, followed] = await Promise.all([listPackages(), listPackageSubscriptions().catch(() => [])]);
-    if (typeof name !== "string" || !settableSecret(name, installed, followed)) return { error: "No package installed here needs that secret set for the box." };
+    if (typeof name !== "string" || !settableSecret(name, installed, followed)) return { error: "No package installed here needs that secret set for the whole team." };
     await putDeploymentSetting(name, value);
     for (const s of followed.filter((f) => f.waiting?.secrets.includes(name))) readInBackground(s.id);
   } catch (err) {
@@ -251,7 +251,7 @@ export async function followRepository(raw: string): Promise<FollowRepoOutcome> 
   try {
     const found = followingFrom(await listPackageSubscriptions(), r.ref);
     if (found?.part) {
-      return { error: `The box follows that already, as part of ${followedFrom(found.sub)}, and keeps it up to date with it. To follow it on its own, stop following that first.` };
+      return { error: `That’s followed already, as part of ${followedFrom(found.sub)}, which keeps it up to date. To follow it on its own, stop following that first.` };
     }
     const same = found?.sub;
     const sub = await followPackageRef(same?.id ?? subscriptionIdOf(r), r.ref, me.actor);
@@ -285,10 +285,10 @@ export async function installFromRepository(raw: string): Promise<InstallOutcome
 /** Check now: strut reads it again (`POST /packages/subscriptions/:id/sync`) behind the answer. `before`: when it was last read. */
 export async function checkFollowed(id: string): Promise<{ before?: string; error?: never } | Failed> {
   await requireAdmin();
-  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t something the box follows." };
+  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t something followed here." };
   try {
     const sub = (await listPackageSubscriptions()).find((s) => s.id === id);
-    if (!sub) return { error: "The box doesn’t follow that any more." };
+    if (!sub) return { error: "That isn’t followed any more." };
     readInBackground(id);
     return sub.checkedAt ? { before: sub.checkedAt } : {};
   } catch (err) {
@@ -307,7 +307,7 @@ export type FollowedProgress = { followed: Followed | null; install?: InstallWat
  */
 export async function followedProgress(id: string, before?: string): Promise<FollowedProgress> {
   const me = await requireAdmin();
-  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t something the box follows.", retry: false };
+  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t something followed here.", retry: false };
   try {
     const [subs, installs] = await Promise.all([listPackageSubscriptions(), listPackageInstalls()]);
     const sub = subs.find((s) => s.id === id);
@@ -332,7 +332,7 @@ export async function followedProgress(id: string, before?: string): Promise<Fol
  */
 export async function unfollow(id: string): Promise<{ uninstalled: string[]; error?: never } | (Failed & { uninstalled?: never })> {
   await requireAdmin();
-  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t something the box follows." };
+  if (typeof id !== "string" || !SUBSCRIPTION_ID_RE.test(id)) return { error: "That isn’t something followed here." };
   try {
     const r = await unfollowPackageSubscription(id);
     changed();

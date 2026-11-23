@@ -79,8 +79,8 @@ export const DESTINATIONS: Record<Kind, DestinationKind> = {
     ],
   },
   local: {
-    label: "A folder on this box",
-    hint: "For trying backups out, or a disk mounted at backups/ beside the checkout. It is not off the box.",
+    label: "A folder on this server",
+    hint: "For trying backups out, or a disk mounted at backups/ beside the checkout. It is lost with the server.",
     fields: [{ name: "path", label: "Folder", placeholder: "/backups/stadeum", hint: "Under /backups (the checkout's backups/ folder)" }],
   },
 };
@@ -175,15 +175,15 @@ export function restoreKit(kind: Kind, built: Built, password: string): string {
     .filter(([k]) => ["AWS_DEFAULT_REGION", "AZURE_ACCOUNT_NAME", "GOOGLE_PROJECT_ID"].includes(k))
     .map(([k, v]) => `${k}=${v}`);
   return [
-    "# stadeum restore kit. Keep it off the box (a password manager).",
+    "# stadeum restore kit. Keep it off this server (a password manager).",
     "# Without RESTIC_PASSWORD the backups cannot be read by anyone.",
-    "# On a new box, saved as /root/restore.env (stop the old box first):",
+    "# On a new server, saved as /root/restore.env (stop the old server first):",
     "#   curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo STADEUM_RESTORE=/root/restore.env bash",
     `RESTIC_REPOSITORY=${built.repository}`,
     `RESTIC_PASSWORD=${password}`,
     ...plain,
     ...credentials,
-    ...(kind === "local" ? ["# A folder on the old box: copy it to the new box's backups/ first."] : []),
+    ...(kind === "local" ? ["# A folder on the old server: copy it to the new server's backups/ first."] : []),
     "",
   ].join("\n");
 }

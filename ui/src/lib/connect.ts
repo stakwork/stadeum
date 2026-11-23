@@ -146,7 +146,7 @@ export type AskCheck = { ok: true; ask: Ask } | { ok: false; status: number; mes
  */
 export function readAsk(p: Connectable, q: URLSearchParams): AskCheck {
   const back = safeReturn(q.get("return"));
-  if (!back) return { ok: false, status: 400, message: "The page to come back to is not on this box." };
+  if (!back) return { ok: false, status: 400, message: "The page to come back to is not on this site." };
   const scopes = askedScopes(p, q.get("scope"));
   if (!scopes) {
     const message = p.scopes.length ? `A scope asked for is not one of ${p.scopes.join(", ")}.` : `${p.name} takes no scope here.`;

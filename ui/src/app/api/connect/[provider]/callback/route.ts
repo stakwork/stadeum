@@ -14,7 +14,7 @@ import { currentUser } from "@/lib/session";
 export const dynamic = "force-dynamic";
 
 const WHY = {
-  bad: "This link was not made by this box, or was changed.",
+  bad: "This link was not made here, or was changed.",
   expired: "This link is more than an hour old. Connect again.",
   "someone else": "This link was made for someone else. Sign in as them, or connect again.",
 } as const;
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ prov
   const p = connectable((await params).provider);
   if (!p) return new Response("Not found", { status: 404 });
   const user = await currentUser();
-  if (!user) return refusal(401, "Sign in to the box, then connect again.");
+  if (!user) return refusal(401, "Sign in, then connect again.");
 
   const q = req.nextUrl.searchParams;
   const checked = verifyState(q.get("state"), { provider: p.id, actor: user.actor });

@@ -55,4 +55,4 @@ export function givenBackup(
 }
 
 /** What an admin reads when they try to change a given destination. */
-export const GIVEN_BACKUP_REFUSAL = "This box’s host gives its backup destination: it can’t be changed here.";
+export const GIVEN_BACKUP_REFUSAL = "Your host gives the backup destination: it can’t be changed here.";

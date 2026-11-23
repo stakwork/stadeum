@@ -34,7 +34,7 @@ export function signInMessage(
     const who = validMasked(maskedEmail);
     return {
       title: who ? `${who} hasn't been invited.` : "That account hasn't been invited.",
-      detail: `An admin of this box must invite that exact email address on the Members page. ${
+      detail: `An admin must invite that exact email address on the Members page. ${
         canSwitch
           ? "If you meant a different Google account, use the button below."
           : "If you meant a different account, sign in with it below."

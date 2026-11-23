@@ -230,7 +230,7 @@ function StoreLink(props: {
       <>
         <p>
           The store at <b className="font-medium text-ink">{hostOf(link.index!.url)}</b> sent you here to install{" "}
-          <code className="font-mono text-ink">{link.pkg}</code>. This box doesn’t follow that index yet. Following it trusts this key to say which
+          <code className="font-mono text-ink">{link.pkg}</code>. You don’t follow that index yet. Following it trusts this key to say which
           publisher is which; every install is still checked against the publisher’s own signed catalog.
         </p>
         <KeyBlock value={link.index!.key} />
@@ -247,8 +247,8 @@ function StoreLink(props: {
       <>
         <p>
           The store at <b className="font-medium text-ink">{hostOf(link.index!.url)}</b> sent you here to install{" "}
-          <code className="font-mono text-ink">{link.pkg}</code>, but this box already follows an index there under another key (
-          <code className="font-mono">{shortKey(state.key)}</code>). A link never changes which key the box trusts: remove that index below first if
+          <code className="font-mono text-ink">{link.pkg}</code>, but you already follow an index there under another key (
+          <code className="font-mono">{shortKey(state.key)}</code>). A link never changes which key you trust: remove that index below first if
           you mean to replace it.
         </p>
         <KeyBlock value={link.index!.key} label="The link’s key" />
@@ -275,9 +275,9 @@ function StoreLink(props: {
     body = (
       <p>
         {!props.follows
-          ? "This box follows no index yet, so it can’t find "
+          ? "You follow no index yet, so there’s nowhere to look up "
           : props.searched
-            ? "No index this box follows lists "
+            ? "No index you follow lists "
             : "Strut isn’t answering, so it can’t look up "}
         <code className="font-mono text-ink">{link.pkg}</code>
         {!props.follows ? ". Add the index it’s listed on under Indexes." : "."}
@@ -324,7 +324,7 @@ function cameFrom(p: Installed, followed: readonly Followed[]): string {
     const from = part ? `${followedFrom(part)}, part of ${followedFrom(sub)}` : followedFrom(sub);
     return `Kept up to date from ${from}${sub.actor ? `, ${sub.mine ? "yours" : `${sub.whose}’s`}` : ""}. Stop following ${part ? "the bundle" : "it"} below to remove it`;
   }
-  if (p.door === "distro") return "Installed by the box’s distro, which updates and removes it";
+  if (p.door === "distro") return "Installed automatically, and updated and removed the same way";
   if (p.source?.ref.startsWith("git+")) return `From ${p.source.ref}${p.commit ? ` at ${p.commit.slice(0, 7)}` : ""}`;
   return p.source?.url ? `From ${hostOf(p.source.url)}` : "Installed";
 }
@@ -367,7 +367,7 @@ function InstalledList({ installed, secretsKnown, followed }: { installed: Insta
               {p.needs.length > 0 ? (
                 <div className="flex flex-col gap-3 rounded-[12px] bg-warn-soft px-4 py-3.5">
                   <p className="text-[13.5px] text-ink-2">
-                    Its steps read {p.needs.length === 1 ? "a key this box doesn’t have" : "keys this box doesn’t have"} yet. Each goes to strut and is never
+                    Its steps read {p.needs.length === 1 ? "a key that isn’t set" : "keys that aren’t set"} yet. Each goes to strut and is never
                     shown again.
                   </p>
                   {p.needs.map((name) => (
@@ -627,7 +627,7 @@ function FromRepository({ connect, onFollowed }: { connect: ConnectOffer[]; onFo
             Keep it up to date
             <span className="text-[13px] text-ink-3">
               {keep
-                ? "The box follows the branch and installs each new commit’s package. It’s yours: what it brings runs as you, and a private repository is read with your own account."
+                ? "Each new commit on the branch is installed. It’s yours: what it brings runs as you, and a private repository is read with your own account."
                 : "Installed once, at the commit the branch is at now. A tag or a commit after @ works too."}
             </span>
           </span>
@@ -719,7 +719,7 @@ function FollowedList(props: {
   const { followed: list, started, connect, ask } = props;
   const [notice, setNotice] = useState<string>();
   const reads = new Map(started.map((s) => [s.f.id, s]));
-  if (list === null) return <p className={empty}>Strut isn’t answering, so what the box follows can’t be read right now.</p>;
+  if (list === null) return <p className={empty}>Strut isn’t answering, so what’s followed here can’t be read right now.</p>;
   if (list.length === 0 && !notice) return null;
 
   return (
@@ -900,7 +900,7 @@ function FollowedRow(props: {
 
       {asking && (
         <p className="text-[13.5px] text-ink-2">
-          Stop following it? What it installed is uninstalled too, for everyone: its apps, workflows, steps and Concepts leave the box. Their runs stay in
+          Stop following it? What it installed is uninstalled too: its apps, workflows, steps and Concepts are removed for everyone. Their runs stay in
           the history, and anything people edited here is kept.
         </p>
       )}
@@ -962,8 +962,8 @@ function Release({ f, all, read, onSaved }: { f: Followed; all: Followed[]; read
       {f.waiting && (
         <div className="flex flex-col gap-3 rounded-[12px] bg-warn-soft px-4 py-3.5">
           <p className="text-[13.5px] text-ink-2">
-            Its package waits for {f.waiting.secrets.length === 1 ? "a key" : "keys"} before it installs. Each goes to strut and is never shown again; the box
-            installs it once they’re set.
+            Its package waits for {f.waiting.secrets.length === 1 ? "a key" : "keys"} before it installs. Each goes to strut and is never shown again; it
+            installs once they’re set.
           </p>
           {f.waiting.secrets.map((name) => (
             <SecretField key={name} name={name} onSaved={onSaved} />
@@ -979,7 +979,7 @@ function Release({ f, all, read, onSaved }: { f: Followed; all: Followed[]; read
             <code className="font-mono text-[13px] text-ink">{h.package}</code>{" "}
             {at
               ? `is left to ${at.part ? `${followedFrom(at.part)}, part of ${followedFrom(at.sub)}` : followedFrom(at.sub)}, which keeps it up to date here. Stop following that, and this takes it at its next check.`
-              : `was left to ${h.by.replace(/^subscription:/, "")}, which the box no longer follows: check now, and this takes it.`}
+              : `was left to ${h.by.replace(/^subscription:/, "")}, which is no longer followed: check now, and this takes it.`}
           </p>
         );
       })}
@@ -1063,7 +1063,7 @@ function Find(props: {
       <input
         type="search"
         aria-label="Search packages"
-        placeholder={props.follows ? "Search the indexes this box follows" : "Follow an index below to search it"}
+        placeholder={props.follows ? "Search the indexes you follow" : "Follow an index below to search it"}
         value={q}
         onChange={(e) => setQ(e.target.value)}
         className={fieldClass}
@@ -1261,7 +1261,7 @@ function InstallDialog(props: {
           {hit.description && <p className="text-[14px] text-ink-2">{hit.description}</p>}
           <Facts hit={hit} />
           <p className="text-[13.5px] text-ink-2">
-            Its code runs on this box, with the keys you give it. Strut checks it against {hit.publisher}’s own signed catalog before it writes
+            Its code runs here, with the keys you give it. Strut checks it against {hit.publisher}’s own signed catalog before it writes
             anything.
           </p>
           {other && (
@@ -1309,7 +1309,7 @@ function UninstallDialog({ pkg, onClose, onDone }: { pkg: Installed; onClose: ()
         Uninstall <span className="font-mono text-[17px] break-all">{pkg.package}</span>?
       </h2>
       <p className="text-[14px] text-ink-2">
-        Its apps, workflows, steps and Concepts leave this box, for everyone. Their runs stay in the history, and anything people edited here is kept.
+        Its apps, workflows, steps and Concepts are removed for everyone. Their runs stay in the history, and anything people edited here is kept.
         Its keys stay in strut.
       </p>
       {error && (
@@ -1351,7 +1351,7 @@ function Indexes({ indexes }: { indexes: PackageIndex[] }) {
       <SectionLabel id="indexes">Indexes</SectionLabel>
       <p className="text-[14px] text-ink-2">An index says which publisher is which. A package’s name is looked up in the first one that lists its publisher.</p>
       {indexes.length === 0 ? (
-        <p className={empty}>This box follows no index yet.</p>
+        <p className={empty}>You follow no index yet.</p>
       ) : (
         <ul className={`${card} divide-y divide-rule-soft`}>
           {indexes.map((i) => (

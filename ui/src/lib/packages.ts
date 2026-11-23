@@ -187,26 +187,26 @@ const STADEUM_SETTINGS = new Set(["STRUT_DEFAULT_MODEL", "STRUT_MODELS"]);
 /** A lead sentence for each of strut's refusal codes; strut's own words follow it. */
 const LEADS: Record<string, string> = {
   package_busy: "One of its workflows is running. Try again once the run is done.",
-  package_conflict: "Something on this box already uses a name the package needs.",
+  package_conflict: "Something here already uses a name the package needs.",
   package_update_not_built: "Another version of this package is installed here. Uninstall it first, then install this one.",
-  package_distro_owned: "The box keeps this package up to date from what it follows, or its distro installed it: only that updates or removes it.",
+  package_distro_owned: "Something followed here keeps this package up to date, or it was installed automatically: only that updates or removes it.",
   package_not_installed: "That package isn’t installed.",
-  package_not_listed: "No index this box follows lists that publisher.",
+  package_not_listed: "No index you follow lists that publisher.",
   package_not_found: "The publisher’s catalog doesn’t have that package.",
   package_not_published: "The publisher’s catalog doesn’t list that release.",
-  package_index_unknown: "This box doesn’t follow that index any more.",
+  package_index_unknown: "You don’t follow that index any more.",
   package_source_invalid: "Strut can’t look that package up.",
   package_index_unreachable: "The index isn’t answering. Try again later.",
   package_index_invalid: "That isn’t an index strut can follow.",
   package_fetch_failed: "The publisher’s catalog isn’t answering. Try again later.",
   package_digest_mismatch: "What the publisher served doesn’t match the release. Nothing was installed.",
-  bad_package: "The package doesn’t install on this box.",
+  bad_package: "The package doesn’t install here.",
   package_repo_denied: "The repository can’t be read: it’s private and the account it’s read with can’t reach it, or it doesn’t exist.",
   package_repo_not_found: "There’s no repository at that address.",
   package_repo_unreachable: "The repository isn’t answering. Try again later.",
   package_ref_not_found: "The repository has nothing by that name after @.",
   subscription_invalid: "Strut won’t follow that.",
-  subscription_unknown: "The box doesn’t follow that any more.",
+  subscription_unknown: "That isn’t followed any more.",
 };
 
 /** The code a refusal of strut's starts with (`package_repo_denied: …` → `package_repo_denied`). */
@@ -290,7 +290,7 @@ export function installWatch(s: PackageInstall): InstallWatch {
 const PHASES: Record<string, string> = {
   queued: "Waiting to start",
   resolving: "Fetching the package",
-  checking: "Checking it against this box",
+  checking: "Checking it against what’s installed",
   types: "Graph types",
   steps: "Steps",
   workflows: "Workflows",
@@ -350,7 +350,7 @@ export function parseRepositoryRef(raw: string): RepositoryRef | { error: string
   const given = typeof raw === "string" ? raw.trim() : "";
   if (!given) return { error: "Give the repository’s address." };
   if (/^(ssh:\/\/|git@|git:\/\/)/i.test(given) || /^[\w.-]+@[\w.-]+:/.test(given)) {
-    return { error: "That’s an SSH address. Give the repository’s https address: the box reads it over https, with your own account for a private one." };
+    return { error: "That’s an SSH address. Give the repository’s https address: it’s read over https, with your own account for a private one." };
   }
   const body = given.replace(/^git\+/i, "");
   const hash = body.indexOf("#");
@@ -536,7 +536,7 @@ function sourceOf(ref: string | undefined): string | undefined {
 export const SOFTWARE_REF = "git+https://github.com/stakwork/strut-software@stable";
 
 /** What the Software card says the bundle does. */
-export const SOFTWARE_WORDS = "Your repositories, known to the box and in its graph, and a machine of its own for every coding job.";
+export const SOFTWARE_WORDS = "Everything for coding with agents: GitHub, your repos, and a cloud machine for each job.";
 
 /** Software as the box follows it: the subscription to its repository (on any branch, anyone's), or none. */
 export function softwareOf<T extends { ref?: string; parts?: T[] }>(followed: readonly T[]): T | undefined {

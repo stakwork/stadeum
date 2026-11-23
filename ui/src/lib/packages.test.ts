@@ -154,7 +154,7 @@ describe("explainRefusal", () => {
     );
     expect(explainRefusal("package_busy: acme/x/sync has a run in flight", 409)).toMatch(/^One of its workflows is running\./);
     expect(explainRefusal("package_distro_owned: acme/x", 409)).toMatch(/only that updates or removes it/);
-    expect(explainRefusal("package_conflict: a local workflow acme/x/sync", 409)).toMatch(/^Something on this box already uses a name/);
+    expect(explainRefusal("package_conflict: a local workflow acme/x/sync", 409)).toMatch(/^Something here already uses a name/);
     expect(explainRefusal("catalog_seal: the signature does not verify", 409)).toMatch(/^The publisher’s catalog didn’t pass its checks.*Strut says: the signature does not verify$/);
   });
 
@@ -215,7 +215,7 @@ describe("an install as it goes", () => {
       ref: base.ref,
       door: "install",
       status: "failed",
-      error: "No index this box follows lists that publisher. Strut says: no index lists acme",
+      error: "No index you follow lists that publisher. Strut says: no index lists acme",
       code: "package_not_listed",
     });
     expect(installWatch({ ...base, status: "running", phase: "concepts", done: 3, total: 9, package: "openlaw/legal-desk" })).toEqual({

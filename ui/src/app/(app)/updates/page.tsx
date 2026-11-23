@@ -141,7 +141,7 @@ export default async function UpdatesPage() {
                   <tr className="border-t border-rule-soft">
                     <td colSpan={3} className="px-5 pt-5 pb-1 text-[12px] text-ink-3">
                       Pinned in the release&apos;s stack files: each moves when a release changes its pin, and Neo4j only when you
-                      confirm it. To pin one on this box alone, set its image in <code className="font-mono">stack/local.yml</code>.
+                      confirm it. To pin one yourself, set its image in <code className="font-mono">stack/local.yml</code>.
                     </td>
                   </tr>
                 )}
@@ -149,7 +149,7 @@ export default async function UpdatesPage() {
                   <ImageRow
                     key={s.service}
                     s={s}
-                    channel={<span className="text-ink-3">{s.built ? "Built on this box" : <>Pinned · <code className="font-mono text-[13px]">{tagOf(s.image)}</code></>}</span>}
+                    channel={<span className="text-ink-3">{s.built ? "Built here" : <>Pinned · <code className="font-mono text-[13px]">{tagOf(s.image)}</code></>}</span>}
                   />
                 ))}
               </tbody>
@@ -217,7 +217,7 @@ function Release({ release, held }: { release: ReleaseStatus; held: boolean }) {
       <div className="flex flex-col gap-3 rounded-[14px] border border-rule bg-surface p-5 text-[14px] md:p-6">
         <p className="text-ink-2">
           Running release <code className="font-mono text-[13px] text-ink">{shortImage(release.running)}</code>: ops&apos;s image, with
-          stadeum-ui&apos;s and the stack files they run with. The box&apos;s own changes go in{" "}
+          stadeum-ui&apos;s and the stack files they run with. Your own changes go in{" "}
           <code className="font-mono text-[13px]">stack/local.yml</code> and <code className="font-mono text-[13px]">.env</code>, which a
           release never touches.
         </p>

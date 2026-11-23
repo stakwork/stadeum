@@ -56,9 +56,9 @@ describe("what the Updates page says of a channel", () => {
       label: "Could not check 2 minutes ago",
       note: "could not reach ghcr.io: ENOTFOUND.",
     });
-    expect(line({ checkedAt: "2026-11-05T09:00:00Z", digest: NEW, current: true, problem: "ghcr.io is limiting this box's requests (429)", triedAt: "2026-11-05T11:58:00Z" })).toMatchObject({
+    expect(line({ checkedAt: "2026-11-05T09:00:00Z", digest: NEW, current: true, problem: "ghcr.io is limiting this server's requests (429)", triedAt: "2026-11-05T11:58:00Z" })).toMatchObject({
       tone: "attention",
-      note: "ghcr.io is limiting this box's requests (429). It was current 3 hours ago.",
+      note: "ghcr.io is limiting this server's requests (429). It was current 3 hours ago.",
     });
     expect(line({ checkedAt: "2026-11-05T09:00:00Z", digest: NEW, current: false, revision: "c15177a", problem: "x", triedAt: "2026-11-05T11:58:00Z" }).note).toBe(
       "x. c15177a was out 3 hours ago.",
@@ -67,8 +67,8 @@ describe("what the Updates page says of a channel", () => {
 
   it("says when what runs cannot be compared", () => {
     expect(
-      line({ checkedAt: "2026-11-05T11:58:00Z", digest: NEW, problem: "the image that runs has no digest from ghcr.io: it was built or loaded on this box", triedAt: "2026-11-05T11:58:00Z" }),
-    ).toMatchObject({ tone: "attention", note: "the image that runs has no digest from ghcr.io: it was built or loaded on this box." });
+      line({ checkedAt: "2026-11-05T11:58:00Z", digest: NEW, problem: "the image that runs has no digest from ghcr.io: it was built or loaded on this server", triedAt: "2026-11-05T11:58:00Z" }),
+    ).toMatchObject({ tone: "attention", note: "the image that runs has no digest from ghcr.io: it was built or loaded on this server." });
   });
 
   it("names registries as people do", () => {

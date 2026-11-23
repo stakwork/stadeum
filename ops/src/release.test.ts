@@ -201,7 +201,7 @@ describe("applying a release", () => {
     handedOver(stack, next);
     const event = await apply(stack, new FakeStrut(), next);
     expect(event?.outcome).toBe("failed");
-    expect(event?.detail).toMatch(/do not work with this box's .* Nothing changed\.$/);
+    expect(event?.detail).toMatch(/do not work with this server's \.env and local\.yml .* Nothing changed\.$/);
     expect(stack.tags.get("ghcr.io/stakwork/stadeum-ops:stable")).toBe("sha256:ops-1");
     expect(stack.read("stadeum.yml")).toBe(stack.releases.get("sha256:ops-1")!.get("stadeum.yml")!.toString());
   });

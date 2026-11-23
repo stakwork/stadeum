@@ -166,7 +166,7 @@ describe("what a connect asks for", () => {
   });
 
   it("comes back only to the box's own origins, and offers no way back otherwise", () => {
-    expect(ask("return=https%3A%2F%2Fevil.example%2F")).toEqual({ ok: false, status: 400, message: "The page to come back to is not on this box." });
+    expect(ask("return=https%3A%2F%2Fevil.example%2F")).toEqual({ ok: false, status: 400, message: "The page to come back to is not on this site." });
   });
 
   it("asks for no scope GitHub doesn't list, and installs only with an install page", () => {
