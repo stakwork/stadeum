@@ -74,7 +74,7 @@ describe("asking a registry", () => {
     const r = (routes: Record<string, () => Response>) => new Registry(fakeRegistry(routes).fetcher);
     await expect(r({}).digest("ghcr.io/stakwork/strut:nope")).rejects.toThrow("ghcr.io has no stakwork/strut:nope");
     await expect(r({ [`HEAD ${V2}/manifests/stable`]: () => new Response(null, { status: 429 }) }).digest("ghcr.io/stakwork/strut:stable")).rejects.toThrow(
-      "ghcr.io is limiting this box's requests (429)",
+      "ghcr.io is limiting this server's requests (429)",
     );
     await expect(r({ [`HEAD ${V2}/manifests/stable`]: () => new Response(null) }).digest("ghcr.io/stakwork/strut:stable")).rejects.toThrow(
       "ghcr.io did not say which image stakwork/strut:stable is",
@@ -165,7 +165,7 @@ describe("comparing with what runs", () => {
     expect(await lookUp(registry(INDEX), strut, { id: "sha256:built" }, undefined, now)).toEqual({
       checkedAt: now,
       digest: INDEX,
-      problem: "the image that runs has no digest from ghcr.io: it was built or loaded on this box",
+      problem: "the image that runs has no digest from ghcr.io: it was built or loaded on this server",
       triedAt: now,
     });
   });

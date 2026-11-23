@@ -372,7 +372,7 @@ check_host() {
   ANSWER=${ANSWER%%/*}
   ANSWER=${ANSWER%.}
   if [ -z "$ANSWER" ]; then
-    note "the box needs a domain name"
+    note "it needs a domain name"
   elif [[ $ANSWER =~ ^[0-9.]+$ ]]; then
     note "a domain name, not an address: the certificates are for names"
   elif [[ $ANSWER == localhost || $ANSWER == *.localhost ]]; then
@@ -518,7 +518,7 @@ configure() {
   step "Settings: $ENV_FILE"
   # .env.example's HOST is a laptop's (stack/dev.yml): on a server it is unset.
   case "$(env_get HOST)" in localhost | *.localhost) env_set HOST "" ;; esac
-  setting HOST "Domain name for this box (e.g. stadeum1.example.com)" check_host
+  setting HOST "Domain name for this server (e.g. stadeum1.example.com)" check_host
   HOST_NAME=$(env_get HOST)
   setting ACME_EMAIL "Email for Let's Encrypt" check_email
   [ -z "${STADEUM_SIGNIN_BOUNCE:-}" ] || setting STADEUM_SIGNIN_BOUNCE "Sign-in bounce" check_bounce
@@ -680,8 +680,8 @@ restore() {
   [ -n "${STADEUM_RESTORE:-}" ] || return 0
   step "Restore"
   [ -f "$STADEUM_RESTORE" ] || die "STADEUM_RESTORE names no file: $STADEUM_RESTORE (the Backups page's restore kit)"
-  [ -z "$(compose ps -q)" ] || die "the stack is running here: a restore is for a new box (or stop it first: $(compose_cmd) down)."
-  say "The treasury's account comes back with it: stop the box this backup came from, if it still runs, or the two knock each other off the wallet's broker."
+  [ -z "$(compose ps -q)" ] || die "the stack is running here: a restore is for a new server (or stop it first: $(compose_cmd) down)."
+  say "The treasury's account comes back with it: stop the server this backup came from, if it still runs, or the two knock each other off the wallet's broker."
   compose run --rm --no-deps --env-from-file "$STADEUM_RESTORE" ops restore ${STADEUM_SNAPSHOT:+"$STADEUM_SNAPSHOT"} ||
     die "the restore failed (above): nothing was started."
   # The snapshot's .env names the old box: STADEUM_HOST names this one (configure checks it).
@@ -716,7 +716,7 @@ pull_images() {
     built=$(docker image inspect --format '{{.Architecture}}' "$img")
     [ "$built" = "$arch" ] || bad+=" $img ($built)"
   done
-  [ -z "$bad" ] || die "this machine is $arch, and these images have no $arch build:$bad. Run the box on a machine they are built for."
+  [ -z "$bad" ] || die "this machine is $arch, and these images have no $arch build:$bad. Run stadeum on a machine they are built for."
 }
 
 # STADEUM_PREPARE=1: the images too, then stop. A box with no .env keeps
@@ -734,7 +734,7 @@ prepare() {
   step "Prepared: $BOX"
   say "Docker, the release's stack files and its images are here. Nothing was asked, started or stopped."
   [ "$had" = 1 ] || say "There is no .env yet, so nothing here is secret: an image of this machine is safe to copy."
-  say "Run this again without STADEUM_PREPARE, with the answers or on a terminal, to set the box up and start it."
+  say "Run this again without STADEUM_PREPARE, with the answers or on a terminal, to set stadeum up and start it."
 }
 
 start() {
@@ -776,7 +776,7 @@ finish() {
   say ""
   if [ -n "$(env_get STADEUM_SIGNIN_BOUNCE)" ]; then
     say "  Sign-in goes through the bounce at $(callback_base): its redirect URLs, registered"
-    say "  once for every box it serves, are"
+    say "  once for every server it serves, are"
   else
     say "  Register the sign-in redirect URLs, in each provider's OAuth client:"
   fi
@@ -799,12 +799,12 @@ finish() {
   fi
   if [ -n "$(env_get STADEUM_BACKUP_DESTINATION)" ]; then
     say "  Backups are on, to the destination given (STADEUM_BACKUP_DESTINATION): keep the"
-    say "  password Organisation → Backups shows off the box."
+    say "  password Organisation → Backups shows off this server."
   else
     say "  And set up backups: Organisation → Backups."
   fi
   say ""
-  say "  The settings are in $ENV_FILE, and the box's own compose changes go in"
+  say "  The settings are in $ENV_FILE, and your own compose changes go in"
   say "  $BOX/stack/local.yml: a release never touches either. ops keeps the rest"
   say "  current (Organisation → Updates). Run this again to restart with them."
   [ "$ok" = 1 ] || exit 1
@@ -816,7 +816,7 @@ main() {
   refuse_dev_login
   check_replace
   if [ "${STADEUM_PREPARE:-}" = 1 ] && [ -n "${STADEUM_RESTORE:-}" ]; then
-    die "STADEUM_PREPARE and STADEUM_RESTORE together: a restore starts the box. Prepare first, then run again with STADEUM_RESTORE alone."
+    die "STADEUM_PREPARE and STADEUM_RESTORE together: a restore starts stadeum. Prepare first, then run again with STADEUM_RESTORE alone."
   fi
   install_docker
   put_release

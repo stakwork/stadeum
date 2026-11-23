@@ -19,7 +19,7 @@ export async function openInStrut(target: { artifact?: unknown; app?: unknown })
     if (isAppKey(target.app)) return { src: await embedUrl(user, target.app), origin };
   } catch (err) {
     console.warn(`[calls] could not open an artifact for ${user.actor}: ${err instanceof Error ? err.message : String(err)}`);
-    return { error: "Strut isn’t answering, so this can’t open right now." };
+    return { error: "Strut isn’t answering." };
   }
   return { error: "This can’t be opened here." };
 }

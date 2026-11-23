@@ -150,12 +150,12 @@ describe("secrets", () => {
 describe("explainRefusal", () => {
   it("leads with plain words for strut's codes, then strut's own", () => {
     expect(explainRefusal("package_update_not_built: acme/x is installed here at sha256:aa", 409)).toBe(
-      "Another version of this package is installed here. Uninstall it first, then install this one. Strut says: acme/x is installed here at sha256:aa",
+      "Another version is installed. Uninstall it first. Strut says: acme/x is installed here at sha256:aa",
     );
     expect(explainRefusal("package_busy: acme/x/sync has a run in flight", 409)).toMatch(/^One of its workflows is running\./);
-    expect(explainRefusal("package_distro_owned: acme/x", 409)).toMatch(/only that updates or removes it/);
-    expect(explainRefusal("package_conflict: a local workflow acme/x/sync", 409)).toMatch(/^Something on this box already uses a name/);
-    expect(explainRefusal("catalog_seal: the signature does not verify", 409)).toMatch(/^The publisher’s catalog didn’t pass its checks.*Strut says: the signature does not verify$/);
+    expect(explainRefusal("package_distro_owned: acme/x", 409)).toMatch(/managed automatically/);
+    expect(explainRefusal("package_conflict: a local workflow acme/x/sync", 409)).toMatch(/^Its name clashes with something already installed/);
+    expect(explainRefusal("catalog_seal: the signature does not verify", 409)).toMatch(/^The publisher’s catalog failed its checks.*Strut says: the signature does not verify$/);
   });
 
   it("passes anything else through, and says when strut gave no words", () => {
@@ -176,7 +176,7 @@ describe("an install as it goes", () => {
 
   it("says what it is doing in strut's words, with how far when the phase counts", () => {
     expect(installProgressText(going("concepts", { done: 312, total: 752 }))).toEqual({ text: "Concepts 312 / 752", fraction: 312 / 752 });
-    expect(installProgressText(going("apps", { done: 0, total: 2 }))).toEqual({ text: "Building the apps 0 / 2", fraction: 0 });
+    expect(installProgressText(going("apps", { done: 0, total: 2 }))).toEqual({ text: "Apps 0 / 2", fraction: 0 });
     expect(installProgressText(going("resolving"))).toEqual({ text: "Fetching the package" });
     expect(installProgressText(going("types", { total: 3 }))).toEqual({ text: "Graph types (3)" });
     expect(installProgressText(going("queued", { status: "queued" }))).toEqual({ text: "Waiting to start" });
@@ -215,7 +215,7 @@ describe("an install as it goes", () => {
       ref: base.ref,
       door: "install",
       status: "failed",
-      error: "No index this box follows lists that publisher. Strut says: no index lists acme",
+      error: "No index you follow lists that publisher. Strut says: no index lists acme",
       code: "package_not_listed",
     });
     expect(installWatch({ ...base, status: "running", phase: "concepts", done: 3, total: 9, package: "openlaw/legal-desk" })).toEqual({
@@ -255,7 +255,7 @@ describe("parseRepositoryRef", () => {
     };
     expect(why("openlaw/legal-desk")).toMatch(/isn’t a repository’s address/);
     expect(why("file:///srv/repo")).toMatch(/starts with https/);
-    expect(why("ssh://git@example.test/a/b")).toMatch(/SSH address/);
+    expect(why("ssh://git@example.test/a/b")).toMatch(/not SSH/);
     expect(why("git+https://user@example.test/a/b")).toMatch(/Leave the name and password out/);
     expect(why("git+https://user:tok@example.test/a/b@main")).toMatch(/Leave the name and password out/);
     expect(why("https://example.test/")).toMatch(/needs an owner and a name/);

@@ -41,7 +41,7 @@ describe("the connect seam's confirm page", () => {
     const html = await page({ return: "/apps/x" });
     expect(html).toContain("Connect GitHub");
     expect(html).toContain("acme.example.com");
-    expect(html).toContain("For you, ada@example.com");
+    expect(html).toContain("Your agents will act as the GitHub account you choose next.");
     expect(action(html)).toBe("/api/connect/github?return=%2Fapps%2Fx");
     expect(html).toContain("Continue to GitHub");
     expect(html).toContain('href="https://acme.example.com/apps/x"');
@@ -51,7 +51,7 @@ describe("the connect seam's confirm page", () => {
     for (const user of [who.user, { actor: "root-a1", role: "admin", email: "root@example.com" }]) {
       who.user = user;
       const html = await page({ for: "box", return: "/packages" });
-      expect(html).toContain(`For you, ${user.email}`);
+      expect(html).toContain("Your agents will act as the GitHub account you choose next.");
       expect(html).not.toMatch(/for the box/i);
       expect(action(html)).toBe("/api/connect/github?for=box&return=%2Fpackages");
     }
@@ -59,13 +59,13 @@ describe("the connect seam's confirm page", () => {
 
   it("says an install installs the app too", async () => {
     const html = await page({ install: "1" });
-    expect(html).toContain("install the box’s app on an organisation or account you pick");
+    expect(html).toContain("will also ask where to install the app");
     expect(action(html)).toBe("/api/connect/github?install=1");
   });
 
   it("refuses a return off the box, with no Continue and no way back there", async () => {
     const html = await page({ return: "https://evil.example/" });
-    expect(html).toContain("The page to come back to is not on this box.");
+    expect(html).toContain("The page to come back to is not on this site.");
     expect(action(html)).toBeUndefined();
     expect(html).not.toContain("evil.example");
   });

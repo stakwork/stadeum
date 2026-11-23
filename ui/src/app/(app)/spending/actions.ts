@@ -14,7 +14,7 @@ function said(change: Change): Result {
   if (change.unchanged) return { ok: "Nothing changed." };
   if (change.failed) {
     const what = change.failed === 1 ? "one limit" : `${change.failed} limits`;
-    return { error: `Saved, but the gateway didn’t take ${what} yet. It’s retried within six hours.` };
+    return { error: `Saved. The gateway applies ${what} within six hours.` };
   }
   return { ok: "Saved." };
 }

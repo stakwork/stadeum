@@ -160,7 +160,7 @@ export async function applyRelease(d: Deps, o: ApplyOptions): Promise<OpsEvent |
     plan = await planRelease(stack, o.next, previous);
   } catch (err) {
     await putTagsBack();
-    return event("failed", `Release ${release} was not applied: its stack files do not work with this box's (${errorText(err)}). Nothing changed.`);
+    return event("failed", `Release ${release} was not applied: its stack files do not work with this server's .env and local.yml (${errorText(err)}). Nothing changed.`);
   }
 
   const held = plan.held.filter((h) => !o.confirmed.has(h.to));

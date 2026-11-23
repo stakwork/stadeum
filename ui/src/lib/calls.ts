@@ -90,17 +90,17 @@ const NAME_RE = /^[A-Za-z0-9._-]{1,128}$/;
  * clear.
  */
 export function readCallAnswer(data: unknown): { ok: true; answer: CallAnswer } | { ok: false; error: string } {
-  const unreadable = { ok: false as const, error: "The call’s answer could not be read." };
+  const unreadable = { ok: false as const, error: "The call couldn’t start." };
   if (!data || typeof data !== "object") return unreadable;
   const d = data as Record<string, unknown>;
   if (d.encrypted !== true) {
-    return { ok: false, error: "This box can’t make an encrypted call yet: its voice service needs an update." };
+    return { ok: false, error: "Calls need a newer voice service." };
   }
   const url = typeof d.url === "string" ? mediaUrl(d.url) : null;
-  if (!url) return { ok: false, error: "The call named a LiveKit server the browser can’t use: only wss://, or ws:// on this machine." };
+  if (!url) return { ok: false, error: "The call server isn’t reachable from this browser." };
   const { room, token, identity, agent } = d;
   if (![room, identity, agent].every((v) => typeof v === "string" && NAME_RE.test(v)) || typeof token !== "string") return unreadable;
-  if (tokenRoom(token) !== room) return { ok: false, error: "The call’s token is not for the room it named." };
+  if (tokenRoom(token) !== room) return { ok: false, error: "The call couldn’t start." };
   return {
     ok: true,
     answer: {
@@ -128,7 +128,7 @@ export function refusalMessage(status: number, data: unknown, assistant = "Jamie
   const withWords = (lead: string) => (words ? `${lead}: ${words}` : `${lead}.`);
   if (status === 402) {
     if (typeof d.balance === "number" && typeof d.minimum === "number") {
-      return `Not enough sats to talk: you have ${d.balance.toLocaleString("en")} sats, and a call needs ${d.minimum.toLocaleString("en")}.`;
+      return `Not enough sats: you have ${d.balance.toLocaleString("en")}, a call needs ${d.minimum.toLocaleString("en")}.`;
     }
     return withWords("Not enough credit to talk");
   }

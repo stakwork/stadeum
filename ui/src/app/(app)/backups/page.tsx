@@ -46,12 +46,10 @@ export default async function BackupsPage() {
       {secret && (
         <section aria-labelledby="password" className="flex max-w-3xl flex-col gap-4 rounded-[14px] border border-warn bg-warn-soft p-5 md:p-6">
           <h2 id="password" className="text-[17px] font-medium text-ink">
-            Keep this password off the box
+            Save this password somewhere safe
           </h2>
           <p className="text-[14.5px] text-ink-2">
-            The backups are encrypted with it. The box keeps a copy to make them, but if the box is lost, so is that copy, and
-            nobody can read the backups without it. Save the restore kit in your password manager. It is shown until you say you
-            have, and never again.
+            Without it, nobody can read the backups if this server is lost. Save the restore kit in your password manager. It won&rsquo;t be shown again.
           </p>
           <p className="text-[14px] text-ink-2">
             Password: <code className="rounded bg-surface px-1.5 py-0.5 font-mono text-[14px] text-ink select-all">{secret.password}</code>
@@ -63,7 +61,7 @@ export default async function BackupsPage() {
             <CopyButton text={secret.kit} />
             <form action={passwordKept}>
               <button type="submit" className={buttonClass.ink}>
-                I have stored it off the box
+                I have saved it
               </button>
             </form>
           </div>
@@ -113,15 +111,14 @@ export default async function BackupsPage() {
         <SectionLabel id="destination">Destination</SectionLabel>
         {dest.given && dest.kind ? (
           <p className="text-[14px] text-ink-2">
-            Given by this box&rsquo;s host: {DESTINATIONS[dest.kind].label},{" "}
-            <code className="font-mono text-[12.5px] [overflow-wrap:anywhere]">{dest.repository}</code>. Nightly backups
-            stay on, and the destination can&rsquo;t be changed here. Keep the password above off the box all the same.
+            Set by your host: {DESTINATIONS[dest.kind].label},{" "}
+            <code className="font-mono text-[12.5px] [overflow-wrap:anywhere]">{dest.repository}</code>. Backups run every night.
           </p>
         ) : (
           <>
             <p className="text-[14px] text-ink-2">
-              {dest.kind ? `${DESTINATIONS[dest.kind].label}.` : "Any of restic's backends: object storage in your own cloud account."}{" "}
-              A new destination starts a new repository, encrypted with the same password.
+              {dest.kind ? `${DESTINATIONS[dest.kind].label}.` : "Object storage in your own cloud account."}{" "}
+              Changing it starts a fresh backup history.
             </p>
             <DestinationForm kind={dest.kind} fields={dest.fields} savedSecrets={dest.savedSecrets} enabled={dest.enabled} />
           </>
@@ -132,24 +129,22 @@ export default async function BackupsPage() {
         <SectionLabel id="restore">Restore</SectionLabel>
         <div className="flex flex-col gap-3 text-[14px] text-ink-2">
           <p>
-            On a new box, with the restore kit saved as <code className="font-mono">/root/restore.env</code>:
+            On a new server, with the restore kit saved as <code className="font-mono">/root/restore.env</code>:
           </p>
           <pre className="overflow-x-auto rounded-[10px] border border-rule bg-surface p-4 font-mono text-[12.5px] leading-relaxed">
             {`curl -fsSL https://raw.githubusercontent.com/stakwork/stadeum/main/scripts/install.sh | sudo STADEUM_RESTORE=/root/restore.env bash`}
           </pre>
           <p>
-            It installs the box, restores the newest snapshot (<code className="font-mono">STADEUM_SNAPSHOT=1a2b3c4d</code>{" "}
-            picks another) and the snapshot&apos;s <code className="font-mono">.env</code> with it, then starts the stack. For a new
-            name, add <code className="font-mono">STADEUM_HOST</code>. On this box, in <code className="font-mono">/opt/stadeum</code>,
-            this puts a snapshot back:
+            This installs everything and restores the newest backup. Add <code className="font-mono">STADEUM_SNAPSHOT=1a2b3c4d</code> to pick
+            another, or <code className="font-mono">STADEUM_HOST</code> for a new domain. To restore on this server, in{" "}
+            <code className="font-mono">/opt/stadeum</code>:
           </p>
           <pre className="overflow-x-auto rounded-[10px] border border-rule bg-surface p-4 font-mono text-[12.5px] leading-relaxed">
             {`docker compose --env-file .env -f stack/stadeum.yml run --rm --env-from-file restore.env ops restore
 docker compose --env-file .env -f stack/stadeum.yml up -d --wait`}
           </pre>
           <p>
-            Stop the old box first if it still runs. The wallet comes back too, and two boxes on one wallet knock each
-            other offline.
+            Stop the old server first. Two servers can&rsquo;t share one wallet.
           </p>
         </div>
       </section>

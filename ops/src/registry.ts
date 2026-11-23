@@ -166,7 +166,7 @@ export class Registry implements RegistryApi {
     }
     if (res.ok) return res;
     if (res.status === 404) throw new Error(`${r.registry} has no ${r.repository}:${path.startsWith("manifests/") ? path.slice(10) : path}`);
-    if (res.status === 429) throw new Error(`${r.registry} is limiting this box's requests (429)`);
+    if (res.status === 429) throw new Error(`${r.registry} is limiting this server's requests (429)`);
     throw new Error(`${r.registry} answered ${res.status} for ${r.repository}`);
   }
 

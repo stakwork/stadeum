@@ -29,7 +29,7 @@ const linkClass = "text-[14px] text-ink-3 underline hover:text-ink-2";
 export default async function ConnectPage({ params, searchParams }: { params: Promise<{ provider: string }>; searchParams: Promise<Search> }) {
   const p = connectable((await params).provider);
   if (!p) notFound();
-  const user = await requireUser();
+  await requireUser();
   const q = toQuery(await searchParams);
   const checked = readAsk(p, q);
   const host = new URL(env.publicUrl()).host;
@@ -43,11 +43,11 @@ export default async function ConnectPage({ params, searchParams }: { params: Pr
       {checked.ok ? (
         <>
           <p className="text-[15px] text-ink-2">
-            For you, {user.email}: what you run on this box will act as the {p.name} account you choose next.
+            Your agents will act as the {p.name} account you choose next.
           </p>
           {checked.ask.install && (
             <p className="text-[15px] text-ink-2">
-              {p.name} will also install the box&rsquo;s app on an organisation or account you pick.
+              {p.name} will also ask where to install the app.
             </p>
           )}
           <form method="post" action={`/api/connect/${p.id}?${q}`} className="mt-2">

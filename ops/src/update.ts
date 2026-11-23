@@ -72,7 +72,7 @@ export async function lookUp(registry: RegistryApi, service: ServiceDef, running
     return { ...kept, problem: errorText(err), triedAt: now };
   }
   if (running && !running.digests?.length) {
-    return { checkedAt: now, digest, problem: `the image that runs has no digest from ${where}: it was built or loaded on this box`, triedAt: now };
+    return { checkedAt: now, digest, problem: `the image that runs has no digest from ${where}: it was built or loaded on this server`, triedAt: now };
   }
   if (running?.digests?.includes(digest)) return { checkedAt: now, digest, current: true };
   const known = prev?.digest === digest && (prev.revision || prev.created) ? { revision: prev.revision, created: prev.created } : await registry.info(service.image, digest).catch(() => ({}));

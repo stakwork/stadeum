@@ -44,7 +44,7 @@ export function ScheduleForm({
         </div>
       </div>
       <div className="max-w-[260px]">
-        <Labelled id="drain-minutes" label="Wait for runs to finish, at most" hint="Minutes. What still runs then picks up again after the restart.">
+        <Labelled id="drain-minutes" label="Wait for runs to finish, at most" hint="Minutes. Runs still going resume after the restart.">
           <input id="drain-minutes" name="drainMinutes" type="number" min={1} max={600} required defaultValue={drainMinutes} className={fieldClass} />
         </Labelled>
       </div>
@@ -52,7 +52,7 @@ export function ScheduleForm({
         <input type="checkbox" name="enabled" defaultChecked={enabled} className="mt-1 size-4 accent-[var(--accent)]" />
         <span className="flex flex-col gap-0.5">
           Update automatically in the window
-          <span className="text-[13px] text-ink-3">Off: nothing moves until you press Update now.</span>
+          <span className="text-[13px] text-ink-3">Off: update by hand only.</span>
         </span>
       </label>
       <div className="flex flex-wrap items-center gap-4">

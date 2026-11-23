@@ -187,26 +187,26 @@ const STADEUM_SETTINGS = new Set(["STRUT_DEFAULT_MODEL", "STRUT_MODELS"]);
 /** A lead sentence for each of strut's refusal codes; strut's own words follow it. */
 const LEADS: Record<string, string> = {
   package_busy: "One of its workflows is running. Try again once the run is done.",
-  package_conflict: "Something on this box already uses a name the package needs.",
-  package_update_not_built: "Another version of this package is installed here. Uninstall it first, then install this one.",
-  package_distro_owned: "The box keeps this package up to date from what it follows, or its distro installed it: only that updates or removes it.",
+  package_conflict: "Its name clashes with something already installed.",
+  package_update_not_built: "Another version is installed. Uninstall it first.",
+  package_distro_owned: "This package is managed automatically, so it can’t be changed here.",
   package_not_installed: "That package isn’t installed.",
-  package_not_listed: "No index this box follows lists that publisher.",
+  package_not_listed: "No index you follow lists that publisher.",
   package_not_found: "The publisher’s catalog doesn’t have that package.",
   package_not_published: "The publisher’s catalog doesn’t list that release.",
-  package_index_unknown: "This box doesn’t follow that index any more.",
+  package_index_unknown: "You don’t follow that index any more.",
   package_source_invalid: "Strut can’t look that package up.",
   package_index_unreachable: "The index isn’t answering. Try again later.",
   package_index_invalid: "That isn’t an index strut can follow.",
   package_fetch_failed: "The publisher’s catalog isn’t answering. Try again later.",
   package_digest_mismatch: "What the publisher served doesn’t match the release. Nothing was installed.",
-  bad_package: "The package doesn’t install on this box.",
-  package_repo_denied: "The repository can’t be read: it’s private and the account it’s read with can’t reach it, or it doesn’t exist.",
-  package_repo_not_found: "There’s no repository at that address.",
-  package_repo_unreachable: "The repository isn’t answering. Try again later.",
-  package_ref_not_found: "The repository has nothing by that name after @.",
+  bad_package: "This package can’t be installed.",
+  package_repo_denied: "Can’t read that repo. It may be private, or not exist.",
+  package_repo_not_found: "No repo at that address.",
+  package_repo_unreachable: "The repo isn’t answering. Try again later.",
+  package_ref_not_found: "That branch or tag doesn’t exist.",
   subscription_invalid: "Strut won’t follow that.",
-  subscription_unknown: "The box doesn’t follow that any more.",
+  subscription_unknown: "That isn’t followed any more.",
 };
 
 /** The code a refusal of strut's starts with (`package_repo_denied: …` → `package_repo_denied`). */
@@ -222,7 +222,7 @@ export function explainRefusal(detail: string | undefined, status: number): stri
   const m = /^([a-z_]+):\s*(.*)$/s.exec(detail);
   const code = m?.[1] ?? "";
   const words = (m ? m[2]! : detail).trim();
-  const lead = LEADS[code] ?? (code.startsWith("catalog_") ? "The publisher’s catalog didn’t pass its checks, so nothing was installed." : undefined);
+  const lead = LEADS[code] ?? (code.startsWith("catalog_") ? "The publisher’s catalog failed its checks. Nothing was installed." : undefined);
   if (!lead) return detail;
   return words ? `${lead} Strut says: ${words}` : lead;
 }
@@ -290,15 +290,15 @@ export function installWatch(s: PackageInstall): InstallWatch {
 const PHASES: Record<string, string> = {
   queued: "Waiting to start",
   resolving: "Fetching the package",
-  checking: "Checking it against this box",
+  checking: "Checking",
   types: "Graph types",
   steps: "Steps",
   workflows: "Workflows",
-  apps: "Building the apps",
+  apps: "Apps",
   concepts: "Concepts",
   "concept-tree": "Concept tree",
-  retiring: "Removing what the release dropped",
-  claims: "Recording the claims",
+  retiring: "Cleaning up",
+  claims: "Claims",
 };
 
 /**
@@ -348,9 +348,9 @@ const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
  */
 export function parseRepositoryRef(raw: string): RepositoryRef | { error: string } {
   const given = typeof raw === "string" ? raw.trim() : "";
-  if (!given) return { error: "Give the repository’s address." };
+  if (!given) return { error: "Enter the repo’s address." };
   if (/^(ssh:\/\/|git@|git:\/\/)/i.test(given) || /^[\w.-]+@[\w.-]+:/.test(given)) {
-    return { error: "That’s an SSH address. Give the repository’s https address: the box reads it over https, with your own account for a private one." };
+    return { error: "Use the https address, not SSH." };
   }
   const body = given.replace(/^git\+/i, "");
   const hash = body.indexOf("#");
@@ -369,19 +369,19 @@ export function parseRepositoryRef(raw: string): RepositoryRef | { error: string
     return { error: "That isn’t a repository’s address. It looks like https://host/owner/name." };
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return { error: "A repository’s address here starts with https://." };
-  if (url.username || url.password) return { error: "Leave the name and password out of the address: a private repository is read with your own account." };
-  if (url.search) return { error: "A repository’s address has no ?… in it." };
+  if (url.username || url.password) return { error: "Leave the name and password out of the address." };
+  if (url.search) return { error: "Remove the ?… from the address." };
   const segs = url.pathname.split("/").filter(Boolean);
   if (segs.length < 2) return { error: "That address names no repository: it needs an owner and a name, like https://host/owner/name." };
   const bad = segs.find((s) => !SEGMENT_RE.test(s));
   if (bad) return { error: `“${bad}” can’t be part of a repository’s address.` };
   if (rev !== undefined && (!rev || !REV_RE.test(rev) || rev.includes("..") || rev.includes("//") || rev.endsWith("/") || rev.endsWith(".lock"))) {
-    return { error: rev ? `“${rev}” isn’t a branch’s name.` : "Nothing follows @: name a branch, or leave @ out for the default branch." };
+    return { error: rev ? `“${rev}” isn’t a branch’s name.` : "Add a branch after @, or remove the @." };
   }
   let folder: string | undefined;
   if (rawFolder !== undefined) {
     const parts = rawFolder.split("/").filter(Boolean);
-    if (!parts.length) return { error: "Nothing follows #: name the folder that holds the package, or leave # out for the repository’s root." };
+    if (!parts.length) return { error: "Add a folder after #, or remove the #." };
     if (parts.some((s) => !FOLDER_SEGMENT_RE.test(s) || s === "..")) return { error: `“${rawFolder}” isn’t a folder in the repository.` };
     folder = parts.join("/");
   }
@@ -536,7 +536,7 @@ function sourceOf(ref: string | undefined): string | undefined {
 export const SOFTWARE_REF = "git+https://github.com/stakwork/strut-software@stable";
 
 /** What the Software card says the bundle does. */
-export const SOFTWARE_WORDS = "Your repositories, known to the box and in its graph, and a machine of its own for every coding job.";
+export const SOFTWARE_WORDS = "Everything for coding with agents: GitHub, your repos, and a cloud machine for each job.";
 
 /** Software as the box follows it: the subscription to its repository (on any branch, anyone's), or none. */
 export function softwareOf<T extends { ref?: string; parts?: T[] }>(followed: readonly T[]): T | undefined {

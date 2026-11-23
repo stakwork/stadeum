@@ -144,7 +144,7 @@ export function viewRequest(r: AskedRow, report: Report, allEvents: EventRow[], 
   if (r.kind === "check") {
     if (!status?.checkedAt || new Date(status.checkedAt) < r.createdAt) {
       const endedAt = r.doneAt.toISOString();
-      return { ...base, state: "ended", endedAt, tone: "attention", label: "Not checked", notes: ["ops took the request, but could not ask the registries. Its log says why."] };
+      return { ...base, state: "ended", endedAt, tone: "attention", label: "Not checked", notes: ["Couldn’t check for updates. See the ops log."] };
     }
     // What the registries said, and when: ops's latest asking, this one or one since.
     const f = found(status, now);
@@ -188,9 +188,9 @@ const OUTCOME: Record<OpsEvent["outcome"], string> = { ok: "Done", "rolled-back"
 function waitingNote(report: Report, now: Date): string {
   if (!report) return "ops has not reported yet. Is its container running?";
   const { phase } = report.status;
-  if (phase !== "idle") return `ops is ${BUSY[phase]} first, and takes this up after.`;
+  if (phase !== "idle") return `ops is ${BUSY[phase]} first.`;
   if (now.getTime() - report.reportedAt.getTime() > SILENT_MS) return `ops is not answering: last heard from ${relativeTime(report.reportedAt, now)}.`;
-  return "ops takes it up within half a minute.";
+  return "Starting within half a minute.";
 }
 
 /**
@@ -200,7 +200,7 @@ function waitingNote(report: Report, now: Date): string {
  */
 export function found(status: OpsStatus | undefined, now: Date): { tone: Tone; note: string } {
   const followed = (status?.services ?? []).filter((s) => s.group && !s.built);
-  if (!followed.length) return { tone: "muted", note: "ops has not said what follows a channel yet." };
+  if (!followed.length) return { tone: "muted", note: "Not checked yet." };
   const problems = followed.filter((s) => s.latest?.problem);
   const out = followed.filter((s) => !s.release && !s.latest?.problem && s.latest?.current === false);
   const self = followed.find((s) => s.release && s.latest?.current === false && !s.latest.problem);
@@ -210,18 +210,18 @@ export function found(status: OpsStatus | undefined, now: Date): { tone: Tone; n
   if (release?.available || self) {
     const which = release?.available ? short(release.available) : shortLatest(self!.latest!);
     const held = !!release?.held?.length;
-    parts.push(held ? `Release ${which} is out, and waits for you above.` : `Release ${which} is out.`);
+    parts.push(held ? `Release ${which} is out. Confirm it above.` : `Release ${which} is out.`);
     if (!held) movable++;
   }
   for (const s of problems) parts.push(`Could not check ${s.service}: ${sentence(s.latest!.problem!)}`);
   if (problems.length) return { tone: "attention", note: parts.join(" ") };
-  if (movable) parts.push(`Update now, or the next window, brings ${movable === 1 ? "it" : "them"} in.`);
+  if (movable) parts.push("Update now, or wait for the window.");
   if (parts.length) return { tone: "pending", note: parts.join(" ") };
   const current = followed.filter((s) => s.latest?.current).map((s) => s.service);
-  if (current.length < followed.length) return { tone: "muted", note: "ops has not asked every registry yet." };
-  return { tone: "ok", note: `Everything is current: ${list(current)} ${current.length === 1 ? "runs what its channel names" : "run what their channels name"}.` };
+  if (current.length < followed.length) return { tone: "muted", note: "Not everything is checked yet." };
+  return { tone: "ok", note: "Everything is up to date." };
 }
 
 const short = (r: { id: string; revision?: string }) => (r.revision ? r.revision.slice(0, 7) : r.id.replace(/^sha256:/, "").slice(0, 12));
 const sentence = (s: string) => (s && !/[.!?]$/.test(s) ? `${s}.` : s);
-const list = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
+

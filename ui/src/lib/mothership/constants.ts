@@ -49,7 +49,7 @@ export const KNOWN_CUSTOM = [
     label: "Maple",
     // The proxy in this stack (stack/stadeum.yml, `maple`): on the docker network, hence private.
     baseUrl: "http://maple:8080",
-    note: "Confidential: open models in attested enclaves. The proxy on this box encrypts each request to them.",
+    note: "Private open models. Requests are encrypted end to end.",
   },
   {
     id: "numes",

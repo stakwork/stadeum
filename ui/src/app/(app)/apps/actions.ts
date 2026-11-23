@@ -22,7 +22,7 @@ function refusal(err: unknown): string {
 export async function makeLive(name: string, target: LiveTarget, instead?: string): Promise<ChangeResult> {
   const me = await requireAdmin();
   const valid = "release" in target ? RELEASE_RE.test(target.release) : VERSION_RE.test(target.version);
-  if (!isOpened(name) || !valid) return { error: "That is not a change stadeum makes." };
+  if (!isOpened(name) || !valid) return { error: "That change isn’t allowed." };
   try {
     await setAppLive(name, "release" in target ? { release: target.release } : { version: target.version }, me.actor);
   } catch (err) {
@@ -37,7 +37,7 @@ export async function makeLive(name: string, target: LiveTarget, instead?: strin
 export async function pin(name: string, pinned: boolean): Promise<ChangeResult> {
   await requireAdmin();
   if (typeof name !== "string" || name.length > 200 || !isOpened(name) || isAssistant(name) || typeof pinned !== "boolean") {
-    return { error: "That is not a change stadeum makes." };
+    return { error: "That change isn’t allowed." };
   }
   await setAppPinned(name, pinned);
   revalidatePath("/", "layout");

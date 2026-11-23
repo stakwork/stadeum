@@ -159,7 +159,7 @@ export async function applyGivenBackup(): Promise<boolean> {
   if (!given) return false;
   const row = await settingsRow();
   if (row.resticPasswordEnc && given.password && decryptField("resticPassword", row.resticPasswordEnc) !== given.password) {
-    console.warn("[ops] STADEUM_BACKUP_PASSWORD differs from the password the backups are made with: the box keeps its own.");
+    console.warn("[ops] STADEUM_BACKUP_PASSWORD differs from the password the backups are made with: this server keeps its own.");
   }
   await db.opsSettings.update({
     where: { id: ID },

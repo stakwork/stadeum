@@ -19,14 +19,14 @@ describe("signInMessage", () => {
   it("names the masked email for a refusal, with how to get invited", () => {
     const m = signInMessage("NotInvited", "a***e@example.com");
     expect(m.title).toBe("a***e@example.com hasn't been invited.");
-    expect(m.detail).toContain("Members page");
+    expect(m.detail).toContain("Ask an admin to invite this email address.");
     expect(m.notInvited).toBe(true);
     expect(signInMessage("AccessDenied").title).toBe("That account hasn't been invited.");
   });
   it("points at the button only when it is shown", () => {
-    expect(signInMessage("NotInvited", undefined, { canSwitch: true }).detail).toContain("use the button below.");
+    expect(signInMessage("NotInvited", undefined, { canSwitch: true }).detail).toContain("Use the button below.");
     const without = signInMessage("NotInvited", undefined, { canSwitch: false }).detail;
-    expect(without).toContain("If you meant a different account, sign in with it below.");
+    expect(without).toContain("Meant another account? Sign in with it below.");
     expect(without).not.toContain("button");
   });
   it("drops a cookie value that is not a masked email", () => {

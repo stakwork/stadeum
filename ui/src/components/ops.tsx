@@ -54,7 +54,7 @@ export function OpsNow({
       {note && <span className="text-[13px] text-ink-3 [overflow-wrap:anywhere]">{note}</span>}
       {asked.length > 0 && (
         <span className="text-[13px] text-ink-3">
-          Asked for {[...new Set(asked)].map((k) => ASKED[k]).join(" and ")}: ops takes it up within half a minute.
+          Asked for {[...new Set(asked)].map((k) => ASKED[k]).join(" and ")}. Starting within half a minute.
         </span>
       )}
     </div>

@@ -83,24 +83,24 @@ export const STATE_LABEL: Record<AppVersionState, string> = {
 /** What making `version` live does, in the words the confirm button shows. */
 export function makeLiveNote(version: string, live: string | undefined): string {
   return isHeld(live)
-    ? `Everyone who opens the app gets ${version} now.`
-    : `Everyone who opens the app gets ${version} now, and it stays there: later publishes wait as drafts until you make one live.`;
+    ? `Everyone gets ${version} now.`
+    : `Everyone gets ${version} now. New publishes wait as drafts.`;
 }
 
 /** What Restore does: the version again, as its release recorded it. */
-export const restoreNote = (version: string): string => `Everyone who opens the app gets ${version} again.`;
+export const restoreNote = (version: string): string => `Everyone gets ${version} again.`;
 
 /** What switching to "every publish goes live" does. */
 export function followNote(data: AppVersionsData): string {
   const newest = newestVersion(Object.keys(data.versions));
   return newest && newest !== data.active
-    ? `Everyone gets ${newest}, the newest publish, now — and every later publish goes live as soon as it is published.`
-    : "Every later publish goes live as soon as it is published.";
+    ? `Everyone gets ${newest} now, and each new publish goes live right away.`
+    : "Each new publish goes live right away.";
 }
 
 /** What switching to "hold a version" does. */
 export const holdNote = (active: string): string =>
-  `The app stays at ${active}. Later publishes wait as drafts until you make one live.`;
+  `The app stays at ${active}. New publishes wait as drafts.`;
 
 // ── stadeum's ───────────────────────────────────────────────────────────
 
@@ -115,6 +115,6 @@ export const liveLabel = (active: string, live: string | undefined): string =>
  * never moves.
  */
 export function pinNote(app: { pinned: boolean; admin: boolean }): string {
-  if (app.pinned) return `The app leaves ${app.admin ? "admins'" : "everyone's"} rail. Admins find it among the organisation's pages.`;
+  if (app.pinned) return `The app leaves ${app.admin ? "admins'" : "everyone's"} rail. Admins can still open it under Organisation.`;
   return app.admin ? "Admins see the app in their rail." : "Everyone sees the app in their rail.";
 }

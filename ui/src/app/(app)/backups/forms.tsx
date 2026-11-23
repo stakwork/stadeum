@@ -66,7 +66,7 @@ export function DestinationForm({
         <input type="checkbox" name="enabled" defaultChecked={enabled} className="mt-1 size-4 accent-[var(--accent)]" />
         <span className="flex flex-col gap-0.5">
           Back up every night in the window
-          <span className="text-[13px] text-ink-3">Off: only Back up now takes one.</span>
+          <span className="text-[13px] text-ink-3">Off: back up by hand only.</span>
         </span>
       </label>
 
@@ -74,7 +74,7 @@ export function DestinationForm({
         <Submit className={buttonClass.primary} pendingLabel="Saving…">
           Save
         </Submit>
-        <FormNote state={state}>Credentials are kept encrypted, and only ops reads them.</FormNote>
+        <FormNote state={state}>Credentials are stored encrypted.</FormNote>
       </div>
     </form>
   );

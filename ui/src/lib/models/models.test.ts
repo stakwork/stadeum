@@ -90,7 +90,7 @@ describe("provider keys", () => {
     fake.state.providerKeys.delete("xai");
     expect((await providerStates()).find((s) => s.id === "xai")).toMatchObject({ missing: true, preview: "" });
     await expect(setProviderKey("xai", "sk-good-x")).rejects.toThrow("no xAI provider");
-    await expect(setProviderKey("nope", "sk-good-x")).rejects.toThrow("not a provider stadeum offers");
+    await expect(setProviderKey("nope", "sk-good-x")).rejects.toThrow("Unknown provider.");
   });
 });
 

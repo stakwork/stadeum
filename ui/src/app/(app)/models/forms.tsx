@@ -68,7 +68,7 @@ function ProviderRow({ p }: { p: ProviderState }) {
         <div className="flex min-w-[180px] flex-1 flex-col gap-0.5">
           <span className="text-[15px] font-medium text-ink">{p.label}</span>
           {p.note && <span className="text-[13px] text-ink-2">{p.note}</span>}
-          {p.given && <span className="text-[13px] text-ink-2">Given by this box&rsquo;s host.</span>}
+          {p.given && <span className="text-[13px] text-ink-2">Given by your host.</span>}
           {(p.kind === "other" || p.given) && p.baseUrl && <span className="font-mono text-[12.5px] text-ink-3">{p.baseUrl}</span>}
           <span className="font-mono text-[12.5px] text-ink-3">{p.preview || "—"}</span>
         </div>
@@ -258,7 +258,7 @@ export function ModelsForm({ groups }: { groups: Array<{ label: string; prefix: 
               {g.models.length === 0 && (
                 <tr className="border-t border-rule-soft">
                   <td colSpan={3} className="px-5 py-3 text-[13px] text-ink-3">
-                    None yet. Allow one below, as {g.prefix}/&lt;model id&gt;, with its price.
+                    None yet. Allow one below.
                   </td>
                 </tr>
               )}
@@ -327,8 +327,7 @@ export function ModelsForm({ groups }: { groups: Array<{ label: string; prefix: 
         <Submit className={`${buttonClass.primary} h-10`}>Save</Submit>
       </div>
       <p className="text-[13px] text-ink-3">
-        A price is per million tokens, and only needed for a model the gateway cannot price itself (an added provider&rsquo;s).
-        Without one, its calls count as $0 against people&rsquo;s spending caps.
+        Prices are per million tokens. Without one, calls count as $0 against spending limits.
       </p>
       <Said result={state} />
     </form>

@@ -36,7 +36,7 @@ async function carryOut() {
 }
 
 const keyProblem = (value: string) =>
-  !value ? "Paste the key first." : value.length > 1000 || /\s/.test(value) ? "That doesn’t look like a key: it has spaces in it." : undefined;
+  !value ? "Paste the key first." : value.length > 1000 || /\s/.test(value) ? "Keys don’t have spaces." : undefined;
 
 function saved(state: ProviderState): Result {
   if (state.check?.ok === false) return { error: `Saved, but ${refused(state)}` };
@@ -67,7 +67,7 @@ export async function addProvider(_prev: Result, form: FormData): Promise<Result
   const name = String(form.get("name") ?? "").trim().toLowerCase();
   const url = String(form.get("url") ?? "").trim();
   const value = String(form.get("key") ?? "").trim();
-  if (!/^https?:\/\/[^\s/]+/.test(url)) return { error: "Give its address, starting https://, as its documentation says for OpenAI clients." };
+  if (!/^https?:\/\/[^\s/]+/.test(url)) return { error: "Enter its https:// address." };
   const problem = keyProblem(value);
   if (problem) return { error: problem };
   let state: ProviderState;
@@ -78,7 +78,7 @@ export async function addProvider(_prev: Result, form: FormData): Promise<Result
   }
   await carryOut();
   if (state.check?.ok === false) return { error: `Added, but ${refused(state)}` };
-  return { ok: `Added. Allow its models below, as ${name}/<model id>.` };
+  return { ok: "Added. Now allow its models below." };
 }
 
 /** Ask the gateway to check the key again: it lists the provider's models with it. */
@@ -89,7 +89,7 @@ export async function testKey(provider: string): Promise<Result> {
     revalidatePath("/models");
     if (!state.preview) return { error: "No key is set." };
     if (state.check?.ok) return { ok: "The key works." };
-    return { error: state.check ? refused(state) : "The gateway did not say. Try again in a moment." };
+    return { error: state.check ? refused(state) : "No answer from the gateway. Try again." };
   } catch (err) {
     return { error: gatewaySays(err) };
   }
@@ -110,8 +110,8 @@ export async function removeKey(provider: string): Promise<Result> {
 const applyNotes = (r: ApplyResult, priced: boolean) =>
   [
     r.failed ? `${r.failed} ${r.failed === 1 ? "person’s key" : "people’s keys"} could not be updated; the next pass retries.` : "",
-    r.strut ? "" : "Strut isn’t answering, so Jamie shows the change once it is.",
-    r.prices || !priced ? "" : "The gateway took no prices (it needs v0.4.398 or later): its calls to Maple, Numes and added providers count as $0 for now.",
+    r.strut ? "" : "Saved. Jamie picks it up when strut is back.",
+    r.prices || !priced ? "" : "The gateway is too old for prices, so those calls count as $0 for now.",
   ].filter(Boolean);
 
 /** The models people may use, the default, and a typed-in model with its price. */
@@ -148,7 +148,7 @@ export async function saveModels(_prev: Result, form: FormData): Promise<Result>
     result = await applyModels();
   } catch (err) {
     revalidatePath("/models");
-    return { error: `Saved, but the gateway isn’t answering, so people’s keys are unchanged for now: ${gatewaySays(err)}` };
+    return { error: `Saved, but the gateway isn’t answering: ${gatewaySays(err)}` };
   }
   revalidatePath("/models");
   const priced = states.some((s) => s.kind !== "builtin" && s.preview);

@@ -109,7 +109,7 @@ describe("parseModelsForm", () => {
       error: "Give both prices, input and output, or neither.",
     });
     expect(parseModelsForm({ ticked: ["together/kept"], other: "together/x", default: "together/kept", otherInput: "-1", otherOutput: "2" }, offered)).toMatchObject({
-      error: expect.stringContaining("a number"),
+      error: expect.stringContaining("dollars per million tokens"),
     });
     // 0 is a price: free.
     expect(parseModelsForm({ ticked: ["together/kept"], other: "together/x", default: "together/kept", otherInput: "0", otherOutput: "0" }, offered)).toMatchObject({

@@ -74,7 +74,7 @@ describe("Update now", () => {
   it("is waiting, then shows ops's steps, then what came of it", async () => {
     await opsSays({});
     await updateNow();
-    expect(await shown("update")).toMatchObject({ state: "waiting", note: "ops takes it up within half a minute." });
+    expect(await shown("update")).toMatchObject({ state: "waiting", note: "Starting within half a minute." });
 
     // ops takes it up.
     const [asked] = (await opsReads()).requests;
@@ -114,7 +114,7 @@ describe("Update now", () => {
     const [asked] = (await opsReads()).requests;
     await opsSays({ phase: "checking" });
     await opsSays({ done: [asked!.id] });
-    expect(await shown("update")).toMatchObject({ state: "ended", tone: "ok", label: "Nothing to update", notes: ["Everything is current: strut runs what its channel names."] });
+    expect(await shown("update")).toMatchObject({ state: "ended", tone: "ok", label: "Nothing to update", notes: ["Everything is up to date."] });
   });
 
   it("follows the release it hands over until that one records its outcome", async () => {
@@ -152,7 +152,7 @@ describe("Check now", () => {
       state: "ended",
       tone: "pending",
       label: "Checked",
-      notes: ["strut: d306035 is out. Update now, or the next window, brings it in."],
+      notes: ["strut: d306035 is out. Update now, or wait for the window."],
     });
   });
 });

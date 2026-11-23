@@ -65,4 +65,4 @@ export function givenProviders(raw = process.env.STADEUM_MODEL_PROVIDERS): Given
 export const givenIds = (): Set<string> => new Set(givenProviders().map((g) => g.id));
 
 /** What an admin reads when they try to change a given provider. */
-export const GIVEN_REFUSAL = "This box’s host gives this provider’s key: it can’t be changed here.";
+export const GIVEN_REFUSAL = "Your host sets this key. It can’t be changed here.";

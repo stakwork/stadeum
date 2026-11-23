@@ -61,7 +61,7 @@ export default async function SpendingPage({ searchParams }: Props) {
       </PageHeader>
 
       {!view ? (
-        <p className={note}>The gateway isn&rsquo;t answering, so spending can&rsquo;t be read right now.</p>
+        <p className={note}>The gateway isn&rsquo;t answering.</p>
       ) : (
         <>
           <Totals view={view} />

@@ -34,7 +34,7 @@ export function parseLimit(raw: string, max: number): number | { error: string }
   if (n <= 0) return { error: "A limit has to be more than $0." };
   if (n > max) {
     const most = `$${max.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
-    return { error: `A limit can be at most ${most}, the most a person’s key can ever spend.` };
+    return { error: `A limit can be at most ${most}.` };
   }
   return n;
 }

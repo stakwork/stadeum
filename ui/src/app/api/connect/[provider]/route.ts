@@ -31,9 +31,9 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 export async function POST(req: NextRequest, { params }: Ctx) {
   const p = connectable((await params).provider);
   if (!p) return new Response("Not found", { status: 404 });
-  if (!fromTheBox(req.headers.get("origin"))) return refusal(403, `Connect ${p.name} from the box's own page.`);
+  if (!fromTheBox(req.headers.get("origin"))) return refusal(403, `Connect ${p.name} from this site.`);
   const user = await currentUser();
-  if (!user) return refusal(401, "Sign in to the box, then connect again.");
+  if (!user) return refusal(401, "Sign in, then connect again.");
   const checked = readAsk(p, req.nextUrl.searchParams);
   if (!checked.ok) return refusal(checked.status, checked.message, checked.back);
   const { back, scopes, install } = checked.ask;

@@ -144,7 +144,7 @@ export async function discover(exec: Exec): Promise<Project> {
   const mounts = JSON.parse(mountsJson) as Array<{ Source: string; Destination: string }>;
   const project = parseProject(labels);
   const source = mounts.find((m) => m.Destination === BOX)?.Source;
-  if (!source) throw new Error(`ops has no ${BOX} mount: the box's directory must be mounted there (stack/stadeum.yml)`);
+  if (!source) throw new Error(`ops has no ${BOX} mount: stadeum's directory must be mounted there (stack/stadeum.yml)`);
   linkHostPath(boxPath(source, project.files));
   return project;
 }

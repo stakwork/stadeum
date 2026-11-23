@@ -220,7 +220,7 @@ function StoreLink(props: {
       setNote(undefined);
       const r = await followIndex(link.index!.key, link.index!.url);
       if (r.error !== undefined) return setNote(r.error);
-      if (r.index.error) return setNote(`Followed, but its card couldn’t be read: ${r.index.error}`);
+      if (r.index.error) return setNote(`Followed, but the index couldn’t be read: ${r.index.error}`);
       setNote(await props.onFollowed(r.index.id));
     });
 
@@ -229,12 +229,11 @@ function StoreLink(props: {
     body = (
       <>
         <p>
-          The store at <b className="font-medium text-ink">{hostOf(link.index!.url)}</b> sent you here to install{" "}
-          <code className="font-mono text-ink">{link.pkg}</code>. This box doesn’t follow that index yet. Following it trusts this key to say which
-          publisher is which; every install is still checked against the publisher’s own signed catalog.
+          To install <code className="font-mono text-ink">{link.pkg}</code>, first follow the index at{" "}
+          <b className="font-medium text-ink">{hostOf(link.index!.url)}</b>. Only follow it if you trust this key.
         </p>
         <KeyBlock value={link.index!.key} />
-        <p className="text-[13px] text-ink-3">Its card: {link.index!.url}</p>
+        <p className="text-[13px] text-ink-3">{link.index!.url}</p>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" disabled={pending} onClick={follow} className={`${buttonClass.primary} h-9 px-4 text-[14px]`}>
             {pending ? "Following…" : "Follow this index"}
@@ -246,12 +245,10 @@ function StoreLink(props: {
     body = (
       <>
         <p>
-          The store at <b className="font-medium text-ink">{hostOf(link.index!.url)}</b> sent you here to install{" "}
-          <code className="font-mono text-ink">{link.pkg}</code>, but this box already follows an index there under another key (
-          <code className="font-mono">{shortKey(state.key)}</code>). A link never changes which key the box trusts: remove that index below first if
-          you mean to replace it.
+          You already follow the index at <b className="font-medium text-ink">{hostOf(link.index!.url)}</b> with a different key (
+          <code className="font-mono">{shortKey(state.key)}</code>). To switch keys, remove it under Indexes first.
         </p>
-        <KeyBlock value={link.index!.key} label="The link’s key" />
+        <KeyBlock value={link.index!.key} label="The new key" />
       </>
     );
   } else if (installed) {
@@ -264,7 +261,7 @@ function StoreLink(props: {
     body = (
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p>
-          <code className="font-mono text-ink">{link.pkg}</code> {hit.version} is listed. Nothing installs until you say so.
+          <code className="font-mono text-ink">{link.pkg}</code> {hit.version} is available.
         </p>
         <button type="button" onClick={() => props.onReview(hit)} className={`${buttonClass.primary} h-9 px-4 text-[14px]`}>
           Review and install
@@ -274,13 +271,17 @@ function StoreLink(props: {
   } else {
     body = (
       <p>
-        {!props.follows
-          ? "This box follows no index yet, so it can’t find "
-          : props.searched
-            ? "No index this box follows lists "
-            : "Strut isn’t answering, so it can’t look up "}
-        <code className="font-mono text-ink">{link.pkg}</code>
-        {!props.follows ? ". Add the index it’s listed on under Indexes." : "."}
+        {!props.follows ? (
+          <>
+            Follow an index under Indexes to find <code className="font-mono text-ink">{link.pkg}</code>.
+          </>
+        ) : props.searched ? (
+          <>
+            No index you follow lists <code className="font-mono text-ink">{link.pkg}</code>.
+          </>
+        ) : (
+          "Strut isn’t answering."
+        )}
       </p>
     );
   }
@@ -321,10 +322,9 @@ function cameFrom(p: Installed, followed: readonly Followed[]): string {
   const at = followedBySource(followed, p.source?.ref);
   if (at) {
     const { sub, part } = at;
-    const from = part ? `${followedFrom(part)}, part of ${followedFrom(sub)}` : followedFrom(sub);
-    return `Kept up to date from ${from}${sub.actor ? `, ${sub.mine ? "yours" : `${sub.whose}’s`}` : ""}. Stop following ${part ? "the bundle" : "it"} below to remove it`;
+    return part ? `Part of ${followedFrom(sub)}` : `Kept up to date from ${followedFrom(sub)}`;
   }
-  if (p.door === "distro") return "Installed by the box’s distro, which updates and removes it";
+  if (p.door === "distro") return "Installed automatically";
   if (p.source?.ref.startsWith("git+")) return `From ${p.source.ref}${p.commit ? ` at ${p.commit.slice(0, 7)}` : ""}`;
   return p.source?.url ? `From ${hostOf(p.source.url)}` : "Installed";
 }
@@ -339,12 +339,12 @@ function InstalledList({ installed, secretsKnown, followed }: { installed: Insta
         <p aria-live="polite" className="rounded-xl bg-ok-soft px-4 py-3 text-[13.5px] text-ink-2">
           <span className="text-ok">Uninstalled {notice.pkg}.</span>{" "}
           {notice.kept.length
-            ? `Kept what was edited here: ${notice.kept.map((k) => k.name).join(", ")}.`
-            : "Its runs stay in the history."}
+            ? `Kept edits to ${notice.kept.map((k) => k.name).join(", ")}.`
+            : ""}
         </p>
       )}
       {installed.length === 0 ? (
-        <p className={empty}>No packages yet. Install one from a repository or find one below, or follow the store’s Install link.</p>
+        <p className={empty}>No packages yet.</p>
       ) : (
         <ul className="flex flex-col gap-3">
           {installed.map((p) => (
@@ -367,8 +367,7 @@ function InstalledList({ installed, secretsKnown, followed }: { installed: Insta
               {p.needs.length > 0 ? (
                 <div className="flex flex-col gap-3 rounded-[12px] bg-warn-soft px-4 py-3.5">
                   <p className="text-[13.5px] text-ink-2">
-                    Its steps read {p.needs.length === 1 ? "a key this box doesn’t have" : "keys this box doesn’t have"} yet. Each goes to strut and is never
-                    shown again.
+                    Needs {p.needs.length === 1 ? "a key" : "keys"} to run:
                   </p>
                   {p.needs.map((name) => (
                     <SecretField key={name} name={name} />
@@ -376,7 +375,7 @@ function InstalledList({ installed, secretsKnown, followed }: { installed: Insta
                 </div>
               ) : boxSecrets(p).length > 0 ? (
                 <p className="text-[13px] text-ink-3">
-                  {secretsKnown || p.missing ? "Its keys are set: " : "Strut couldn’t say which of its keys are set: "}
+                  {secretsKnown || p.missing ? "Keys set: " : "Keys: "}
                   <span className="font-mono">{boxSecrets(p).join(", ")}</span>
                 </p>
               ) : null}
@@ -520,9 +519,9 @@ function SoftwareCard({ software, onFollowed, onRemove }: { software?: Followed;
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="min-w-0 text-[13.5px] text-ink-2">
               <Dot tone="ok" label="On" />
-              <span className="text-ink-3"> · {whoseWords(software)}.</span> What it brings, and the keys any of it waits for, are in{" "}
+              <span className="text-ink-3"> · {whoseWords(software)}.</span> Details under{" "}
               <a href={`#${rowAnchor(software.id)}`} className="text-ink underline decoration-rule-strong underline-offset-2 hover:decoration-ink-3">
-                its row under Followed
+                Followed
               </a>
               .
             </p>
@@ -532,9 +531,7 @@ function SoftwareCard({ software, onFollowed, onRemove }: { software?: Followed;
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="min-w-0 text-[13px] text-ink-3">
-              It’s yours: what it brings runs as you, and a private repository is read with your own account.
-            </p>
+            <span />
             <button type="button" disabled={pending} onClick={add} className={`${buttonClass.secondary} h-10 px-4 text-[14px]`}>
               {pending ? "Adding…" : "Add Software"}
             </button>
@@ -607,7 +604,7 @@ function FromRepository({ connect, onFollowed }: { connect: ConnectOffer[]; onFo
         className={`${card} flex flex-col gap-3 p-5`}
       >
         <label htmlFor="repository" className="text-[14px] text-ink-2">
-          A package in a git repository, by its address: a branch after @, the folder that holds it after #.
+          A git repo’s address. Add @branch or #folder if needed.
         </label>
         <input
           id="repository"
@@ -627,8 +624,8 @@ function FromRepository({ connect, onFollowed }: { connect: ConnectOffer[]; onFo
             Keep it up to date
             <span className="text-[13px] text-ink-3">
               {keep
-                ? "The box follows the branch and installs each new commit’s package. It’s yours: what it brings runs as you, and a private repository is read with your own account."
-                : "Installed once, at the commit the branch is at now. A tag or a commit after @ works too."}
+                ? "Installs each new commit on the branch."
+                : "Installs it once, as it is now."}
             </span>
           </span>
         </label>
@@ -661,7 +658,7 @@ function FromRepository({ connect, onFollowed }: { connect: ConnectOffer[]; onFo
             )}
             {done && done.missingSecrets.length > 0 && (
               <div className="flex flex-col gap-3 rounded-[12px] bg-warn-soft px-4 py-3.5">
-                <p className="text-[13.5px] text-ink-2">Its steps need these keys before they can run. Each goes to strut and is never shown again.</p>
+                <p className="text-[13.5px] text-ink-2">Needs these keys to run:</p>
                 {done.missingSecrets.map((name) => (
                   <SecretField key={name} name={name} />
                 ))}
@@ -688,7 +685,7 @@ function ConnectLine({ offer, then }: { offer: ConnectOffer; then: string }) {
         Connect {offer.name}
       </a>
       <span>
-        It’s read with your own {offer.name} account. Connect it, then {then}.
+        Connect your {offer.name} account, then {then}.
       </span>
     </div>
   );
@@ -719,7 +716,7 @@ function FollowedList(props: {
   const { followed: list, started, connect, ask } = props;
   const [notice, setNotice] = useState<string>();
   const reads = new Map(started.map((s) => [s.f.id, s]));
-  if (list === null) return <p className={empty}>Strut isn’t answering, so what the box follows can’t be read right now.</p>;
+  if (list === null) return <p className={empty}>Strut isn’t answering.</p>;
   if (list.length === 0 && !notice) return null;
 
   return (
@@ -743,7 +740,7 @@ function FollowedList(props: {
               onGone={(uninstalled) => {
                 props.onGone(f.id);
                 setNotice(
-                  `Stopped following ${followedFrom(f)}.${uninstalled.length ? ` Uninstalled ${uninstalled.join(", ")}; what people edited here is kept.` : ""}`,
+                  `Stopped following ${followedFrom(f)}.${uninstalled.length ? ` Uninstalled ${uninstalled.join(", ")}.` : ""}`,
                 );
               }}
             />
@@ -869,13 +866,13 @@ function FollowedRow(props: {
         (install ? (
           <InstallBar watch={install} label={`Installing ${followedFrom(installing ?? f)}`} />
         ) : (
-          <p className="text-[13px] text-ink-3">Strut is reading it now.</p>
+          <p className="text-[13px] text-ink-3">Checking…</p>
         ))}
       {note && <p className="text-[13px] text-ink-3">{note}</p>}
 
       {f.parts ? (
         <>
-          <Problems f={f} read={!!read} connect={connect} again="you follow it again above" />
+          <Problems f={f} read={!!read} connect={connect} again="follow it again above" />
           {f.parts.length > 0 && (
             <ul aria-label="Its parts" className="flex flex-col gap-3 border-l-2 border-rule-soft pl-4">
               {f.parts.map((p) => (
@@ -885,7 +882,7 @@ function FollowedRow(props: {
                     <span className="text-[12.5px]">{installing?.id === p.id ? <Dot tone="pending" label="Installing…" /> : <Dot {...followedState(p)} />}</span>
                   </div>
                   <Release f={p} all={props.all} read={!!read} onSaved={reread} />
-                  <Problems f={p} read={!!read} connect={connect} again="you follow the bundle again above" />
+                  <Problems f={p} read={!!read} connect={connect} again="follow the bundle again above" />
                 </li>
               ))}
             </ul>
@@ -894,14 +891,13 @@ function FollowedRow(props: {
       ) : (
         <>
           <Release f={f} all={props.all} read={!!read} onSaved={reread} />
-          <Problems f={f} read={!!read} connect={connect} again="you follow it again above" />
+          <Problems f={f} read={!!read} connect={connect} again="follow it again above" />
         </>
       )}
 
       {asking && (
         <p className="text-[13.5px] text-ink-2">
-          Stop following it? What it installed is uninstalled too, for everyone: its apps, workflows, steps and Concepts leave the box. Their runs stay in
-          the history, and anything people edited here is kept.
+          Stop following it? Everything it installed is removed for everyone. Run history and edits are kept.
         </p>
       )}
       {error && (
@@ -957,13 +953,12 @@ function Release({ f, all, read, onSaved }: { f: Followed; all: Followed[]; read
           ))}
         </p>
       )}
-      {f.packages.length === 0 && at && !f.waiting && !f.held && !f.error && !read && <p className="text-[13.5px] text-ink-3">At {at}: nothing of it is installed.</p>}
+      {f.packages.length === 0 && at && !f.waiting && !f.held && !f.error && !read && <p className="text-[13.5px] text-ink-3">At {at}. Nothing installed.</p>}
 
       {f.waiting && (
         <div className="flex flex-col gap-3 rounded-[12px] bg-warn-soft px-4 py-3.5">
           <p className="text-[13.5px] text-ink-2">
-            Its package waits for {f.waiting.secrets.length === 1 ? "a key" : "keys"} before it installs. Each goes to strut and is never shown again; the box
-            installs it once they’re set.
+            Needs {f.waiting.secrets.length === 1 ? "a key" : "keys"} before it installs:
           </p>
           {f.waiting.secrets.map((name) => (
             <SecretField key={name} name={name} onSaved={onSaved} />
@@ -978,8 +973,8 @@ function Release({ f, all, read, onSaved }: { f: Followed; all: Followed[]; read
           <p key={h.package} className="text-[13.5px] text-ink-2">
             <code className="font-mono text-[13px] text-ink">{h.package}</code>{" "}
             {at
-              ? `is left to ${at.part ? `${followedFrom(at.part)}, part of ${followedFrom(at.sub)}` : followedFrom(at.sub)}, which keeps it up to date here. Stop following that, and this takes it at its next check.`
-              : `was left to ${h.by.replace(/^subscription:/, "")}, which the box no longer follows: check now, and this takes it.`}
+              ? `is kept up to date by ${at.part ? `${followedFrom(at.part)}, part of ${followedFrom(at.sub)}` : followedFrom(at.sub)} instead.`
+              : "moves here at the next check."}
           </p>
         );
       })}
@@ -1005,8 +1000,8 @@ function Problems({ f, read, connect, again }: { f: Followed; read: boolean; con
             ) : (
               <p className="text-[13.5px] text-ink-2">
                 {f.actor
-                  ? `It’s read with ${f.whose}’s own account alone: they connect theirs, or ${again}, and it’s yours.`
-                  : `${again.charAt(0).toUpperCase()}${again.slice(1)}, and it’s yours: read with your own account.`}
+                  ? `${f.whose} needs to connect their account, or ${again} to use yours.`
+                  : `${again.charAt(0).toUpperCase()}${again.slice(1)} to use your account.`}
               </p>
             ))}
         </div>
@@ -1063,7 +1058,7 @@ function Find(props: {
       <input
         type="search"
         aria-label="Search packages"
-        placeholder={props.follows ? "Search the indexes this box follows" : "Follow an index below to search it"}
+        placeholder={props.follows ? "Search the indexes you follow" : "Follow an index below to search it"}
         value={q}
         onChange={(e) => setQ(e.target.value)}
         className={fieldClass}
@@ -1075,9 +1070,9 @@ function Find(props: {
         </p>
       ))}
       {!props.follows ? null : found === null ? (
-        <p className={empty}>Strut isn’t answering, so the indexes can’t be searched right now.</p>
+        <p className={empty}>Strut isn’t answering.</p>
       ) : found.hits.length === 0 ? (
-        <p className={empty}>{searching ? "Searching…" : q.trim() ? "Nothing matches." : "The indexes list nothing yet."}</p>
+        <p className={empty}>{searching ? "Searching…" : q.trim() ? "Nothing matches." : "Nothing listed yet."}</p>
       ) : (
         <ul className={`flex flex-col gap-3 ${searching ? "opacity-60" : ""}`}>
           {found.hits.map((h) => {
@@ -1124,10 +1119,10 @@ function Facts({ hit }: { hit: PackageHit }) {
       <dt className="text-ink-3">Brings</dt>
       <dd className="text-ink-2">
         {!d ? (
-          "Not read yet: the index hasn’t opened this release."
+          "Not known yet."
         ) : (
           <>
-            {bringsWords(d).join(", ") || "Nothing it can say"}
+            {bringsWords(d).join(", ") || "Nothing listed"}
             {d.apps.length > 0 && <span className="text-ink-3"> · {d.apps.map((a) => a.title).join(", ")}</span>}
           </>
         )}
@@ -1224,11 +1219,11 @@ function InstallDialog(props: {
         <>
           <h2 className="text-[19px] font-medium">{done.already ? `${done.package} was already installed` : `Installed ${done.package}`}</h2>
           <p className="text-[14px] text-ink-2">
-            {done.already ? "Nothing changed." : `Version ${done.version ?? hit.version}. Its apps are in everyone’s list now.`}
+            {done.already ? "Nothing changed." : `Version ${done.version ?? hit.version}. Everyone can use its apps now.`}
           </p>
           {done.missingSecrets.length > 0 && (
             <div className="flex flex-col gap-3 rounded-[12px] bg-warn-soft px-4 py-3.5">
-              <p className="text-[13.5px] text-ink-2">Its steps need these keys before they can run. Each goes to strut and is never shown again.</p>
+              <p className="text-[13.5px] text-ink-2">Needs these keys to run:</p>
               {done.missingSecrets.map((name) => (
                 <SecretField key={name} name={name} />
               ))}
@@ -1261,18 +1256,17 @@ function InstallDialog(props: {
           {hit.description && <p className="text-[14px] text-ink-2">{hit.description}</p>}
           <Facts hit={hit} />
           <p className="text-[13.5px] text-ink-2">
-            Its code runs on this box, with the keys you give it. Strut checks it against {hit.publisher}’s own signed catalog before it writes
-            anything.
+            Its code runs with the keys you give it. Only install it if you trust {hit.publisher}.
           </p>
           {other && (
             <p className="rounded-[12px] bg-warn-soft px-4 py-3 text-[13.5px] text-ink-2">
-              Version {other.version ?? "another"} is installed here. Uninstall it first to install this one.
+              Version {other.version ?? "another"} is installed. Uninstall it first.
             </p>
           )}
           {going && (
             <div className="flex flex-col gap-2 rounded-[12px] bg-raised/60 px-4 py-3.5">
               <InstallBar watch={watch!} label={`Installing ${hit.package}`} />
-              <p className="text-[13px] text-ink-3">{note ? note.text : "You can close this: the install goes on, and the page shows how far it is."}</p>
+              <p className="text-[13px] text-ink-3">{note ? note.text : "You can close this. The install keeps going."}</p>
             </div>
           )}
           {error && (
@@ -1309,8 +1303,7 @@ function UninstallDialog({ pkg, onClose, onDone }: { pkg: Installed; onClose: ()
         Uninstall <span className="font-mono text-[17px] break-all">{pkg.package}</span>?
       </h2>
       <p className="text-[14px] text-ink-2">
-        Its apps, workflows, steps and Concepts leave this box, for everyone. Their runs stay in the history, and anything people edited here is kept.
-        Its keys stay in strut.
+        It’s removed for everyone. Run history, edits and keys are kept.
       </p>
       {error && (
         <p role="alert" className="text-[13.5px] text-warn">
@@ -1341,7 +1334,7 @@ function Indexes({ indexes }: { indexes: PackageIndex[] }) {
     start(async () => {
       const r = await followIndex(key, url);
       if (r.error !== undefined) return setError(r.error);
-      setError(r.index.error ? `Followed, but its card couldn’t be read: ${r.index.error}` : undefined);
+      setError(r.index.error ? `Followed, but the index couldn’t be read: ${r.index.error}` : undefined);
       setKey("");
       setUrl("");
     });
@@ -1349,9 +1342,9 @@ function Indexes({ indexes }: { indexes: PackageIndex[] }) {
   return (
     <section aria-labelledby="indexes" className="flex flex-col gap-3">
       <SectionLabel id="indexes">Indexes</SectionLabel>
-      <p className="text-[14px] text-ink-2">An index says which publisher is which. A package’s name is looked up in the first one that lists its publisher.</p>
+      <p className="text-[14px] text-ink-2">Packages are found through the indexes you follow.</p>
       {indexes.length === 0 ? (
-        <p className={empty}>This box follows no index yet.</p>
+        <p className={empty}>None yet.</p>
       ) : (
         <ul className={`${card} divide-y divide-rule-soft`}>
           {indexes.map((i) => (
@@ -1369,7 +1362,7 @@ function Indexes({ indexes }: { indexes: PackageIndex[] }) {
         <span className="text-[14px] font-medium text-ink">Follow an index</span>
         <div className="grid gap-3 md:grid-cols-2">
           <input
-            aria-label="Where its card is served"
+            aria-label="Index address"
             placeholder="https://index.example/index/catalog"
             value={url}
             onChange={(e) => {
@@ -1379,8 +1372,8 @@ function Indexes({ indexes }: { indexes: PackageIndex[] }) {
             className={fieldClass}
           />
           <input
-            aria-label="Its key"
-            placeholder="Its key, 52 characters"
+            aria-label="Key"
+            placeholder="Key"
             value={key}
             spellCheck={false}
             autoComplete="off"
@@ -1393,7 +1386,7 @@ function Indexes({ indexes }: { indexes: PackageIndex[] }) {
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p aria-live="polite" className="text-[13px] text-ink-3">
-            {error ? <span className="text-warn">{error}</span> : "Take both from the index itself, never from a message."}
+            {error ? <span className="text-warn">{error}</span> : "Copy both from the index’s own site."}
           </p>
           <button type="submit" disabled={pending || !key.trim() || !url.trim()} className={`${buttonClass.secondary} h-10 px-4 text-[14px]`}>
             {pending ? "Following…" : "Follow"}
