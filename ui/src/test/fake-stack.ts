@@ -258,6 +258,10 @@ export interface FakeState {
   clientConfig: Record<string, unknown>;
   /** strut's deployment secret store (`PUT /secrets/:name`). */
   deploymentSecrets: Map<string, string>;
+  /** Names strut has a value for in its environment, which `GET /secrets` never lists: what compose hands it, as a box's `PODS_URL` and `PODS_TOKEN`. */
+  strutEnv: Set<string>;
+  /** Set to answer `GET /packages` as a strut from before stakwork/strut#829: no `missing`. */
+  packagesOmitMissing: boolean;
   customers: Array<{
     id: string;
     name: string;
@@ -412,6 +416,8 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     pricing: {},
     clientConfig: { log_retention_days: 365, enable_logging: true, disable_content_logging: false, drop_excess_requests: false },
     deploymentSecrets: new Map(),
+    strutEnv: new Set(),
+    packagesOmitMissing: false,
     customers: [],
     calls: [],
     vks: [],
@@ -998,7 +1004,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
             items: release.items.map((i) => ({ kind: i.kind, name: i.kind === "concept" ? i.name : `${ref}/${i.name}`, status: same ? "present" : here ? "updated" : "installed" })),
           },
         ],
-        missing: { secrets: secrets.filter((s) => !state.deploymentSecrets.has(s)).sort(), binaries: [], runtimes: [] },
+        missing: { secrets: secrets.filter((s) => !state.deploymentSecrets.has(s) && !state.strutEnv.has(s)).sort(), binaries: [], runtimes: [] },
         warnings: [],
       },
       // Strut's phases, each with the counts it reports.
@@ -1105,6 +1111,8 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
         secrets: readableSecrets(rec.release),
         ...(rec.release.requires?.optional?.length ? { optional: rec.release.requires.optional } : {}),
         ...(rec.release.provides ? { provides: rec.release.provides } : {}),
+        // Strut's word on what it has no value for: its store, then its environment.
+        ...(state.packagesOmitMissing ? {} : { missing: { secrets: requiredSecrets(rec.release).filter((s) => !state.deploymentSecrets.has(s) && !state.strutEnv.has(s)) } }),
         door: rec.door,
         items: rec.release.items.map((i) => ({
           kind: i.kind,
@@ -1355,7 +1363,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       Object.assign(s, { held: [{ package: release.package, by: `subscription:${holder}` }], applied: { ref: s.ref, commit: to, digest: release.digest, at: at(), packages: [] }, checkedAt: at() });
       return { id: s.id, status: "held", ...(from ? { from } : {}), to, held: s.held };
     }
-    const read = (name: string) => (s.actor ? state.secrets.get(`${s.actor}/${name}`) : undefined) ?? state.deploymentSecrets.get(name);
+    const read = (name: string) => (s.actor ? state.secrets.get(`${s.actor}/${name}`) : undefined) ?? state.deploymentSecrets.get(name) ?? (state.strutEnv.has(name) ? "from strut's environment" : undefined);
     const missing = (release.requires?.secrets ?? []).filter((n) => !read(n)).sort();
     if (missing.length) {
       // It waits: nothing of it is installed, and what it installed before goes out.
