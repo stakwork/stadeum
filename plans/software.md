@@ -1035,16 +1035,19 @@ Each is its own PR.
     - `stadeum/code`: the Code app makes workspaces, with no main
       repository and the default workspace; the `workspace` job tool; the
       `Code Change` page on `git/pull-request` (§14.4).
-    - In review (2026-11-23): stakwork/strut-code#10 (`stadeum/code`
-      0.7.0, the default suggested and written at Set up) and
-      stakwork/strut-github#5 (`stadeum/github` 0.4.0, its list read only,
-      without the webhooks), each to `main`. Neither goes to `stable` until
-      strut#851 is merged and released.
     - `stadeum/pods`: `.pod/` on the workspace; `setup` and
       `drop-images` on `on:`; `Pod Setup` without its `.pod/` pull
       request; `pod` and the bundle learn `/workspaces/.pod` (§3.2; pods
       `PLAN.md` §1).
     - Panels (item 14) last.
+
+    **Built (2026-11-23),** all but panels and the webhooks:
+    stakwork/strut#851 (items 24 to 26, released and promoted),
+    stakwork/pods#30 (published to `strut-pods@main`),
+    stakwork/strut-code#10 (`stadeum/code` 0.7.0, the default suggested
+    and written at Set up) and stakwork/strut-github#5 (`stadeum/github`
+    0.4.0, its list read only, without the webhooks), each merged to
+    `main`. The last two reach boxes once promoted to `stable`.
 
 ## 13. The GitHub App's settings
 
