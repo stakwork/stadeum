@@ -10,6 +10,7 @@
 > after rulings 5 to 7, building blocks in place of one feature; after a
 > mock-up of the app, rulings 8 and 9; and rulings 10 to 12, on whose
 > Google app, strut holding a person's token, and the runs a check makes.
+> Ruling 14, on mail that went to several people, is from 2026-11-24.
 >
 > - **The goal (Evan, 2026-11-23):** "letting Jamie send and receive email
 >   as you". Three uses came up: "help me respond to things", email as a
@@ -46,6 +47,7 @@
 | 11 | Strut holding each person's Google token | **Accepted,** as GitHub's was, with the person's or their Google admin's revocation (§9) |
 | 12 | The runs a look every five minutes makes | **Kept, with their logs dropped after a day.** Old run summaries piling up is strut's to fix (§7) |
 | 13 | A message whose Reply-To is not its sender | **Always a draft.** Found while building Send, and kept (§4.3) |
+| 14 | Mail that went to several people | **"Let it send,"** as any other mail is, under the person's choice. The reply goes to its sender alone (§4.3) |
 
 How a person connects was decided before: the connect seam
 (`plans/software.md`, Decided row 4).
@@ -293,15 +295,20 @@ Under both Send choices `answer` still leaves a draft, and sends nothing,
 when any of these holds. They are in the step, and no page or
 instruction changes them:
 
-1. the mail went to more people than the person (§10 decision 6);
-2. three replies have already gone out this way in the thread since the
+1. three replies have already gone out this way in the thread since the
    person last wrote in it themselves;
-3. the model handed the mail off;
-4. the message's `Reply-To` points somewhere other than its sender.
+2. the model handed the mail off;
+3. the message's `Reply-To` points somewhere other than its sender.
    Someone could forge the From of a person the mailbox writes to and
    set a Reply-To of their own, and so be sent a reply written from the
    real person's mail. `context` reads the thread alone for such a
    message. Found while building, and kept (ruling 13).
+
+Mail that went to more people than the person is not on that list
+(ruling 14). Its reply is sent as any other is, under the person's
+choice, and goes to its sender alone, never to all: the others on the
+thread don't get it. It is written from the thread alone (§4.2), which
+everyone on it has seen. A reply to all is not built (§12).
 
 Mail from a list or a machine never gets this far (§4.2). "Written to
 before" counts the person's own sent mail, never a reply sent for them.
@@ -535,7 +542,7 @@ Software bundle.
 | 3 | Which scopes | **`gmail.readonly` and `gmail.compose`** | The least that reads and drafts. `gmail.modify` would add labels, which nothing here needs |
 | 4 | How new mail is noticed | **Looked for every five minutes** | A few minutes is soon enough for mail. Gmail's push needs a Pub/Sub topic, a public route in strut and a check of Google's signed token (§12) |
 | 5 | What is on when a person connects | **`reply`, in Draft.** `ask` is off | Drafts are what they connected for, and a draft sends nothing |
-| 6 | Mail that went to several people | **Always a draft,** under both Send choices | A reply to all reaches people the sender chose, not the person. Asked on 2026-11-23 and not yet answered: under Send to anyone it could send too, since the reply reads only that thread |
+| 6 | Mail that went to several people | **Ruled: sent as any other** (ruling 14), to its sender alone | The default was always a draft. A reply to all would reach people the sender chose, not the person, so the reply never goes to all |
 | 7 | What a reply reads | **The thread, the last 20 messages with that sender, the pages and the person's instructions** | What the recipient has already seen, and what was written for replies. It is Support's ruling 1, turned around |
 | 8 | Does a sent reply say Jamie wrote it | **No** | As Support's replies don't. A box that wants a line adds it on its own page |
 | 9 | Strut holding the Google token | **Ruled: accepted** (ruling 11) | Rule 4. Without it there is no feature |
@@ -598,6 +605,9 @@ manifest with keys it does not know. Strut's `main` has held both since
 - **A page where an admin sets a box's own Google app,** so a hosted box
   needs nobody at fleet and no restart. `plans/jamie-in-slack.md` §11 has
   the same for Slack.
+- **A reply to all.** A reply goes to its sender alone today (ruling
+  14). To all, it would reach people the sender chose, so "people I've
+  written to" would have to hold for each of them.
 - **Attachments** read and sent.
 - **Calendar,** a second Google package on the same token, so a reply can
   answer "are you free Tuesday".
