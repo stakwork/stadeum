@@ -4,8 +4,8 @@
 > merged (stakwork/strut#867, stakwork/stadeum#107, stakwork/strut#871,
 > stakwork/strut-gmail#1). Item 5 is up for review as
 > stakwork/strut-gmail#2, and strut's cost cap as stakwork/strut#874.
-> Item 6 is built on a local branch and waits for #2. Revised the same
-> day:
+> Items 6 and 7 are built on local branches and wait for #2. Revised the
+> same day:
 > after rulings 5 to 7, building blocks in place of one feature; after a
 > mock-up of the app, rulings 8 and 9; and rulings 10 to 12, on whose
 > Google app, strut holding a person's token, and the runs a check makes.
@@ -617,7 +617,9 @@ run by its tests):
 - that Google's refresh never sends a new refresh token. Its sample
   answer has none;
 - with a real account: that mail a mailbox sends to itself carries both
-  Sent and Inbox, which `ask` relies on.
+  Sent and Inbox, which `ask` relies on; that Gmail keeps the header
+  `ask` marks its answers with; and that its search finds mail sent from
+  any of the person's send-as addresses.
 
 ## 14. Rejected
 
