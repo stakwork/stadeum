@@ -3,14 +3,17 @@ import Link from "next/link";
 
 import { PageHeader } from "@/components/page-header";
 import { Dot } from "@/components/state";
-import { canPin, managedApps, versionsHref, type ManagedApp } from "@/lib/app-admin";
+import { appHref, EARNINGS } from "@/lib/apps";
+import { canDelete, canPin, managedApps, versionsHref, type ManagedApp } from "@/lib/app-admin";
 import { liveLabel, pinNote } from "@/lib/app-versions";
 import { requireAdmin } from "@/lib/session";
-import { PinToggle } from "./manage";
+import { DeleteApp, PinToggle } from "./manage";
 
 export const metadata: Metadata = { title: "Apps" };
 export const dynamic = "force-dynamic";
 
+const small =
+  "inline-flex h-8 items-center justify-center rounded-lg border border-rule-strong bg-surface px-3 text-[13px] font-medium text-ink transition-colors duration-150 hover:border-ink-3";
 const td = "px-5 py-3.5";
 
 /**
@@ -49,8 +52,8 @@ export default async function AppsAdminPage() {
                 <th scope="col" className="w-[120px] px-5 py-3 font-medium">
                   Warnings
                 </th>
-                <th scope="col" className="w-[104px] px-5 py-3 font-medium">
-                  <span className="sr-only">Pin</span>
+                <th scope="col" className="w-[260px] px-5 py-3 font-medium">
+                  <span className="sr-only">Actions</span>
                 </th>
               </tr>
             </thead>
@@ -83,7 +86,13 @@ function Row({ app: a }: { app: ManagedApp }) {
         {a.warnings ? <Dot tone="attention" label={a.warnings === 1 ? "1 warning" : `${a.warnings} warnings`} /> : <span className="text-ink-3">{"—"}</span>}
       </td>
       <td className="px-5 py-2 text-right">
-        {canPin(a) && <PinToggle name={a.name} pinned={a.pinned} note={pinNote(a)} />}
+        <div className="flex justify-end gap-1.5">
+          <Link href={a.admin && a.name === EARNINGS ? "/earnings" : appHref(a.name)} className={small}>
+            Open
+          </Link>
+          {canPin(a) && <PinToggle name={a.name} pinned={a.pinned} note={pinNote(a)} />}
+          {canDelete(a) && <DeleteApp name={a.name} title={a.title} />}
+        </div>
       </td>
     </tr>
   );

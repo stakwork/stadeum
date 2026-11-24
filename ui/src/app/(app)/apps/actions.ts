@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 
 import { setAppPinned } from "@/lib/app-pins";
+import { isSeeded } from "@/lib/app-versions";
 import { isAssistant, isOpened } from "@/lib/apps";
 import { requireAdmin } from "@/lib/session";
-import { setAppLive, StrutHttpError, type LiveTarget } from "@/lib/strut/client";
+import { deleteApp, getAppVersions, setAppLive, StrutHttpError, type LiveTarget } from "@/lib/strut/client";
 
 /** A refusal in strut's own words; `instead`: the version a refused Restore can make live as it is now. */
 export type ChangeResult = { error?: string; instead?: string };
@@ -40,6 +41,22 @@ export async function pin(name: string, pinned: boolean): Promise<ChangeResult> 
     return { error: "That change isn’t allowed." };
   }
   await setAppPinned(name, pinned);
+  revalidatePath("/", "layout");
+  return {};
+}
+
+/** Unpublish the app: `DELETE /apps/:name`, as this admin. Not the assistant, and not an app strut seeds (it would come back at the next start). */
+export async function remove(name: string): Promise<ChangeResult> {
+  const me = await requireAdmin();
+  if (typeof name !== "string" || name.length > 200 || !isOpened(name) || isAssistant(name)) return { error: "That change isn’t allowed." };
+  try {
+    const v = await getAppVersions(name);
+    if (isSeeded(v)) return { error: "Strut makes this app at every start, so it can’t be deleted. Unpin it instead." };
+    await deleteApp(name, me.actor);
+  } catch (err) {
+    return { error: refusal(err) };
+  }
+  await setAppPinned(name, true); // forget the unpin: a later app of this name starts pinned
   revalidatePath("/", "layout");
   return {};
 }
