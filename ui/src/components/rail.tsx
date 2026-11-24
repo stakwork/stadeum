@@ -16,15 +16,7 @@ export interface RailProps {
   /** Strut's other apps in the rail, in launcher order: every one but those an admin unpinned (an admin-only one in an admin's rail alone). */
   apps: Array<{ title: string; href: string }>;
   admin: boolean;
-  /** The apps an admin unpinned, among the organisation's pages: an admin's. */
-  adminApps?: Array<{ title: string; href: string }>;
   person: Person;
-}
-
-/** The page an admin-unpinned app is, or the Settings page the path is on. */
-function currentPage(path: string, adminPages: Array<{ href: string }>): string | undefined {
-  if (adminPages.some((p) => p.href === path)) return path;
-  return settingsPage(path);
 }
 
 /**
@@ -35,14 +27,12 @@ function currentPage(path: string, adminPages: Array<{ href: string }>): string 
  * On phones the rail folds behind a menu button and, when opened, sits
  * above the page in the flow: it pushes content down, never covers it.
  */
-export function Rail({ orgName, home, apps, admin, adminApps = [], person }: RailProps) {
+export function Rail({ orgName, home, apps, admin, person }: RailProps) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
 
-  // The apps an admin unpinned sit among the organisation's pages, before Apps.
-  const adminPages: SettingsItem[] = adminApps.map((a) => ({ label: a.title, pages: [{ href: a.href, label: a.title }] }));
-  const current = currentPage(path, adminPages.flatMap((i) => i.pages));
+  const current = settingsPage(path);
   const call = useCall();
   const showCall = call.active && path !== "/calls";
 
@@ -108,7 +98,7 @@ export function Rail({ orgName, home, apps, admin, adminApps = [], person }: Rai
             {admin && (
               <SettingsSection
                 label="Organisation"
-                items={SETTINGS.organisation.flatMap((i) => (i.label === "Apps" ? [...adminPages, i] : [i]))}
+                items={SETTINGS.organisation}
                 current={current}
               />
             )}

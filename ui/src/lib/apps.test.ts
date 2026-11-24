@@ -135,23 +135,18 @@ describe("railApps", () => {
   ];
   const unpinned = new Set(["acme/zeta", "strut/earnings"]);
 
-  it("puts every pinned app in an admin's rail, admin-only ones too, and the unpinned ones among the organisation's pages", () => {
-    const { apps, settings } = railApps(launcherApps(strut, unpinned), adminAppsFor("admin", strut, unpinned), true);
+  it("puts every pinned app in an admin's rail, admin-only ones too, and leaves the unpinned ones out", () => {
+    const { apps } = railApps(launcherApps(strut, unpinned), adminAppsFor("admin", strut, unpinned));
     expect(apps.map((a) => [a.name, a.href])).toEqual([
       ["strut/jamie", "/"],
       ["acme/tax", "/apps/acme%2Ftax"],
       ["strut/staff", "/apps/strut%2Fstaff"],
     ]);
-    expect(settings.map((a) => [a.name, a.href])).toEqual([
-      ["strut/earnings", "/earnings"],
-      ["acme/zeta", "/apps/acme%2Fzeta"],
-    ]);
   });
 
   it("is the pinned apps alone for a member: an unpinned one is out of sight", () => {
-    const { apps, settings } = railApps(launcherApps(strut, unpinned), adminAppsFor("member", strut, unpinned), false);
+    const { apps } = railApps(launcherApps(strut, unpinned), adminAppsFor("member", strut, unpinned));
     expect(apps.map((a) => a.name)).toEqual(["strut/jamie", "acme/tax"]);
-    expect(settings).toEqual([]);
   });
 });
 

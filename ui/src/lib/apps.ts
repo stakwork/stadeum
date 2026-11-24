@@ -82,18 +82,12 @@ export function launcherApps(apps: StrutApp[], unpinned: ReadonlySet<string> = n
 }
 
 /**
- * Where a person's apps go in the rail. A pinned app is in it, every new
- * app among them; an admin-only one only in an admin's. An app an admin
- * unpinned is out of everyone's rail and sits among the organisation's
- * pages, for an admin alone: a member does not see it. For anyone but an
- * admin `admin` is empty.
+ * The apps in the rail: every pinned app, every new app among them; an
+ * admin-only one only in an admin's. An unpinned app is simply not in the
+ * rail: an admin still opens it from the Apps page in Settings.
  */
-export function railApps(launcher: App[], admin: App[], isAdminRail: boolean): { apps: App[]; settings: App[] } {
-  const all = [...launcher, ...admin];
-  return {
-    apps: launcherOrder(all.filter((a) => a.pinned)),
-    settings: isAdminRail ? launcherOrder(all.filter((a) => !a.pinned && !a.assistant)) : [],
-  };
+export function railApps(launcher: App[], admin: App[]): { apps: App[] } {
+  return { apps: launcherOrder([...launcher, ...admin].filter((a) => a.pinned)) };
 }
 
 /**

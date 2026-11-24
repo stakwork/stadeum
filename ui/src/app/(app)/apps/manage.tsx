@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 
 import { buttonClass } from "@/components/button";
 import type { LiveTarget } from "@/lib/strut/client";
-import { makeLive, pin, type ChangeResult } from "./actions";
+import { makeLive, pin, remove, type ChangeResult } from "./actions";
 
 const small =
   "inline-flex h-8 items-center justify-center rounded-lg border border-rule-strong bg-surface px-3 text-[13px] font-medium text-ink transition-colors duration-150 hover:border-ink-3 disabled:pointer-events-none disabled:opacity-50";
@@ -116,6 +116,18 @@ export function PinToggle({ name, pinned, note }: { name: string; pinned: boolea
       note={note}
       confirmLabel={pinned ? "Unpin" : "Pin"}
       run={() => pin(name, !pinned)}
+    />
+  );
+}
+
+/** Unpublish the app, after a confirmation. */
+export function DeleteApp({ name, title }: { name: string; title: string }) {
+  return (
+    <Confirm
+      label="Delete"
+      note={`Delete ${title}? It is unpublished for everyone and leaves the rail. This can’t be undone from here.`}
+      confirmLabel="Delete app"
+      run={() => remove(name)}
     />
   );
 }

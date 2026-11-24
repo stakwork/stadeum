@@ -1,4 +1,4 @@
-import type { InstalledPackage, PackageCan, PackageHit, PackageIndex, PackageInstall, PackageSubscription } from "@/lib/strut/client";
+import type { InstalledPackage, PackageCan, PackageHit, PackageIndex, PackageInstall, PackageRepo, PackageSubscription } from "@/lib/strut/client";
 
 /**
  * The Packages page's reading of strut's packages (strut `specs/API.md`
@@ -207,6 +207,15 @@ const LEADS: Record<string, string> = {
   package_ref_not_found: "That branch or tag doesn’t exist.",
   subscription_invalid: "Strut won’t follow that.",
   subscription_unknown: "That isn’t followed any more.",
+  package_repo_owned: "It’s open for editing here. Close it under Editing first.",
+  package_repo_open: "It’s already open for editing here.",
+  package_repo_not_open: "It isn’t open for editing here any more.",
+  package_repo_branch: "That isn’t a branch. Name a branch to edit.",
+  package_repo_empty: "That repo has no branch yet.",
+  package_repo_merging: "A pull is waiting on a conflict. Resolve it, then pull again.",
+  package_repo_message: "Say what changed first.",
+  push_rejected: "The branch has new commits. Pull, then commit again.",
+  no_push_permission: "Your account can’t push to that repo.",
 };
 
 /** The code a refusal of strut's starts with (`package_repo_denied: …` → `package_repo_denied`). */
@@ -217,12 +226,12 @@ export const refusalCode = (detail: string | undefined): string | undefined => /
  * code it starts with, then strut's own words. A `catalog_*` code is a
  * catalog that failed its checks (the seal, the key, the order).
  */
-export function explainRefusal(detail: string | undefined, status: number): string {
+export function explainRefusal(detail: string | undefined, status: number, leads?: Readonly<Record<string, string>>): string {
   if (!detail) return status === 0 ? "Strut isn’t answering. Nothing changed." : `Strut answered ${status}. Nothing changed.`;
   const m = /^([a-z_]+):\s*(.*)$/s.exec(detail);
   const code = m?.[1] ?? "";
   const words = (m ? m[2]! : detail).trim();
-  const lead = LEADS[code] ?? (code.startsWith("catalog_") ? "The publisher’s catalog failed its checks. Nothing was installed." : undefined);
+  const lead = leads?.[code] ?? LEADS[code] ?? (code.startsWith("catalog_") ? "The publisher’s catalog failed its checks. Nothing was installed." : undefined);
   if (!lead) return detail;
   return words ? `${lead} Strut says: ${words}` : lead;
 }
@@ -439,11 +448,12 @@ export function followedState(f: Pick<PackageSubscription, "checkedAt" | "error"
   return { tone: "ok", label: "Up to date" };
 }
 
-/** A provider the connect seam has (`lib/connect.ts`): its id and name, and the secrets it writes. */
+/** A provider the connect seam has (`lib/connect.ts`): its id and name, the secrets it writes, and the git hosts its token serves. */
 export interface ConnectOffer {
   id: string;
   name: string;
   secrets: string[];
+  hosts?: string[];
 }
 
 /**
@@ -543,3 +553,50 @@ export function softwareOf<T extends { ref?: string; parts?: T[] }>(followed: re
   const f = followingFrom(followed, SOFTWARE_REF);
   return f && !f.part ? f.sub : undefined;
 }
+
+// ── a package edited here ───────────────────────────────────────────────
+
+/**
+ * Git's words when it wanted an account for a repository and had none
+ * that worked: no token, or one that can't see it (GitHub answers a
+ * repository it hides with "not found").
+ */
+const CREDENTIALS_RE = /could not read username|authentication failed|terminal prompts disabled|repository not found|\b40[13]\b/i;
+
+/**
+ * A refusal of strut's for a package edited here, in plain words, and its
+ * code. A fetch git could not make for want of an account comes from strut
+ * as `package_repo_unreachable` with git's own words; it is
+ * `package_repo_denied` here, as an install says it, so the page offers the
+ * account to connect. `leads`: a route's own lead for a code.
+ */
+export function repoRefusal(detail: string | undefined, status: number, leads?: Readonly<Record<string, string>>): { error: string; code?: string } {
+  const code = refusalCode(detail);
+  if (code === "package_repo_unreachable" && CREDENTIALS_RE.test(detail ?? "")) {
+    return { error: explainRefusal(detail, status, { package_repo_unreachable: LEADS.package_repo_denied! }), code: "package_repo_denied" };
+  }
+  return { error: explainRefusal(detail, status, leads), ...(code ? { code } : {}) };
+}
+
+/**
+ * When strut could not read a repository edited here, or push to it, with
+ * this admin's own account: the account to connect. The seam's provider
+ * whose secret strut's words name, else the one whose token serves the
+ * repository's host.
+ */
+export function repoConnectFor(code: string | undefined, words: string, providers: readonly ConnectOffer[], url: string): ConnectOffer | undefined {
+  if (code !== "package_repo_denied" && code !== "no_push_permission") return undefined;
+  const host = hostOf(url).toLowerCase();
+  return providers.find((p) => p.secrets.some((s) => new RegExp(`\\b${s}\\b`).test(words))) ?? providers.find((p) => p.hosts?.includes(host));
+}
+
+/** Where a repo edited here is, for a person to read: `github.com/acme/tools#package`. */
+export const repoWhere = (r: Pick<PackageRepo, "url" | "path">) =>
+  `${r.url.replace(/^[a-z+]+:\/\//i, "").replace(/\/+$/, "").replace(/\.git$/, "")}${r.path ? `#${r.path}` : ""}`;
+
+/** What was changed here since the commit installed: each item, marked new, edited or deleted. */
+export const repoEdits = (r: Pick<PackageRepo, "added" | "forked" | "deleted">) => [
+  ...r.added.map((i) => ({ ...i, mark: "new" as const })),
+  ...r.forked.map((i) => ({ ...i, mark: "edited" as const })),
+  ...r.deleted.map((i) => ({ ...i, mark: "deleted" as const })),
+];

@@ -24,16 +24,28 @@
  * (made up: the real one does not exist yet): three parts on `stable`,
  * one of which waits for PODS_URL and PODS_TOKEN.
  *
+ * Editing: stadeum/canvas (stakwork/strut-canvas, made up) is open to edit
+ * here, with a new app, an edited workflow and a deleted step since its
+ * commit. A Commit pushes with the admin's own GitHub token, so the first
+ * one asks to connect the fake GitHub. FAKE_PULL_CONFLICT=<file,…> makes
+ * every Pull stop on a conflict in those files.
+ *
  * A fake GitHub App answers the connect seam (`/api/connect/github`): it
  * prints the CONNECT_GITHUB_* lines for ui/.env. Its one callback URL is
  * FAKE_GITHUB_CALLBACK_URL (default stadeum-ui's on localhost:3000): set it
  * to a bounce's to see the bounce's redirect URI accepted.
+ *
+ * A fake Google answers it too (`/api/connect/google`): it prints the
+ * CONNECT_GOOGLE_* lines. Its access tokens last an hour, and its token URL
+ * refreshes them. Its one redirect URI is FAKE_GOOGLE_CALLBACK_URL (default
+ * stadeum-ui's on localhost:3000).
  */
-import { DEV_LIVEKIT, FAKE_GITHUB_APP, startFakeStack } from "../src/test/fake-stack";
-import { ACME_TOOLS_REPO, STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL, STRUT_CODE_REPO, STRUT_SOFTWARE_REPO } from "../src/test/strut-packages";
+import { DEV_LIVEKIT, FAKE_GITHUB_APP, FAKE_GOOGLE_CLIENT, startFakeStack } from "../src/test/fake-stack";
+import { ACME_TOOLS_REPO, STAKWORK_INDEX_KEY, STAKWORK_INDEX_URL, STRUT_CANVAS_REPO, STRUT_CODE_REPO, STRUT_SOFTWARE_REPO } from "../src/test/strut-packages";
 
 const port = Number(process.env.FAKE_STACK_PORT ?? 4555);
-const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, FAKE_VOICE, FAKE_READY_AFTER, STRUT_VOICE_URL, STRUT_VOICE_TOKEN, FAKE_GITHUB_CALLBACK_URL } = process.env;
+const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, FAKE_VOICE, FAKE_READY_AFTER, STRUT_VOICE_URL, STRUT_VOICE_TOKEN, FAKE_GITHUB_CALLBACK_URL, FAKE_GOOGLE_CALLBACK_URL } =
+  process.env;
 const livekit = LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET ? { url: LIVEKIT_URL, apiKey: LIVEKIT_API_KEY, apiSecret: LIVEKIT_API_SECRET } : DEV_LIVEKIT;
 // The five providers the real gateway has, each with its empty env key slot.
 const fake = await startFakeStack(
@@ -42,6 +54,7 @@ const fake = await startFakeStack(
     providers: ["anthropic", "openai", "gemini", "xai", "openrouter"],
     livekit,
     github: { callbackUrl: FAKE_GITHUB_CALLBACK_URL ?? FAKE_GITHUB_APP.callbackUrl },
+    google: { callbackUrl: FAKE_GOOGLE_CALLBACK_URL ?? FAKE_GOOGLE_CLIENT.callbackUrl },
   },
   port,
 );
@@ -50,16 +63,38 @@ if (FAKE_VOICE === "402") fake.state.voice.refuse = { status: 402, body: { error
 if (FAKE_VOICE === "503") fake.state.voice.refuse = { status: 503, body: { error: "the voice service is not answering" } };
 if (FAKE_READY_AFTER) fake.state.readyAfter = Number(FAKE_READY_AFTER);
 fake.state.installMs = Number(process.env.FAKE_INSTALL_MS ?? 8000);
+// The canvas, opened to edit as Edit here opens one, then changed here.
+const opened = await fetch(`${fake.strutUrl}/packages/repos`, {
+  method: "POST",
+  headers: { authorization: `Bearer ${fake.token}`, "content-type": "application/json" },
+  body: JSON.stringify({ url: STRUT_CANVAS_REPO }),
+});
+if (!opened.ok) throw new Error(`opening ${STRUT_CANVAS_REPO} failed: ${await opened.text()}`);
+Object.assign(fake.state.opened[0]!, {
+  added: [{ kind: "app", name: "stadeum/canvas/sticky-notes" }],
+  forked: [{ kind: "workflow", name: "stadeum/canvas/brainstorm" }],
+  deleted: [{ kind: "step", name: "stadeum/canvas/layout" }],
+});
+if (process.env.FAKE_PULL_CONFLICT) fake.state.pullConflict = process.env.FAKE_PULL_CONFLICT.split(",");
 if (STRUT_VOICE_URL) fake.state.voice.forward = { url: STRUT_VOICE_URL.replace(/\/+$/, ""), token: STRUT_VOICE_TOKEN ?? "" };
-console.log(`fake stack on ${fake.base}  (bifrost ${fake.bifrostUrl}, strut ${fake.strutUrl}, neo4j ${fake.neo4jUrl}, github ${fake.githubUrl})`);
+console.log(
+  `fake stack on ${fake.base}  (bifrost ${fake.bifrostUrl}, strut ${fake.strutUrl}, neo4j ${fake.neo4jUrl}, github ${fake.githubUrl}, google ${fake.googleUrl})`,
+);
 console.log(
   `the store's Install link: /packages?install=openlaw/legal-desk&index=${STAKWORK_INDEX_KEY}&index_url=${encodeURIComponent(STAKWORK_INDEX_URL)}`,
 );
 console.log(`from a repository: git+${STRUT_CODE_REPO}@main (public), git+${ACME_TOOLS_REPO}#package (private); Software: git+${STRUT_SOFTWARE_REPO}@stable (a bundle)`);
+console.log(`editing: stadeum/canvas from ${STRUT_CANVAS_REPO}@main, changed here`);
 console.log(`calls: ${STRUT_VOICE_URL ? `handed to ${STRUT_VOICE_URL}` : `tokens for ${livekit.url}`}${FAKE_VOICE ? `, FAKE_VOICE=${FAKE_VOICE}` : ""}`);
 const app = fake.state.github.app;
 console.log(
   `github: an App calling back to ${app.callbackUrl}; in ui/.env:\n` +
     `  CONNECT_GITHUB_CLIENT_ID=${app.clientId}\n  CONNECT_GITHUB_CLIENT_SECRET=${app.clientSecret}\n` +
     `  CONNECT_GITHUB_SLUG=${app.slug}\n  CONNECT_GITHUB_URL=${fake.githubUrl}`,
+);
+const google = fake.state.google.client;
+console.log(
+  `google: a client calling back to ${google.callbackUrl}; in ui/.env:\n` +
+    `  CONNECT_GOOGLE_CLIENT_ID=${google.clientId}\n  CONNECT_GOOGLE_CLIENT_SECRET=${google.clientSecret}\n` +
+    `  CONNECT_GOOGLE_URL=${fake.googleUrl}`,
 );

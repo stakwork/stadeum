@@ -39,6 +39,9 @@ export interface ManagedApp {
 /** Whether the admin may pin the app to the rail: any app but the assistant, which is the home. */
 export const canPin = (app: Pick<ManagedApp, "name">) => !isAssistant(app.name);
 
+/** Whether the admin may delete the app: not the assistant, nor one strut seeds (it returns at every start). */
+export const canDelete = (app: Pick<ManagedApp, "name" | "seeded">) => !isAssistant(app.name) && !app.seeded;
+
 /** The admin page for one app's versions; `version` frames that one. */
 export const versionsHref = (name: string, version?: string) =>
   `/apps/${encodeURIComponent(name)}/versions${version ? `/${encodeURIComponent(version)}` : ""}`;

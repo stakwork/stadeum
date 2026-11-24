@@ -8,7 +8,8 @@ import { currentUser } from "@/lib/session";
  * person back here, through the bounce on a box that has one
  * (lib/connect.ts). It refuses a state this box didn't sign for this
  * provider and this person within the hour, trades the code, writes the
- * tokens to strut as the person's own, and sends them to the state's
+ * tokens to strut as the person's own (with the expiry and the refresh token,
+ * for a provider whose tokens expire), and sends them to the state's
  * `return`. It keeps nothing, and logs no code or token.
  */
 export const dynamic = "force-dynamic";
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ prov
     return refusal(502, `The provider gave no token (${got.error}). Connect again.`, s.return);
   }
   try {
-    await keep(got.secrets, user.actor);
+    await keep(got.secrets, user.actor, got.refresh);
   } catch (err) {
     console.warn(`[connect] ${p.id}: strut did not keep the token for ${user.actor}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     return refusal(502, "The token couldn’t be saved. Try again.", s.return);

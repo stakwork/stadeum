@@ -96,8 +96,8 @@ checked".
   admin UI is reached from inside, e.g. a local override that publishes
   `127.0.0.1:8181:8181`.
 - **Routes for the box's network alone**: the `{HOST}` site answers
-  `/api/ops/*` (ops's) and `/api/mothership/*` (strut's grant keys) with
-  404.
+  `/api/ops/*` (ops's), `/api/mothership/*` (strut's grant keys) and
+  `/api/connect/*/refresh` (strut's refresh of a person's token) with 404.
 
 ### neo4j
 - The stock `neo4j:5.26.32`: no APOC, no GDS, no index initializers. 5.26 is
@@ -226,6 +226,13 @@ checked".
   where strut asks for a grant's key, when a step grants model calls to a
   machine outside strut (a pod), with the deployment key (`docs/models.md`,
   "A grant's key"). A strut from before grants ignores it.
+- `CONNECT_URL=http://stadeum-ui:3000` and `CONNECT_TOKEN`, the secret
+  strut and stadeum-ui share: strut refreshes a person's secret whose
+  access token expires (`GOOGLE_TOKEN`) at stadeum-ui's
+  `POST /api/connect/<provider>/refresh`, with the token as the bearer (the
+  connect seam, below). The URL is set only when the token is in `.env`;
+  `scripts/init-env.sh` generates it, and a box from before it gets it by
+  running the installer again. Without it strut refreshes nothing.
 - No provider keys and no `LLM_PROVIDER`: strut calls a model only through
   bifrost, on the caller's delegation, so it boots and runs with none.
 - `STRUT_HOST_CONFIG` (`stack/strut/host-config.json`) takes the model pin
@@ -542,16 +549,30 @@ checked".
 - **The connect seam** (`ui/src/lib/connect.ts`, `ui/src/app/api/connect/`,
   `ui/src/app/connect/`;
   `plans/software.md` §2.1). A person connects an OAuth provider, GitHub
-  for now, and strut gets the token as their own actor secret
-  (`PUT /actors/:actor/secrets/GITHUB_TOKEN`). Every token the seam
-  writes is a person's: there is no box token, and the seam never writes
-  a deployment secret. Trading the
-  code needs the provider's client secret, which only stadeum-ui holds
-  (`CONNECT_GITHUB_CLIENT_ID`, `_CLIENT_SECRET`, `_SLUG`, never in strut's
+  or Google, and strut gets the token as their own actor secret
+  (`PUT /actors/:actor/secrets/GITHUB_TOKEN`, `GOOGLE_TOKEN`). Every token
+  the seam writes is a person's: there is no box token, and the seam never
+  writes a deployment secret. Trading the code, and refreshing a token,
+  needs the provider's client secret, which only stadeum-ui holds
+  (`CONNECT_GITHUB_CLIENT_ID`, `_CLIENT_SECRET`, `_SLUG`;
+  `CONNECT_GOOGLE_CLIENT_ID`, `_CLIENT_SECRET`; never in strut's
   container); everything else is a package's. A provider is one entry in
   the table in `connect.ts`, the only place that names one, and is there
   only when its client id and secret are set; otherwise its routes are a
   404.
+  - **GitHub:** a GitHub App. Its user tokens never expire, and its
+    settings decide its permissions, so a package asks for no scope.
+  - **Google** (`plans/gmail.md` §2, §3): a web OAuth client. It is a
+    shared app a host gives the box, as fleet gives GitHub's, or the box's
+    own, an Internal app the admin makes in the company's Google Cloud
+    project. The seam reads the same two settings either way and doesn't
+    know whose they are. It is never the sign-in's (`AUTH_GOOGLE_*`):
+    Gmail's scopes are restricted, and would put sign-in behind Google's
+    review. Its scopes are `gmail.readonly` and `gmail.compose`. Its authorize URL
+    carries `access_type=offline` and `prompt=consent`, so every connect
+    brings a refresh token, and `include_granted_scopes=true`, so one
+    `GOOGLE_TOKEN` holds what every Google package asked for. Its access
+    tokens last an hour: the entry has `refresh`.
   - A connect is always a person's click on the box's own page, never a
     link they followed: GitHub skips its consent page for someone who
     authorized the App before, so a link alone could connect them.
@@ -585,18 +606,45 @@ checked".
     each secret the entry names that the response holds as the person's
     own, and redirects to `return`. A response
     with none of them is a failure (GitHub answers a spent code with a 200
-    and `{ error }`). A refusal is a short page with a link back to
+    and `{ error }`). For an entry with `refresh`, strut gets the access
+    token with its lifetime, the refresh token and the provider:
+    `{ value, expires_in, refresh_token, provider }`, and a response with
+    no `expires_in` or no `refresh_token` is a failure too. GitHub's is
+    `{ value }`. A refusal is a short page with a link back to
     `return` when the state was good. It keeps nothing and logs no code or
     token. An install comes back here with a code, and is a connect: its
     `installation_id` is ignored, the package reads installations itself.
+  - `POST /api/connect/:provider/refresh { refresh_token }`: strut, when a
+    person's secret is near its expiry. Strut alone calls it, on the box's
+    network (Caddy's public site 404s it), with
+    `Authorization: Bearer <CONNECT_TOKEN>`, compared in constant time. It
+    posts `grant_type=refresh_token` with the client id and secret to the
+    provider's token URL, and answers
+    `200 { access_token, expires_in, refresh_token? }`, the last only when
+    the provider rotated it. `400 { error: "invalid_grant" }` when the
+    provider refuses the refresh token (the person revoked it, say), and
+    for nothing else: strut then deletes the secret, and the person
+    connects again (strut `specs/API.md` §8.2). `502 { error }` when the
+    provider doesn't answer, or answers anything else: `invalid_client`
+    is the client's settings gone wrong, and costs nobody their token. Another
+    bearer is a 401, and a body with no refresh token a 422. Without
+    `CONNECT_TOKEN`, or for a provider with no `refresh`, it is a 404.
+    Strut keeps the secret on all but the 400. It keeps and logs nothing:
+    strut keeps the new token.
   - Through a bounce, the redirect URI is the bounce's
     `/api/connect/<provider>/callback`, so a GitHub App registers that one
-    callback URL for every box behind it (`install.sh` prints it). Without
-    one it is the box's own.
+    callback URL for every box behind it, and a Google client one redirect
+    URI (`install.sh` prints each), registered once by whoever made the
+    app. Without a bounce it is the box's own URL.
   - `npm run fake-stack` has a fake GitHub App (`/github`): its authorize
     and install pages, with a button back to the callback, and its token
     URL, one use per code. `CONNECT_GITHUB_URL` points GitHub's entry at
-    it; compose never hands that to a box.
+    it; compose never hands that to a box. It has a fake Google too
+    (`/google`): its consent page, and its token URL, which trades a code
+    for an access token that lasts an hour and a refresh token, and a
+    refresh token for a new access token. Google's two URLs are on two
+    hosts, so `CONNECT_GOOGLE_URL` puts both under the fake's; compose
+    never hands that to a box either.
 - **The frame.** Per page load the server mints a sign-in ticket for the
   person (`POST /auth/ticket { actor, role }` → `{ ticket, expiresAt }`, good
   once for 60 s; `role` is the person's stadeum role, `admin` or `member`:
@@ -631,11 +679,12 @@ checked".
   followed package waits for, is set there, never `STRUT_DEFAULT_MODEL` or
   `STRUT_MODELS`. Uninstall asks
   first and says what strut kept. Find: `GET /packages/search` over the
-  indexes strut follows (peers' installs are left out: a hit is installed
-  by its name through an index), each hit with what the index read off the
-  release: what it brings, whether it spends model calls, acts on the
-  world or runs code, and its secrets. Install asks first with the same
-  facts, then `POST /packages/install { ref: <name>, index, digest, wait:
+  indexes strut follows, as the admin types (nothing before, but the
+  store's link's package), each hit by its name (peers' installs are left
+  out: a hit is installed by its name through an index). Clicking one
+  asks first, with what the index read off the release: what it brings,
+  whether it spends model calls, acts on the world or runs code, and its
+  secrets. Install, on that question, is `POST /packages/install { ref: <name>, index, digest, wait:
   false }`: the release reviewed, through the index that listed it, as
   the admin. Strut answers at once with the install's record (stakwork/
   strut#588; an older strut answers when it is done), and the dialog
@@ -655,8 +704,8 @@ checked".
   repo[@<branch>][#<folder>]` (`git+` may be left off), checked as strut
   checks it before anything is sent (`parseRepositoryRef`: http(s), no
   name or password in it, an owner and a name, a branch and a folder
-  that can be one). **Keep it up to date**, on by default, follows the
-  branch: `PUT /packages/subscriptions/:id { ref }` with the admin as
+  that can be one). Then one of three. **Follow**, the default, follows
+  the branch: `PUT /packages/subscriptions/:id { ref }` with the admin as
   `x-strut-actor`, never a person in the body. That admin is then the
   subscription's person (strut `specs/API.md` §16, "Whose a subscription
   is"): what it installs is theirs, its schedules run as them, and a
@@ -672,10 +721,11 @@ checked".
   reads the branch behind the answer; the row under **Followed** reads
   `GET /packages/subscriptions` and the install strut files under
   `subscription:<id>` (a bundle's part's under `subscription:<id>/<part>`)
-  every second until the read is done. Off, it is one
+  every second until the read is done. **Install once** is one
   install, `POST /packages/install { ref, wait: false }` as the admin,
   followed as any install is (a tag or a commit after @ is fine there; a
-  commit is refused for following, as strut refuses it). Followed lists
+  commit is refused for following, as strut refuses it). **Edit here**
+  opens it to change on the box and commit back (Editing, below). Followed lists
   every subscription strut has: where it comes from, whose it is, when it
   was last checked, the commit and the packages it is at, the keys a
   package waits for (each settable there; setting one reads it again at
@@ -704,6 +754,35 @@ checked".
   it, or the secret its words name; none for a host no secret serves)
   (`connectOffers`, `ui/src/lib/connect.ts`): the Packages page names no
   forge.
+- **Editing** (the Packages page, admins; strut `specs/API.md` §16,
+  "Working on a repository"). A package opened as a git repo: changed on
+  the box by anyone, from any door (the builder, Jamie, an app's own
+  pages), and committed back by an admin. **Edit here** is `POST
+  /packages/repos { url, ref?, path? }` as the admin, a branch only (a
+  commit is refused before anything is sent; strut refuses a tag):
+  strut fetches it with the admin's own token for its host, installs it
+  through the repo's door, and answers once installed. Editing, shown
+  while one is open (`GET /packages/repos`), has a row each: the repo and
+  branch, the commit installed, and what was added, edited or deleted
+  there since (`added`, `forked`, `deleted`). **Commit…** asks first: the
+  files strut would push (`GET …/diff`, the patch behind a toggle), a
+  message, and **Push straight to <branch>**, on by default, which sends
+  the branch strut has on file (the browser never names one); off, strut
+  pushes a new branch and opens a pull request into it on GitHub, whose
+  link the result shows. A branch that moved is refused (`push_rejected`:
+  Pull, then commit again), never forced. **Pull** (`POST …/pull`)
+  commits what changed here first, then merges and installs; a conflict
+  installs nothing and the row names its files and strut's copy
+  (`workdir`) to resolve them in, and Commit… waits until a Pull finishes
+  the merge. **Close** (`DELETE /packages/repos/:publisher/:name`) asks
+  first: the package stays installed (uninstalled as any is), and a
+  commit made there and never pushed is lost. While one is open, Installed
+  says "Edited here, from" it, with no Uninstall: strut refuses any other
+  door's write to it (`package_repo_owned`). When strut can't read the
+  repository or push to it with the admin's account (`package_repo_denied`,
+  or strut's `package_repo_unreachable` with git asking for credentials;
+  `no_push_permission`), **Connect** offers the seam's provider whose
+  token serves the repository's host (its `hosts`, `ui/src/lib/connect.ts`).
 - **The Software card** (the Packages page, admins; `plans/software.md`
   §4). One sentence, and **Add Software**: From a repository's follow of
   one constant ref, `SOFTWARE_REF` in `ui/src/lib/packages.ts`

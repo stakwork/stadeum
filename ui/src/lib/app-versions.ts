@@ -115,6 +115,6 @@ export const liveLabel = (active: string, live: string | undefined): string =>
  * never moves.
  */
 export function pinNote(app: { pinned: boolean; admin: boolean }): string {
-  if (app.pinned) return `The app leaves ${app.admin ? "admins'" : "everyone's"} rail. Admins can still open it under Organisation.`;
+  if (app.pinned) return `The app leaves ${app.admin ? "admins'" : "everyone's"} rail. It stays installed, and admins can still open it from this page.`;
   return app.admin ? "Admins see the app in their rail." : "Everyone sees the app in their rail.";
 }

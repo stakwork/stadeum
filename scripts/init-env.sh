@@ -36,6 +36,7 @@ set_if_empty STRUT_SECRET_KEY "$(openssl rand -hex 32)"
 set_if_empty BROWSER_WS_PATH "$(openssl rand -hex 16)"
 set_if_empty STADEUM_ENCRYPTION_KEY "$(openssl rand -hex 32)"
 set_if_empty STRUT_VOICE_TOKEN "$(openssl rand -hex 32)"
+set_if_empty CONNECT_TOKEN "$(openssl rand -hex 32)"
 # The treasury's four tokens: random, so never two equal (the daemon and
 # strut each refuse that).
 set_if_empty DAEMON_ADMIN_TOKEN "$(openssl rand -hex 32)"

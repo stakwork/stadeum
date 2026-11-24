@@ -38,29 +38,29 @@ beforeEach(async () => {
 
 /** The rail as the layout builds it for the person signed in. */
 async function rail(role: "admin" | "member") {
-  const r = railApps((await listApps()) ?? [], await adminApps(role), role === "admin");
-  return { apps: r.apps.map((a) => a.name), settings: r.settings.map((a) => a.name) };
+  const r = railApps((await listApps()) ?? [], await adminApps(role));
+  return { apps: r.apps.map((a) => a.name) };
 }
 
 describe("pin", () => {
   it("puts a new app in everyone's rail, and an admin takes it out and back without asking strut", async () => {
     fake.publish("stadeum/code/code", "Code");
-    expect(await rail("member")).toEqual({ apps: ["strut/jamie", "stadeum/code/code"], settings: [] });
+    expect(await rail("member")).toEqual({ apps: ["strut/jamie", "stadeum/code/code"] });
 
     expect(await pin("stadeum/code/code", false)).toEqual({});
-    // Out of a member's sight; an admin finds it among the organisation's pages.
-    expect(await rail("member")).toEqual({ apps: ["strut/jamie"], settings: [] });
-    expect(await rail("admin")).toEqual({ apps: ["strut/jamie", "strut/earnings"], settings: ["stadeum/code/code"] });
+    // Out of the rail; an admin still opens it from the Apps page.
+    expect(await rail("member")).toEqual({ apps: ["strut/jamie"] });
+    expect(await rail("admin")).toEqual({ apps: ["strut/jamie", "strut/earnings"] });
 
     expect(await pin("stadeum/code/code", true)).toEqual({});
-    expect(await rail("member")).toEqual({ apps: ["strut/jamie", "stadeum/code/code"], settings: [] });
+    expect(await rail("member")).toEqual({ apps: ["strut/jamie", "stadeum/code/code"] });
     // Strut's pin holds a version: stadeum's never reaches it.
     expect(fake.state.requests.filter((r) => r.startsWith("PUT "))).toEqual([]);
   });
 
   it("takes an admin-only app out of an admin's rail", async () => {
     expect(await pin("strut/earnings", false)).toEqual({});
-    expect(await rail("admin")).toEqual({ apps: ["strut/jamie"], settings: ["strut/earnings"] });
+    expect(await rail("admin")).toEqual({ apps: ["strut/jamie"] });
   });
 
   it("never unpins the assistant, which is the home, or strut's component library", async () => {

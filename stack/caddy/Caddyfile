@@ -10,9 +10,11 @@
 {$SCHEME}://{$HOST} {
 	# Routes for the box's network only, never through here: ops's (settings
 	# with the backup credentials, its status) and strut's (a grant's model
-	# key, /api/mothership/keys).
+	# key, /api/mothership/keys; a person's token refreshed by the connect
+	# seam, /api/connect/<provider>/refresh).
 	respond /api/ops/* 404
 	respond /api/mothership/* 404
+	respond /api/connect/*/refresh 404
 	reverse_proxy stadeum-ui:3000
 }
 

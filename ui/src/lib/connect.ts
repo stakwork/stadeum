@@ -1,8 +1,8 @@
-import { createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { env } from "@/lib/env";
 import { bounce, label, unlabel } from "@/lib/signin-bounce";
-import { pushActorSecret } from "@/lib/strut/client";
+import { pushActorSecret, type SecretRefresh } from "@/lib/strut/client";
 
 /**
  * The connect seam (plans/software.md §2.1; docs/stack-spec.md, "The connect
@@ -19,6 +19,10 @@ import { pushActorSecret } from "@/lib/strut/client";
  * never a link they followed: the provider may skip its own consent page.
  * The `/callback` checks the state, trades the code and writes the tokens to
  * strut. The seam keeps nothing and logs no code or token.
+ *
+ * A provider whose access tokens expire (`refresh`) gives strut its refresh
+ * token too, and strut asks `POST /api/connect/:provider/refresh` for a new
+ * access token when one runs out: refreshing needs the client secret as well.
  *
  * The table below is the only place that names a provider.
  */
@@ -41,6 +45,14 @@ export interface Provider {
   params?: Record<string, string>;
   /** Each secret strut gets, by name: its paths in the token response, the first present wins. */
   secrets: Record<string, string[]>;
+  /** The git hosts its token reads and pushes to, as strut's host map has them (strut `src/git-hosts.ts`). */
+  hosts?: string[];
+  /**
+   * Its access tokens expire: strut gets the secret with its expiry and the
+   * refresh token, and refreshes it through the seam. Such an entry names
+   * one secret, the access token.
+   */
+  refresh?: true;
 }
 
 /** A provider with its OAuth client: what the routes use. */
@@ -67,6 +79,29 @@ const PROVIDERS: Record<string, () => Provider> = {
       token: "/login/oauth/access_token",
       scopes: [],
       secrets: { GITHUB_TOKEN: ["access_token"] },
+      hosts: ["github.com"],
+    };
+  },
+  // A Google OAuth web client: a shared app a host gives, or the box's own
+  // (plans/gmail.md §3); the seam doesn't know whose. Never the sign-in's
+  // (AUTH_GOOGLE_*): Gmail's scopes are restricted. Its access tokens last
+  // an hour. `access_type=offline` and `prompt=consent`
+  // get a refresh token on every connect; `include_granted_scopes` adds a
+  // package's scopes to what the person granted before, so one GOOGLE_TOKEN
+  // serves every Google package. Google's two URLs are on two hosts:
+  // CONNECT_GOOGLE_URL puts both under one, for a fake Google
+  // (`npm run fake-stack`), and is not handed to stadeum-ui on a box.
+  google: () => {
+    const fake = env.connect("google", "URL");
+    return {
+      name: "Google",
+      ...(fake ? { base: fake } : {}),
+      authorize: fake ? "/o/oauth2/v2/auth" : "https://accounts.google.com/o/oauth2/v2/auth",
+      token: fake ? "/token" : "https://oauth2.googleapis.com/token",
+      scopes: ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose"],
+      params: { access_type: "offline", prompt: "consent", include_granted_scopes: "true" },
+      secrets: { GOOGLE_TOKEN: ["access_token"] },
+      refresh: true,
     };
   },
 };
@@ -80,12 +115,12 @@ export function connectable(id: string): Connectable | undefined {
   return { ...PROVIDERS[id]!(), id, clientId, clientSecret };
 }
 
-/** Every provider a person can connect on this box: its id, its name and the secrets it writes to strut. */
-export function connectOffers(): Array<{ id: string; name: string; secrets: string[] }> {
+/** Every provider a person can connect on this box: its id, its name, the secrets it writes to strut, and the git hosts its token serves. */
+export function connectOffers(): Array<{ id: string; name: string; secrets: string[]; hosts?: string[] }> {
   return Object.keys(PROVIDERS)
     .map(connectable)
     .filter((p): p is Connectable => !!p)
-    .map((p) => ({ id: p.id, name: p.name, secrets: Object.keys(p.secrets) }));
+    .map((p) => ({ id: p.id, name: p.name, secrets: Object.keys(p.secrets), ...(p.hosts ? { hosts: p.hosts } : {}) }));
 }
 
 const at = (p: Provider, url: string) => (p.base ? `${p.base.replace(/\/+$/, "")}${url}` : url);
@@ -93,6 +128,19 @@ const at = (p: Provider, url: string) => (p.base ? `${p.base.replace(/\/+$/, "")
 /** The box's own origin, stadeum's: the only one a connect's Continue may come from. */
 export function fromTheBox(origin: string | null): boolean {
   return !!origin && origin === new URL(env.publicUrl()).origin;
+}
+
+/**
+ * `Authorization: Bearer <CONNECT_TOKEN>`, compared in constant time: strut,
+ * asking the refresh route for a new access token. Without CONNECT_TOKEN,
+ * nobody is.
+ */
+export function fromStrut(authorization: string | null): boolean {
+  const token = env.connectToken();
+  const given = /^Bearer (.+)$/.exec(authorization ?? "")?.[1];
+  if (!token || !given) return false;
+  const digest = (s: string) => createHash("sha256").update(s).digest();
+  return timingSafeEqual(digest(given), digest(token));
 }
 
 /** Where the provider sends the person back: the bounce's callback when the box has one, else its own. */
@@ -233,8 +281,6 @@ export function verifyState(raw: string | null, expect: { provider: string; acto
 
 // ── the exchange ───────────────────────────────────────────────────────
 
-const EXCHANGE_TIMEOUT_MS = 10_000;
-
 /** Each secret the provider's entry names that the response holds. */
 export function pickSecrets(p: Pick<Provider, "secrets">, data: unknown): Record<string, string> {
   const found: Record<string, string> = {};
@@ -258,40 +304,94 @@ const errorCode = (data: unknown): string | undefined => {
   return typeof e === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(e) ? e : undefined;
 };
 
-export type Exchanged = { ok: true; secrets: Record<string, string> } | { ok: false; error: string };
+/** A field of the token response, when it is a non-empty string. */
+const field = (data: unknown, key: string): string | undefined => {
+  const v = data && typeof data === "object" ? (data as Record<string, unknown>)[key] : undefined;
+  return typeof v === "string" && v ? v : undefined;
+};
+
+/** `expires_in`, seconds: a positive whole number, or a string of one (some providers send it so). */
+const expiresIn = (data: unknown): number | undefined => {
+  const v = data && typeof data === "object" ? (data as { expires_in?: unknown }).expires_in : undefined;
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\d{1,10}$/.test(v) ? Number(v) : NaN;
+  return Number.isSafeInteger(n) && n > 0 ? n : undefined;
+};
+
+/** A trade's secrets, and for a provider with `refresh` what strut keeps beside them to refresh them. */
+export type Exchanged = { ok: true; secrets: Record<string, string>; refresh?: SecretRefresh } | { ok: false; error: string };
+
+const TOKEN_TIMEOUT_MS = 10_000;
+
+/** A form posted to the provider's token URL with its client id and secret: the status and the JSON it answers. */
+async function tokenUrl(p: Connectable, form: Record<string, string>): Promise<{ status: number; ok: boolean; data: unknown }> {
+  const res = await fetch(at(p, p.token), {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ ...form, client_id: p.clientId, client_secret: p.clientSecret }),
+    cache: "no-store",
+    redirect: "error",
+    signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+  });
+  return { status: res.status, ok: res.ok, data: (await res.json().catch(() => undefined)) as unknown };
+}
 
 /**
  * Trades the code at the provider's token URL with its client id and secret.
  * A response with none of the entry's secrets is a failure, whatever its
- * status: GitHub answers a bad code, and Slack any error, with a 200.
+ * status: GitHub answers a bad code, and Slack any error, with a 200. For a
+ * provider with `refresh`, so is one with no expiry or no refresh token:
+ * strut could not keep the secret alive.
  */
 export async function exchange(p: Connectable, code: string): Promise<Exchanged> {
-  const res = await fetch(at(p, p.token), {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: redirectUri(p.id),
-      client_id: p.clientId,
-      client_secret: p.clientSecret,
-    }),
-    cache: "no-store",
-    redirect: "error",
-    signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS),
-  });
-  const data = (await res.json().catch(() => undefined)) as unknown;
-  const secrets = res.ok ? pickSecrets(p, data) : {};
-  if (Object.keys(secrets).length) return { ok: true, secrets };
-  return { ok: false, error: errorCode(data) ?? `HTTP ${res.status}` };
+  const { ok, status, data } = await tokenUrl(p, { grant_type: "authorization_code", code, redirect_uri: redirectUri(p.id) });
+  const secrets = ok ? pickSecrets(p, data) : {};
+  if (!Object.keys(secrets).length) return { ok: false, error: errorCode(data) ?? `HTTP ${status}` };
+  if (!p.refresh) return { ok: true, secrets };
+  const expires = expiresIn(data);
+  const refreshToken = field(data, "refresh_token");
+  if (!expires) return { ok: false, error: "no expires_in" };
+  if (!refreshToken) return { ok: false, error: "no refresh_token" };
+  return { ok: true, secrets, refresh: { expires_in: expires, refresh_token: refreshToken, provider: p.id } };
 }
 
-/** Writes each secret to strut as the person's own. Throws when strut doesn't take one. */
-export async function keep(secrets: Record<string, string>, actor: string): Promise<void> {
+/**
+ * Writes each secret to strut as the person's own, with what refreshes it
+ * when the provider's tokens expire. Throws when strut doesn't take one.
+ */
+export async function keep(secrets: Record<string, string>, actor: string, refresh?: SecretRefresh): Promise<void> {
   for (const [name, value] of Object.entries(secrets)) {
-    const status = await pushActorSecret(actor, name, value);
+    const status = await pushActorSecret(actor, name, value, refresh);
     if (status !== "pushed") throw new Error(`strut's PUT /actors/:actor/secrets/${name} was ${status}`);
   }
+}
+
+export type Refreshed =
+  | { ok: true; access_token: string; expires_in: number; refresh_token?: string }
+  | { ok: false; status: 400 | 502; error: string };
+
+/**
+ * A new access token for a refresh token, from the provider's token URL with
+ * the client id and secret: what strut asks the refresh route for.
+ * `refresh_token` is there only when the provider rotated it. Throws when
+ * the provider doesn't answer.
+ *
+ * Only `invalid_grant`, OAuth's code for a refresh token that is revoked,
+ * expired or another client's, is a refusal (400): strut then deletes the
+ * secret, and the person connects again. Any other answer that isn't a
+ * token is a 502, which strut retries later: `invalid_client`, say, is the
+ * client's settings gone wrong, and must not cost everyone their token.
+ */
+export async function refreshAccess(p: Connectable, refreshToken: string): Promise<Refreshed> {
+  const { ok, status, data } = await tokenUrl(p, { grant_type: "refresh_token", refresh_token: refreshToken });
+  const [token] = ok ? Object.values(pickSecrets(p, data)) : [];
+  const expires = expiresIn(data);
+  if (token && expires) {
+    const rotated = field(data, "refresh_token");
+    return { ok: true, access_token: token, expires_in: expires, ...(rotated ? { refresh_token: rotated } : {}) };
+  }
+  const code = errorCode(data);
+  if (code === "invalid_grant") return { ok: false, status: 400, error: code };
+  return { ok: false, status: 502, error: code ?? (token ? "no expires_in" : `HTTP ${status}`) };
 }
 
 // ── what a person sees when it fails ───────────────────────────────────
