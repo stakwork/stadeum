@@ -3,8 +3,9 @@
 > **Status (2026-11-23): proposed, and being built.** Items 1 and 4 are
 > merged (stakwork/strut#867, stakwork/strut-gmail#1). Items 2, 3 and 5
 > are up for review: stakwork/stadeum#107, stakwork/strut#871 and
-> stakwork/strut-gmail#2. Item 6 is built on a local branch and waits
-> for #2. Revised the same day:
+> stakwork/strut-gmail#2, with strut's cost cap as stakwork/strut#874.
+> Item 6 is built on a local branch and waits for #2. Revised the same
+> day:
 > after rulings 5 to 7, building blocks in place of one feature; after a
 > mock-up of the app, rulings 8 and 9; and rulings 10 to 12, on whose
 > Google app, strut holding a person's token, and the runs a check makes.
@@ -43,6 +44,7 @@
 | 10 | Whose Google app | **Both, "just as easily".** A shared app, so a person can "just connect and go", and a box's own, on the same two settings (§3) |
 | 11 | Strut holding each person's Google token | **Accepted,** as GitHub's was, with the person's or their Google admin's revocation (§9) |
 | 12 | The runs a look every five minutes makes | **Kept, with their logs dropped after a day.** Old run summaries piling up is strut's to fix (§7) |
+| 13 | A message whose Reply-To is not its sender | **Always a draft.** Found while building Send, and kept (§4.3) |
 
 How a person connects was decided before: the connect seam
 (`plans/software.md`, Decided row 4).
@@ -198,6 +200,8 @@ schedules:
   - workflow: ask
     trigger: { every: interval, minutes: 5 }
     each: GOOGLE_TOKEN
+maxRunCostUsd:           # new (§7): the most one run may spend, in dollars
+  reply: 1
 ```
 
 ```
@@ -296,7 +300,7 @@ instruction changes them:
    Someone could forge the From of a person the mailbox writes to and
    set a Reply-To of their own, and so be sent a reply written from the
    real person's mail. `context` reads the thread alone for such a
-   message. Found while building (§10 decision 14).
+   message. Found while building, and kept (ruling 13).
 
 Mail from a list or a machine never gets this far (§4.2). "Written to
 before" counts the person's own sent mail, never a reply sent for them.
@@ -452,10 +456,11 @@ second mailbox is a second member.
      and is needed before a box has many people (§12).
 
 3. **A cost cap a package ships.** Found while building `reply`: a
-   workflow's `maxRunCostUsd` is set on the box (`PUT
-   /workflows/:name/run-cap`), not in its YAML, so a package can't carry
-   the cap §4.2 gives `reply`. Until strut has a way, `reply` runs under
-   the box's default cap. Not built.
+   workflow's `maxRunCostUsd` was set only on the box (`PUT
+   /workflows/:name/run-cap`), so a package couldn't carry the cap §4.2
+   gives `reply`. It is up as stakwork/strut#874: `maxRunCostUsd:` in
+   `strut.yaml`, a map from a workflow of the package to dollars. An
+   admin's own cap wins, and an older strut refuses the package.
 
 Nothing else. No webhook route, no host key, no Gmail code.
 
@@ -527,7 +532,7 @@ Software bundle.
 | 11 | Where the client id and secret go | **`.env`**, through `install.sh`'s answers: fleet's for the shared app, the admin's for a box's own | As `CONNECT_GITHUB_*`. On a box fleet runs, `.env` is fleet's to write, so that box's own app needs fleet's hand until there is an admin page (§12) |
 | 12 | Whose mail `ask` takes | **Only mail the mailbox itself sent** | The mailbox proves who wrote it, so nothing has to trust a From address |
 | 13 | Whose instructions win | **The person's, over the shared pages** | They steer only that person's replies |
-| 14 | A message whose Reply-To is not its sender | **Always a draft,** under both Send choices | Added while building Send: it closes a forged From with the forger's own Reply-To (§4.3) |
+| 14 | A message whose Reply-To is not its sender | **Ruled: always a draft** (ruling 13) | It closes a forged From with the forger's own Reply-To (§4.3) |
 | 15 | Sent for you after switching back to Draft | **Still shows what was sent before** | Built that way: more useful than hiding it. Hiding it is a small change |
 
 ## 11. Work items
