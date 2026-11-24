@@ -22,7 +22,7 @@ const warn = (what: string) => (err: unknown) => {
  * distro), what is installed and the keys it still needs, the Software
  * card, a package from a repository, what the box follows (a bundle
  * with its parts) and the packages edited here as git repos, a search over
- * the indexes the box follows, and those indexes. The store's Install link lands here
+ * the indexes the box follows (once the admin types), and those indexes. The store's Install link lands here
  * (`?install=<publisher/name>&index=<key>&index_url=<url>`): it opens the
  * package's confirmation, after following its index when the box does not
  * yet, and nothing installs until the admin says so. Strut keeps all of it.
@@ -35,7 +35,8 @@ export default async function PackagesPage({ searchParams }: { searchParams: Pro
     listPackages().catch(warn("GET /packages")),
     listPackageIndexes().catch(warn("GET /packages/indexes")),
     listDeploymentSecretNames().catch(warn("GET /secrets")),
-    searchPackages(link?.pkg ?? "").catch(warn("GET /packages/search")),
+    // Find searches as the admin types; the store's link names its package, so that one is looked up now.
+    link ? searchPackages(link.pkg).catch(warn("GET /packages/search")) : { hits: [], errors: [] },
     listPackageSubscriptions().catch(warn("GET /packages/subscriptions")),
     listPackageRepos().catch(warn("GET /packages/repos")),
   ]);

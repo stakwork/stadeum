@@ -1410,6 +1410,12 @@ function CommitDialog({ repo: r, connect, onClose }: { repo: PackageRepo; connec
 
 // ── find ────────────────────────────────────────────────────────────────
 
+/**
+ * Find: the indexes the box follows, searched as the admin types (one
+ * search per pause), nothing listed before. A hit is its name; clicking it
+ * opens the install's question, which says what it brings, can do and
+ * needs. The index is named only when two list the same package.
+ */
 function Find(props: {
   initialQuery: string;
   found: Found | null;
@@ -1425,11 +1431,18 @@ function Find(props: {
   const [searching, setSearching] = useState(false);
   const asked = useRef(props.initialQuery);
   const seq = useRef(0);
+  const typed = q.trim() !== "";
 
-  // One search per pause in the typing; only the newest answer shows.
+  // One search per pause in the typing; only the newest answer shows. An empty box searches nothing.
   useEffect(() => {
     if (q.trim() === asked.current.trim()) return;
     const mine = ++seq.current;
+    if (!q.trim()) {
+      asked.current = q;
+      setSearching(false);
+      setError(undefined);
+      return;
+    }
     const t = setTimeout(async () => {
       asked.current = q;
       setSearching(true);
@@ -1443,6 +1456,9 @@ function Find(props: {
     return () => clearTimeout(t);
   }, [q, onFound]);
 
+  const hits = found?.hits ?? [];
+  const listedTwice = new Set(hits.filter((h, i) => hits.findIndex((o) => o.package === h.package) !== i).map((h) => h.package));
+
   return (
     <section aria-labelledby="find" className="flex flex-col gap-3">
       <SectionLabel id="find">Find</SectionLabel>
@@ -1454,44 +1470,38 @@ function Find(props: {
         onChange={(e) => setQ(e.target.value)}
         className={fieldClass}
       />
-      {error && <p className="text-[13.5px] text-warn">{error}</p>}
-      {found?.errors.map((e) => (
-        <p key={e.index} className="text-[13px] text-warn">
-          {props.indexLabel(e.index)} couldn’t be read: {e.error}
-        </p>
-      ))}
-      {!props.follows ? null : found === null ? (
-        <p className={empty}>Strut isn’t answering.</p>
-      ) : found.hits.length === 0 ? (
-        <p className={empty}>{searching ? "Searching…" : q.trim() ? "Nothing matches." : "Nothing listed yet."}</p>
+      {typed && error && <p className="text-[13.5px] text-warn">{error}</p>}
+      {typed &&
+        found?.errors.map((e) => (
+          <p key={e.index} className="text-[13px] text-warn">
+            {props.indexLabel(e.index)} couldn’t be read: {e.error}
+          </p>
+        ))}
+      {!props.follows || !typed ? null : found === null ? (
+        <p className="text-[13.5px] text-ink-3">Strut isn’t answering.</p>
+      ) : hits.length === 0 ? (
+        <p className="text-[13.5px] text-ink-3">{searching ? "Searching…" : "Nothing matches."}</p>
       ) : (
-        <ul className={`flex flex-col gap-3 ${searching ? "opacity-60" : ""}`}>
-          {found.hits.map((h) => {
+        <ul className={`${card} divide-y divide-rule-soft ${searching ? "opacity-60" : ""}`}>
+          {hits.map((h) => {
             const here = props.installed.get(h.package);
             return (
-              <li key={`${h.index}:${h.package}`} className={`${card} flex flex-col gap-3 p-5`}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="font-mono text-[14.5px] font-medium break-all text-ink">
-                      {h.package}
-                      <span className="ml-2 font-sans text-[13px] font-normal text-ink-3">{h.version}</span>
+              <li key={`${h.index}:${h.package}`}>
+                <button
+                  type="button"
+                  onClick={() => props.onInstall(h)}
+                  className="flex w-full items-center justify-between gap-3 px-5 py-3 text-left transition-colors duration-150 first:rounded-t-xl last:rounded-b-xl hover:bg-raised"
+                >
+                  <span className="min-w-0 font-mono text-[14px] break-all text-ink">
+                    {h.package}
+                    {listedTwice.has(h.package) && <span className="ml-2 font-sans text-[13px] text-ink-3">{props.indexLabel(h.index)}</span>}
+                  </span>
+                  {here && (
+                    <span className="shrink-0 text-[13px]">
+                      {here.digest === h.digest ? <Dot tone="ok" label="Installed" /> : <span className="text-ink-3">Version {here.version ?? "another"} installed</span>}
                     </span>
-                    {h.description && <span className="text-[14px] text-ink-2">{h.description}</span>}
-                  </div>
-                  {here?.digest === h.digest ? (
-                    <Dot tone="ok" label="Installed" />
-                  ) : (
-                    <button type="button" onClick={() => props.onInstall(h)} className={small}>
-                      {here ? "Review" : "Install"}
-                    </button>
                   )}
-                </div>
-                <Facts hit={h} />
-                <p className="text-[12.5px] text-ink-3">
-                  Listed by {props.indexLabel(h.index)}
-                  {h.license ? ` · ${h.license}` : ""}
-                  {here && here.digest !== h.digest ? ` · version ${here.version ?? "another"} is installed` : ""}
-                </p>
+                </button>
               </li>
             );
           })}
