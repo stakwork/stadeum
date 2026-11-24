@@ -279,6 +279,13 @@ services:
       # says so.
       STRUT_VOICE_URL: ${LIVEKIT_API_KEY:+${LIVEKIT_API_SECRET:+${STRUT_VOICE_TOKEN:+http://voice:8080}}}
       STRUT_VOICE_TOKEN: ${STRUT_VOICE_TOKEN:-}
+      # The connect seam (docs/stack-spec.md): a person's secret whose
+      # access token expires (GOOGLE_TOKEN) is refreshed by strut, which
+      # asks stadeum-ui's refresh route with the secret the two share.
+      # Refreshing needs the provider's client secret, which only
+      # stadeum-ui holds. Unset (no CONNECT_TOKEN), strut refreshes nothing.
+      CONNECT_URL: ${CONNECT_TOKEN:+http://stadeum-ui:3000}
+      CONNECT_TOKEN: ${CONNECT_TOKEN:-}
       # Packages strut installs at first boot, when they are not installed
       # yet (strut's STRUT_PACKAGES). Empty: none.
       STRUT_PACKAGES: ${STRUT_PACKAGES:-}
@@ -525,12 +532,17 @@ services:
       AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
       AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
       STADEUM_SIGNIN_BOUNCE: ${STADEUM_SIGNIN_BOUNCE:-}
-      # The connect seam's GitHub App (docs/stack-spec.md): its client
-      # secret is here alone, never in strut's container, whose agents run
-      # shell commands. Strut gets the tokens it trades for.
+      # The connect seam's GitHub App and Google client (docs/stack-spec.md):
+      # their client secrets are here alone, never in strut's container,
+      # whose agents run shell commands. Strut gets the tokens they trade
+      # for, and refreshes Google's through this container with
+      # CONNECT_TOKEN, the secret the two share.
       CONNECT_GITHUB_CLIENT_ID: ${CONNECT_GITHUB_CLIENT_ID:-}
       CONNECT_GITHUB_CLIENT_SECRET: ${CONNECT_GITHUB_CLIENT_SECRET:-}
       CONNECT_GITHUB_SLUG: ${CONNECT_GITHUB_SLUG:-}
+      CONNECT_GOOGLE_CLIENT_ID: ${CONNECT_GOOGLE_CLIENT_ID:-}
+      CONNECT_GOOGLE_CLIENT_SECRET: ${CONNECT_GOOGLE_CLIENT_SECRET:-}
+      CONNECT_TOKEN: ${CONNECT_TOKEN:-}
       STADEUM_DEV_LOGIN: ${STADEUM_DEV_LOGIN:-}
       STADEUM_ALLOWED_DOMAINS: ${STADEUM_ALLOWED_DOMAINS:-}
       STADEUM_ADMIN_EMAIL: ${STADEUM_ADMIN_EMAIL:-}

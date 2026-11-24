@@ -201,3 +201,41 @@ grep -q 'CONNECT_GITHUB_CLIENT_SECRET is not set' "$WORK/out" || fail "a client 
 if rerun github-badslug.env "${GITHUB[@]:0:2}" "STADEUM_CONNECT_GITHUB_SLUG=my app"; then fail "a GitHub App slug that is not one"; fi
 grep -q 'STADEUM_CONNECT_GITHUB_SLUG is not a valid CONNECT_GITHUB_SLUG' "$WORK/out" || fail "a slug that is not one says so"
 echo "ok - the GitHub App a host gives is added, kept, and its secret rotated"
+
+# 10. The Google client a host gives for the connect seam: added when .env
+# lacks it (the secret unprinted), kept on a re-run, its secret rotated by
+# STADEUM_REPLACE alone, and apart from the sign-in's; a client ID without
+# its secret, or one that isn't Google's, stops the install.
+cp "$WORK/github.env" "$WORK/before.env"
+GOOGLE=(STADEUM_CONNECT_GOOGLE_CLIENT_ID=333-connect.apps.googleusercontent.com STADEUM_CONNECT_GOOGLE_CLIENT_SECRET=GOCSPX-connect-old)
+rerun google.env "${GOOGLE[@]}" || fail "a re-run given the Google client"
+for line in CONNECT_GOOGLE_CLIENT_ID=333-connect.apps.googleusercontent.com CONNECT_GOOGLE_CLIENT_SECRET=GOCSPX-connect-old \
+  AUTH_GOOGLE_ID=111-old.apps.googleusercontent.com AUTH_GOOGLE_SECRET=GOCSPX-old; do
+  grep -qxF "$line" "$WORK/google.env" || fail "the Google client's ${line%%=*}: $(grep "^${line%%=*}=" "$WORK/google.env")"
+done
+if grep -q 'GOCSPX-connect-old' "$WORK/out"; then fail "the Google client's secret was printed"; fi
+cp "$WORK/google.env" "$WORK/before.env"
+rerun google-kept.env STADEUM_CONNECT_GOOGLE_CLIENT_ID=444-other.apps.googleusercontent.com STADEUM_CONNECT_GOOGLE_CLIENT_SECRET=GOCSPX-connect-new ||
+  fail "a re-run with the Google client set"
+cmp -s "$WORK/before.env" "$WORK/google-kept.env" || fail "a re-run changed the Google client: $(diff "$WORK/before.env" "$WORK/google-kept.env")"
+rerun google-rotated.env STADEUM_CONNECT_GOOGLE_CLIENT_SECRET=GOCSPX-connect-new STADEUM_REPLACE=CONNECT_GOOGLE_CLIENT_SECRET ||
+  fail "a re-run rotating the Google client's secret"
+grep -qxF CONNECT_GOOGLE_CLIENT_SECRET=GOCSPX-connect-new "$WORK/google-rotated.env" || fail "the Google client's secret was not rotated"
+cmp -s <(without CONNECT_GOOGLE_CLIENT_SECRET "$WORK/before.env") <(without CONNECT_GOOGLE_CLIENT_SECRET "$WORK/google-rotated.env") ||
+  fail "rotating the Google client's secret changed another value"
+without CONNECT_GOOGLE_CLIENT_ID CONNECT_GOOGLE_CLIENT_SECRET "$WORK/google.env" >"$WORK/before.env"
+if rerun google-nosecret.env "${GOOGLE[@]:0:1}"; then fail "a Google client ID without its secret"; fi
+grep -q 'CONNECT_GOOGLE_CLIENT_SECRET is not set' "$WORK/out" || fail "a client ID without its secret says so"
+if rerun google-badid.env STADEUM_CONNECT_GOOGLE_CLIENT_ID=not-a-google-id "${GOOGLE[@]:1}"; then fail "a Google client ID that is not one"; fi
+grep -q 'STADEUM_CONNECT_GOOGLE_CLIENT_ID is not a valid CONNECT_GOOGLE_CLIENT_ID' "$WORK/out" || fail "an ID that is not Google's says so"
+echo "ok - the Google client a host gives is added, kept, and its secret rotated"
+
+# 11. init-env.sh makes CONNECT_TOKEN, the secret strut and stadeum-ui
+# share, and keeps one already set.
+printf 'CONNECT_TOKEN=\n' >"$WORK/init.env"
+"$ROOT/scripts/init-env.sh" "$WORK/init.env" >/dev/null
+made=$(grep '^CONNECT_TOKEN=' "$WORK/init.env" | cut -d= -f2-)
+[[ $made =~ ^[0-9a-f]{64}$ ]] || fail "init-env.sh made no CONNECT_TOKEN: $made"
+"$ROOT/scripts/init-env.sh" "$WORK/init.env" >/dev/null
+grep -qxF "CONNECT_TOKEN=$made" "$WORK/init.env" || fail "init-env.sh replaced CONNECT_TOKEN"
+echo "ok - init-env.sh makes CONNECT_TOKEN, and keeps it"

@@ -29,6 +29,10 @@
  *               the authorize page and the install page, each sending the
  *               browser back with a one-use code and the state, and the
  *               token URL that trades a code for an `access_token`
+ *   /google   — Google's OAuth web flow, for the connect seam: the consent
+ *               page, and the token URL that trades a code for an access
+ *               token that lasts an hour and a refresh token, and a refresh
+ *               token for a new access token
  * Wire shapes follow docs/mothership-spec.md. The delegation PUT runs
  * Strut's own shape check and verifies the macaroon against the org key
  * the trust registry holds, like the real gateway would.
@@ -68,6 +72,8 @@ export interface FakeStackOptions {
   livekit?: FakeLivekit;
   /** The fake GitHub App's settings. */
   github?: Partial<FakeGithubApp>;
+  /** The fake Google OAuth client's settings. */
+  google?: Partial<FakeGoogleClient>;
 }
 
 /** A GitHub App as GitHub holds it: its client, its slug, and the callback URL an install comes back to. */
@@ -85,6 +91,29 @@ export const FAKE_GITHUB_APP: FakeGithubApp = {
   slug: "stadeum-dev",
   callbackUrl: "http://localhost:3000/api/connect/github/callback",
 };
+
+/** A Google OAuth client as Google holds it: its id, its secret, and the one redirect URI registered for it. */
+export interface FakeGoogleClient {
+  clientId: string;
+  clientSecret: string;
+  callbackUrl: string;
+}
+
+/** The fake client's defaults: what `npm run fake-stack` prints for ui/.env. */
+export const FAKE_GOOGLE_CLIENT: FakeGoogleClient = {
+  clientId: "1234-fakestadeum.apps.googleusercontent.com",
+  clientSecret: "GOCSPX-fake-google-client-secret",
+  callbackUrl: "http://localhost:3000/api/connect/google/callback",
+};
+
+/** The scopes the fake Google grants: Gmail's two the seam lists, and the sign-in's. */
+const GOOGLE_SCOPES = new Set([
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.compose",
+  "openid",
+  "email",
+  "profile",
+]);
 
 export interface FakeLivekit {
   url: string;
@@ -344,6 +373,8 @@ export interface FakeState {
   /** `v` is the macaroon version strut reports; set it to 1 (or delete it) to stand in for a copy minted before v2. */
   delegations: Map<string, { actor: string; exp: string; delegationId: string; apiKey: string; baseUrl: string; v?: number }>;
   secrets: Map<string, string>;
+  /** What came beside a person's secret that expires (`<actor>/<NAME>`): its lifetime, its refresh token, its provider. */
+  secretRefresh: Map<string, { expires_in: number; refresh_token: string; provider: string }>;
   /** `GET /apps`, in strut's order (by name). Starts as SEEDED_APPS. */
   apps: FakeApp[];
   /** Each app's versions, releases and warnings, by name. */
@@ -404,6 +435,24 @@ export interface FakeState {
     login: string;
     codes: Map<string, { clientId: string; redirectUri?: string; exp: number; used: boolean }>;
     tokens: string[];
+  };
+  /**
+   * Google: the client, the account that consents, each code given (one
+   * use, bound to its client, `redirect_uri` and whether it asked for
+   * offline access), each access token given, and each refresh token with
+   * whether it still works. `omit` leaves fields out of the token URL's
+   * answer; `rotate` sends a new refresh token on a refresh, as Microsoft
+   * does and Google doesn't; `down` answers the token URL with a 503 page.
+   */
+  google: {
+    client: FakeGoogleClient;
+    email: string;
+    codes: Map<string, { clientId: string; redirectUri: string; offline: boolean; scope: string; exp: number; used: boolean }>;
+    tokens: string[];
+    refreshTokens: Map<string, { clientId: string; scope: string; revoked: boolean }>;
+    omit: Array<"expires_in" | "refresh_token">;
+    rotate: boolean;
+    down: boolean;
   };
 }
 
@@ -485,6 +534,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     agents: [],
     delegations: new Map(),
     secrets: new Map(),
+    secretRefresh: new Map(),
     apps: SEEDED_APPS.map((a) => ({ ...a })),
     appRecords: new Map(SEEDED_APPS.map((a) => [a.name, seededRecord()])),
     refuseRelease: null,
@@ -506,6 +556,16 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     readyAfter: 0,
     voice: { livekit: opts.livekit ?? DEV_LIVEKIT, refuse: null, forward: null, calls: [] },
     github: { app: { ...FAKE_GITHUB_APP, ...opts.github }, login: "octocat", codes: new Map(), tokens: [] },
+    google: {
+      client: { ...FAKE_GOOGLE_CLIENT, ...opts.google },
+      email: "ada@acme.example.com",
+      codes: new Map(),
+      tokens: [],
+      refreshTokens: new Map(),
+      omit: [],
+      rotate: false,
+      down: false,
+    },
   };
 
   const server = createServer(async (req, res) => {
@@ -515,6 +575,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     const body = parseJson(raw);
     try {
       if (url.pathname.startsWith("/github/")) return github(req, res, url.pathname.slice("/github".length), url, raw);
+      if (url.pathname.startsWith("/google/")) return google(req, res, url.pathname.slice("/google".length), url, raw);
       if (url.pathname.startsWith("/bifrost/")) {
         if (state.down.bifrost) return send(res, 503, { error: "down" });
         return bifrost(req, res, url.pathname.slice("/bifrost".length), url, body);
@@ -902,7 +963,18 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     }
     const sec = path.match(/^\/actors\/([^/]+)\/secrets\/([^/]+)$/);
     if (sec && m === "PUT") {
-      state.secrets.set(`${decodeURIComponent(sec[1]!)}/${sec[2]}`, body.value);
+      // Strut's checks (specs/API.md §8.2): a value, and a refresh's three fields together or none of them.
+      if (typeof body?.value !== "string" || !body.value) return send(res, 400, { error: "value (non-empty string) is required" });
+      const { expires_in, refresh_token, provider } = body;
+      const given = [expires_in, refresh_token, provider].filter((v) => v !== undefined).length;
+      if (given && given < 3) return send(res, 400, { error: "expires_in, refresh_token and provider come together or not at all" });
+      if (given && !(typeof expires_in === "number" && expires_in > 0 && typeof refresh_token === "string" && refresh_token && typeof provider === "string" && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(provider))) {
+        return send(res, 400, { error: "expires_in is a positive number, refresh_token a string, provider the seam's name" });
+      }
+      const key = `${decodeURIComponent(sec[1]!)}/${sec[2]}`;
+      state.secrets.set(key, body.value);
+      if (given) state.secretRefresh.set(key, { expires_in, refresh_token, provider });
+      else state.secretRefresh.delete(key);
       return send(res, 200, { ok: true });
     }
     send(res, 404, { error: "not found" });
@@ -928,7 +1000,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
         return html(res, githubPage("Redirect URI mismatch", "<p>The redirect_uri is not associated with this application.</p>"), 400);
       }
       const back = new URL(redirectUri ?? gh.app.callbackUrl);
-      return html(res, githubPage(`Authorize ${gh.app.slug}`, consent(gh.app.slug, back, q, githubCode(redirectUri), "Authorize")));
+      return html(res, githubPage(`Authorize ${gh.app.slug}`, consent(githubSays(gh.app.slug), back, q, githubCode(redirectUri), "Authorize")));
     }
     const install = path.match(/^\/apps\/([^/]+)\/installations\/new$/);
     if (install && m === "GET") {
@@ -937,7 +1009,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       const back = new URL(gh.app.callbackUrl);
       back.searchParams.set("installation_id", "4242");
       back.searchParams.set("setup_action", "install");
-      return html(res, githubPage(`Install ${gh.app.slug}`, consent(gh.app.slug, back, q, githubCode(undefined), "Install")));
+      return html(res, githubPage(`Install ${gh.app.slug}`, consent(githubSays(gh.app.slug), back, q, githubCode(undefined), "Install")));
     }
     if (path === "/login/oauth/access_token" && m === "POST") {
       const form = (req.headers["content-type"] ?? "").includes("json") ? new URLSearchParams(Object.entries((parseJson(raw) ?? {}) as Record<string, string>)) : new URLSearchParams(raw);
@@ -960,14 +1032,94 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     send(res, 404, { message: "Not Found" });
   }
 
+  /**
+   * Google's OAuth web flow for a web client (developers.google.com,
+   * "Using OAuth 2.0 for Web Server Applications"): the consent page stands
+   * in for Google's, with a button that sends the browser back with a code
+   * and the state (or `error=access_denied`). Google sends the browser only
+   * to a redirect URI registered for the client, exactly. The token URL
+   * trades a code once, and a refresh token as long as it isn't revoked,
+   * for the client's id and secret. An access token lasts an hour; a code
+   * asked for with `access_type=offline` brings a refresh token too. Errors
+   * are a 400 (401 for the client) with `{ error, error_description }`.
+   */
+  function google(req: IncomingMessage, res: ServerResponse, path: string, url: URL, raw: string) {
+    const g = state.google;
+    const m = req.method;
+    const q = url.searchParams;
+    if (path === "/o/oauth2/v2/auth" && m === "GET") {
+      if (q.get("client_id") !== g.client.clientId) return html(res, googlePage("Error 401: invalid_client", "<p>The OAuth client was not found.</p>"), 401);
+      const redirectUri = q.get("redirect_uri") ?? "";
+      if (redirectUri !== g.client.callbackUrl) {
+        return html(res, googlePage("Error 400: redirect_uri_mismatch", "<p>You can't sign in to this app because it doesn't comply with Google's OAuth 2.0 policy.</p>"), 400);
+      }
+      const scopes = (q.get("scope") ?? "").split(" ").filter(Boolean);
+      if (!scopes.length) return html(res, googlePage("Error 400: invalid_request", "<p>Missing required parameter: scope</p>"), 400);
+      if (scopes.some((s) => !GOOGLE_SCOPES.has(s))) return html(res, googlePage("Error 400: invalid_scope", "<p>Some requested scopes were invalid.</p>"), 400);
+      const code = `4/${randomBytes(12).toString("base64url")}`;
+      g.codes.set(code, { clientId: g.client.clientId, redirectUri, offline: q.get("access_type") === "offline", scope: scopes.join(" "), exp: Date.now() + 600_000, used: false });
+      const says = `<p>Stadeum (fake) wants to access your Google Account, <b>${g.email}</b>:</p><ul>${scopes.map((s) => `<li><code>${s}</code></li>`).join("")}</ul>`;
+      return html(res, googlePage("Sign in with Google", consent(says, new URL(redirectUri), q, code, "Allow")));
+    }
+    if (path === "/token" && m === "POST") {
+      if (g.down) return send(res, 503, "<html><body>Service Unavailable</body></html>");
+      const form = new URLSearchParams(raw);
+      if (form.get("client_id") !== g.client.clientId || form.get("client_secret") !== g.client.clientSecret) {
+        return send(res, 401, { error: "invalid_client", error_description: "Unauthorized" });
+      }
+      const grant = form.get("grant_type");
+      let scope: string;
+      let refresh: string | undefined;
+      if (grant === "authorization_code") {
+        const given = g.codes.get(form.get("code") ?? "");
+        if (!given || given.used || given.exp < Date.now() || given.clientId !== form.get("client_id")) {
+          return send(res, 400, { error: "invalid_grant", error_description: "Bad Request" });
+        }
+        given.used = true;
+        if (form.get("redirect_uri") !== given.redirectUri) return send(res, 400, { error: "redirect_uri_mismatch", error_description: "Bad Request" });
+        scope = given.scope;
+        if (given.offline) {
+          refresh = `1//${randomBytes(24).toString("base64url")}`;
+          g.refreshTokens.set(refresh, { clientId: given.clientId, scope, revoked: false });
+        }
+      } else if (grant === "refresh_token") {
+        const held = g.refreshTokens.get(form.get("refresh_token") ?? "");
+        if (!held || held.revoked || held.clientId !== form.get("client_id")) {
+          return send(res, 400, { error: "invalid_grant", error_description: "Token has been expired or revoked." });
+        }
+        scope = held.scope;
+        if (g.rotate) {
+          held.revoked = true;
+          refresh = `1//${randomBytes(24).toString("base64url")}`;
+          g.refreshTokens.set(refresh, { clientId: held.clientId, scope, revoked: false });
+        }
+      } else {
+        return send(res, 400, { error: "unsupported_grant_type", error_description: `Invalid grant_type: ${grant ?? ""}` });
+      }
+      const token = `ya29.${randomBytes(24).toString("base64url")}`;
+      g.tokens.push(token);
+      const answer: Record<string, unknown> = { access_token: token, expires_in: 3599, scope, token_type: "Bearer" };
+      if (refresh) answer.refresh_token = refresh;
+      for (const k of g.omit) delete answer[k];
+      return send(res, 200, answer);
+    }
+    send(res, 404, { error: "not found" });
+  }
+
   function githubCode(redirectUri: string | undefined): string {
     const code = randomBytes(10).toString("hex");
     state.github.codes.set(code, { clientId: state.github.app.clientId, ...(redirectUri ? { redirectUri } : {}), exp: Date.now() + 600_000, used: false });
     return code;
   }
 
+  /** What GitHub's page says the App wants. */
+  function githubSays(slug: string): string {
+    const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+    return `<p><b>${esc(slug)}</b> wants to act for <b>@${esc(state.github.login)}</b> on the repositories it is installed on.</p>`;
+  }
+
   /** The page's buttons: back to `back` with the code and the state, or with `error=access_denied`; and what it was given. */
-  function consent(slug: string, back: URL, q: URLSearchParams, code: string, verb: string): string {
+  function consent(says: string, back: URL, q: URLSearchParams, code: string, verb: string): string {
     const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
     const yes = new URL(back);
     yes.searchParams.set("code", code);
@@ -976,7 +1128,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     no.searchParams.set("error_description", "The user has denied your application access.");
     for (const u of [yes, no]) if (q.has("state")) u.searchParams.set("state", q.get("state")!);
     const given = [...q].map(([k, v]) => `<tr><td><code>${esc(k)}</code></td><td><code>${esc(v)}</code></td></tr>`).join("");
-    return `<p><b>${esc(slug)}</b> wants to act for <b>@${esc(state.github.login)}</b> on the repositories it is installed on.</p>
+    return `${says}
 <p><a class="go" href="${esc(yes.toString())}">${verb}</a> <a href="${esc(no.toString())}">Cancel</a></p>
 <p>Sends you back to <code>${esc(back.origin + back.pathname)}</code>.</p>
 <table>${given}</table>`;
@@ -1684,6 +1836,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     strutUrl: `${base}/strut`,
     neo4jUrl: `${base}/neo4j`,
     githubUrl: `${base}/github`,
+    googleUrl: `${base}/google`,
     token,
     adminUser,
     adminPass,
@@ -1739,6 +1892,13 @@ function send(res: ServerResponse, status: number, body: unknown) {
 function githubPage(title: string, body: string): string {
   return `<!doctype html><meta charset="utf-8"><title>${title} · GitHub (fake)</title>
 <style>body{font:15px/1.5 system-ui;margin:0;padding:40px;color:#1f2328;background:#f6f8fa;max-width:44rem}td{padding:2px 12px 2px 0;vertical-align:top;word-break:break-all}a{color:#0969da}a.go{display:inline-block;background:#1f883d;color:#fff;padding:6px 16px;border-radius:6px;text-decoration:none;margin-right:12px}code{font-size:13px}</style>
+<h1 style="font-size:20px">${title}</h1>${body}`;
+}
+
+/** A page of the fake Google. */
+function googlePage(title: string, body: string): string {
+  return `<!doctype html><meta charset="utf-8"><title>${title} · Google (fake)</title>
+<style>body{font:15px/1.5 system-ui;margin:0;padding:40px;color:#202124;background:#fff;max-width:44rem}td{padding:2px 12px 2px 0;vertical-align:top;word-break:break-all}a{color:#1a73e8}a.go{display:inline-block;background:#1a73e8;color:#fff;padding:6px 16px;border-radius:4px;text-decoration:none;margin-right:12px}code{font-size:13px}</style>
 <h1 style="font-size:20px">${title}</h1>${body}`;
 }
 

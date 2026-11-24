@@ -65,6 +65,8 @@ export const env = {
       : undefined,
   /** Auth.js's session secret: the connect seam derives its state key from it. */
   authSecret: () => trimmed("AUTH_SECRET"),
+  /** The secret strut and stadeum-ui share: strut's bearer on the connect seam's refresh route. */
+  connectToken: () => trimmed("CONNECT_TOKEN"),
   /** A connect provider's setting, `CONNECT_<PROVIDER>_<NAME>` (lib/connect.ts names the providers). */
   connect: (provider: string, name: string) => trimmed(`CONNECT_${provider.toUpperCase()}_${name}`),
 };

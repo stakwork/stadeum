@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   askedScopes,
   connectable,
+  fromStrut,
   fromTheBox,
   pickSecrets,
   readAsk,
@@ -56,7 +57,52 @@ describe("the provider table", () => {
   });
 
   it("knows no other provider, nor anything an object has of its own", () => {
-    for (const id of ["slack", "GITHUB", "__proto__", "constructor", "toString", ""]) expect(connectable(id)).toBeUndefined();
+    for (const id of ["slack", "GITHUB", "GOOGLE", "__proto__", "constructor", "toString", ""]) expect(connectable(id)).toBeUndefined();
+  });
+
+  it("has Google only with its connect client set, never with the sign-in's", () => {
+    Object.assign(process.env, { AUTH_GOOGLE_ID: "signin.apps.googleusercontent.com", AUTH_GOOGLE_SECRET: "signin-secret" });
+    expect(connectable("google")).toBeUndefined();
+    process.env.CONNECT_GOOGLE_CLIENT_ID = "box.apps.googleusercontent.com";
+    expect(connectable("google")).toBeUndefined();
+    process.env.CONNECT_GOOGLE_CLIENT_SECRET = "GOCSPX-box";
+    expect(connectable("google")).toMatchObject({ id: "google", clientId: "box.apps.googleusercontent.com", clientSecret: "GOCSPX-box" });
+  });
+
+  it("has Google's two URLs, Gmail's two scopes, a refresh token on every connect, and GOOGLE_TOKEN that refreshes", () => {
+    Object.assign(process.env, { CONNECT_GOOGLE_CLIENT_ID: "box.apps.googleusercontent.com", CONNECT_GOOGLE_CLIENT_SECRET: "GOCSPX-box" });
+    const google = connectable("google")!;
+    expect(google).toMatchObject({
+      name: "Google",
+      authorize: "https://accounts.google.com/o/oauth2/v2/auth",
+      token: "https://oauth2.googleapis.com/token",
+      scopes: ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose"],
+      params: { access_type: "offline", prompt: "consent", include_granted_scopes: "true" },
+      secrets: { GOOGLE_TOKEN: ["access_token"] },
+      refresh: true,
+    });
+    expect(google.base).toBeUndefined();
+    expect(github().refresh).toBeUndefined();
+
+    const url = new URL(startUrl(google, { state: "s.t", scopes: google.scopes, install: false }));
+    expect(url.origin + url.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      access_type: "offline",
+      prompt: "consent",
+      include_granted_scopes: "true",
+      response_type: "code",
+      client_id: "box.apps.googleusercontent.com",
+      redirect_uri: "https://acme.example.com/api/connect/google/callback",
+      scope: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
+      state: "s.t",
+    });
+  });
+
+  it("puts both of Google's URLs under CONNECT_GOOGLE_URL, a fake Google's", () => {
+    Object.assign(process.env, { CONNECT_GOOGLE_CLIENT_ID: "c", CONNECT_GOOGLE_CLIENT_SECRET: "s", CONNECT_GOOGLE_URL: "http://127.0.0.1:4555/google" });
+    const google = connectable("google")!;
+    expect(new URL(startUrl(google, { state: "s.t", scopes: [], install: false })).pathname).toBe("/google/o/oauth2/v2/auth");
+    expect(google).toMatchObject({ base: "http://127.0.0.1:4555/google", token: "/token" });
   });
 
   it("has GitHub's install page only with its slug, and github.com unless CONNECT_GITHUB_URL says otherwise", () => {
@@ -174,6 +220,21 @@ describe("what a connect asks for", () => {
     expect(ask("install=1")).toMatchObject({ ok: false, status: 400, message: "GitHub has no install page here." });
     process.env.CONNECT_GITHUB_SLUG = "stadeum";
     expect(ask("install=1")).toMatchObject({ ok: true, ask: { install: true } });
+  });
+});
+
+describe("strut, on the refresh route", () => {
+  it("is the bearer of CONNECT_TOKEN, and nobody is without it", () => {
+    process.env.CONNECT_TOKEN = "connect-secret";
+    expect(fromStrut("Bearer connect-secret")).toBe(true);
+    for (const h of ["Bearer connect-secreT", "Bearer connect-secret2", "Bearer connect", "bearer connect-secret", "connect-secret", "Bearer ", "", null]) {
+      expect(fromStrut(h), String(h)).toBe(false);
+    }
+    process.env.SHARED_API_TOKEN = "deployment-key";
+    expect(fromStrut("Bearer deployment-key")).toBe(false);
+    delete process.env.CONNECT_TOKEN;
+    expect(fromStrut("Bearer connect-secret")).toBe(false);
+    expect(fromStrut("Bearer ")).toBe(false);
   });
 });
 
