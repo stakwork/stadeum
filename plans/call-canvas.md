@@ -11,8 +11,8 @@
 > The canvas app is being worked on at the same time. This plan asks it for
 > one view (§6.3) and one Concept page (§3).
 >
-> **Ruled 2026-11-24 (Evan):** the scribe runs on Sonnet, since it decides
-> every card that goes on the canvas; a recording has no budget by default
+> **Ruled 2026-11-24 (Evan):** the scribe runs on the call's model, as a
+> job the call's turns start does; a recording has no budget by default
 > (§3).
 
 ## Problem
@@ -145,13 +145,13 @@ POST /workflows/job/run
   spoken.
 - **One at a time.** While a turn runs, a new launch is `job_busy:`. Voice
   keeps the chunk and sends it with the next.
-- **Sonnet (ruled).** The scribe decides every card that goes on the
-  canvas; `canvas` is code that checks and writes what it planned. So voice
-  passes `params.model: sonnet` on every scribe turn (aieo's alias,
-  `claude-sonnet-5-5` today). On a box a job otherwise runs on the org's
-  default (`stack/strut/host-config.json` unpins `job`'s model,
-  `docs/models.md`), which may be a cheaper model. A box whose model list
-  leaves Sonnet out refuses the turn at the gateway, and the chat says so.
+- **The call's model (ruled).** A job a turn starts runs on that turn's
+  model (strut `createStrut.ts`, `launchingTurnOf`: the turn's
+  `params.model` goes to the job). Voice launches the scribe's turns
+  itself, so nothing is inherited: it passes the model it passes on the
+  call's own turns, `VOICE_MODEL` (`sonnet` unless set,
+  `member-config.ts`). The scribe then writes on the model a job started
+  from the call would.
 - **No budget (ruled).** A recording takes none by default.
 
 The job gives the rest:
