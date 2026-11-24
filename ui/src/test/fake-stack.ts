@@ -10,7 +10,8 @@
  *   /strut    — strut: /health, /apps (the list, each app's versions,
  *               usage, what is live and the pin), /brand, /auth/ticket and
  *               the app page a ticket opens (it posts `strut:ready` to its
- *               host, as strut's does), /llm/delegations, /llm/models,
+ *               host, as strut's does, and `strut:open` for a chat in
+ *               Jamie from a button), /llm/delegations, /llm/models,
  *               /secrets[/:name], /actors/:actor/secrets, /packages (what is
  *               installed, search, install — with `wait: false` a record
  *               that walks strut's phases over `state.installMs`, read at
@@ -1747,7 +1748,8 @@ function html(res: ServerResponse, body: string, status = 200) {
 }
 
 /** Strut's UI showing one app alone (`?app=<name>&solo=1`), as the frame opens it. It tells
- *  the host that asked (`embed_origin`) when it is on screen, as strut's does (API.md §14.3). */
+ *  the host that asked (`embed_origin`) when it is on screen, as strut's does (API.md §14.3),
+ *  and an app but Jamie has a button that opens a chat in Jamie as the page (`strut:open`). */
 function embedPage(who: { actor: string; role: string } | undefined, q: URLSearchParams, apps: FakeApp[] = [], readyAfter = 0): string {
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
   const name = (q.get("app") ?? "").replace(/@v\d+$/, "");
@@ -1767,7 +1769,11 @@ function embedPage(who: { actor: string; role: string } | undefined, q: URLSearc
       : `<h1 style="font-weight:600;font-size:18px">${esc(app.title)}</h1>
 <p>App: <code>${esc(app.name)}</code>${q.get("solo") === "1" ? " alone" : ""}, input <code>${esc(q.get("input") ?? "(none)")}</code>, theme <code>${esc(q.get("theme") ?? "dark")}</code></p>
 <p>Signed in as actor: <code>${esc(who.actor)}</code>, role <code>${esc(who.role)}</code></p>
-<p>This page stands in for strut's app host. It was opened with a one-use sign-in ticket, not the shared token.</p>`;
+<p>This page stands in for strut's app host. It was opened with a one-use sign-in ticket, not the shared token.</p>${
+          app.name === "strut/jamie"
+            ? ""
+            : `\n<p><button onclick="parent.postMessage({type:'strut:open',app:'strut/jamie',input:'session=fake-chat'},new URLSearchParams(location.search).get('embed_origin'))">Open a chat in Jamie</button></p>`
+        }`;
   return `<!doctype html><meta charset="utf-8"><title>Strut (fake)</title>
 <style>body{font:15px system-ui;margin:0;padding:32px;color:#333;background:#fafafa}code{background:#eee;padding:2px 6px;border-radius:4px}</style>
 ${body}

@@ -10,7 +10,9 @@ import { StrutFrame } from "./strut-frame";
  * on the home, kept open but hidden everywhere else, so coming back is
  * instant and nothing typed in it is lost. The home's `?input=` is read
  * here, as a layout gets no search params; off the home the frame gets
- * none and leaves the URL alone.
+ * none and leaves the URL alone. Another app that opens the assistant at
+ * a chat (`strut:open`) lands on `/?input=session%3D<id>`: the frame, now
+ * shown, opens there afresh unless it is at that chat already.
  */
 export function HomeFrame({ app, origin }: { app: Pick<App, "name" | "title">; origin: string }) {
   const shown = usePathname() === "/";

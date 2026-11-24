@@ -211,6 +211,10 @@ admins only) and strut's apps.
   here (`&embed_page=https://<box>/`, or `/apps/<name>`), which strut hands
   the app as where a person opens it: Jamie's Share copies that page with
   the conversation's `input`, the same address the bar shows.
+- An app that opens another as the page (`strut:open`, as Code's link to
+  a workspace's chat) takes stadeum to that app's page with its `input`:
+  Jamie's chat is `/?input=session%3D<id>`. An app that is not one of the
+  person's opens nothing.
 - Organisation → Apps (`/apps`, admins only) manages what strut serves: per
   app, what is live (every publish, or a held version), its drafts, its
   pin and its usage warnings. An app's versions

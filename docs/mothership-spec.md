@@ -58,7 +58,7 @@ A v2 macaroon is a chain of signed blocks plus a proof key: each block is `{cave
 
 - Stadeum: per page load, `POST {strut}/auth/ticket {actor, role}` (Bearer shared token; `role` the person's stadeum role, `admin` | `member`) → `{ticket, expiresAt}`, a sign-in ticket good once for 60 s; iframe `{STRUT_PUBLIC_URL}/?ticket=<ticket>&embed_origin=<stadeum origin>[&wf=&run=]` (`ui/src/lib/strut/client.ts`). Strut's UI trades it at `POST /auth/session {ticket}` for its own `SameSite=Lax` session cookie as that actor, with that role, and takes it off the URL (strut `specs/API.md` §13.1).
 - The cookie reaches the frame only when strut and stadeum-ui are the same site: `strut.$HOST` under `$HOST` (`stack/caddy/Caddyfile`).
-- `?embed_origin=` makes strut's UI post `{type:"strut:location", params:{wf,run,v,chat,elicit}}` to the parent (`web/src/embed.ts`). `&embed_page=` (on that origin) names stadeum's page for an app, which strut hands the app to build its links to paste on.
+- `?embed_origin=` makes strut's UI post `{type:"strut:location", params:{wf,run,v,chat,elicit}}` to the parent (`web/src/embed.ts`); an app's page alone posts `{type:"strut:ready"}` once it is on screen, `strut:location` with its `input`, and `{type:"strut:open", app, input}` when it opens another app as the page, which stadeum shows as that app's page (`ui/src/app/(app)/apps/strut-frame.tsx`). `&embed_page=` (on that origin) names stadeum's page for an app, which strut hands the app to build its links to paste on.
 - Hive instead mints mcp's `POST {mcp}/mint-token` JWT and frames `{mcp}/lab/?key=<jwt>` (Hive `src/services/strut-embed.ts:45-136`).
 - Gotcha: a raw `?key=STRUT_API_KEY` gives the browser admin rights and NO actor. Never hand the key to a browser.
 
