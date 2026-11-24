@@ -1,8 +1,9 @@
 # Gmail: a person's mail, for Jamie and for their own workflows
 
-> **Status (2026-11-23): proposed.** Items 1 to 4 of §11 are up for
-> review: stakwork/strut#867, stakwork/stadeum#107, stakwork/strut#871
-> and stakwork/strut-gmail#1. Item 5 is under way. Revised the same day:
+> **Status (2026-11-23): proposed, and being built.** Item 1 is merged
+> (stakwork/strut#867). Items 2, 3 and 4 are up for review:
+> stakwork/stadeum#107, stakwork/strut#871 and stakwork/strut-gmail#1.
+> Item 5 is built on a local branch and waits for #1. Revised the same day:
 > after rulings 5 to 7, building blocks in place of one feature; after a
 > mock-up of the app, rulings 8 and 9; and rulings 10 to 12, on whose
 > Google app, strut holding a person's token, and the runs a check makes.
@@ -442,6 +443,12 @@ second mailbox is a second member.
      a day (ruling 12). Removing old summaries too is strut's own work,
      and is needed before a box has many people (§12).
 
+3. **A cost cap a package ships.** Found while building `reply`: a
+   workflow's `maxRunCostUsd` is set on the box (`PUT
+   /workflows/:name/run-cap`), not in its YAML, so a package can't carry
+   the cap §4.2 gives `reply`. Until strut has a way, `reply` runs under
+   the box's default cap. Not built.
+
 Nothing else. No webhook route, no host key, no Gmail code.
 
 ## 8. What stadeum gains
@@ -575,19 +582,21 @@ Each is its own PR against its repo's default branch, never stacked.
   outside; and mail to `name+tag@` arrives in the same mailbox. The
   package's README names the pages.
 
+**Read in strut's code** (`main` @3a8e900e, by the package's session, and
+run by its tests):
+
+- a package's workflow may run `agent` with no built-in tools;
+- a package's step reaches its app's SQLite from a run no page started;
+- a step reads the pages under a Concept by name with `graph/graph-get`.
+  `context/concept` would not do: it inlines the entry page alone.
+
 **To check before building:**
 
 - that Google's refresh never sends a new refresh token. Its sample
   answer has none;
 - with a real account: that mail a mailbox sends to itself carries both
   Sent and Inbox, which `ask` relies on;
-- a package's workflow running `agent` with `toolFilter: ["none"]`.
-  Strut's own workflows do, and no package does yet;
-- counting the drafts still waiting: whether a draft the package left
-  has since been sent or deleted;
-- a package's workflow running a job and waiting for its end (§4.4);
-- a package's step reaching its app's SQLite from a scheduled run, and
-  reading the pages under a Concept by name.
+- a package's workflow running a job and waiting for its end (§4.4).
 
 ## 14. Rejected
 
