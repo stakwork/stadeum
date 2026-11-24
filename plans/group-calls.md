@@ -1,6 +1,16 @@
 # Group calls: Jamie from a box in anyone's call, end to end encrypted
 
-> **Status (2026-11-21): proposed.** Nothing is built. Read against stadeum
+> **Built 2026-11-24** for strut and the voice service: strut#881 (the
+> `/voice/calls` routes) and sphinx-voice#45–#47, released in 0.44 and on
+> `stable`; checked end to end against a local LiveKit through strut's
+> routes. Open: Peel (stakwork/peel#608 for iOS and Mac; Android under
+> way) and meet (work item 4). What the build found: the silence pad is
+> 2.4 s, not the 1 s below (Kroko decodes in 1.28 s chunks, and a 1 s pad
+> lost phrases), with `rule2` at 0.8 s; a ticket is refused for a room the
+> box is not in (§7); a caption's speaker is its `lk.transcribed_track_id`,
+> not the text stream's sender.
+>
+> **Status (2026-11-21): proposed.** Nothing was built then. Read against stadeum
 > `main` @ce48190, stakwork/sphinx-voice `main` @96d5998, strut `main`
 > @bfb0746b, stakwork/peel `main` @6b80cda8, stakwork/peel-android `main`
 > @ede0f2d and stakwork/meet `main` @bbe0e9c.
@@ -259,14 +269,19 @@ it cannot decrypt the call, so it hears nothing.
 
 ## 6. What still leaves the box
 
-The room's audio and text never do. A request does:
+The room's audio never does. Of its text, only this does: a request,
+and a recording (below).
 
 - **The gate** sees the last 20 minutes of the call (`classifier.ts`),
   each time someone says "Jamie".
 - **A turn** carries the request and its excerpt (`transcript.ts`, at most
   15 minutes) to the orchestrator.
 
-Both go to the box's model, as every strut turn does. A box that uses a
+**While a call is recorded on the canvas** (`call-canvas.md` §7), everything
+said reaches the box's model too, a chunk at a time, and everyone in the
+call is told.
+
+All of it goes to the box's model, as every strut turn does. A box that uses a
 private provider (strut `docs/privacy.md`: Private AI, Maple) keeps them
 private too; that is the box's choice, not this plan's.
 

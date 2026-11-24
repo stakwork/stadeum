@@ -1,6 +1,14 @@
 # Recording a call on the canvas: Jamie takes the notes and shows them
 
-> **Status (2026-11-24): proposed.** Nothing is built. Builds on
+> **Built 2026-11-24:** the recording, in sphinx-voice#44 and #47
+> (released in 0.44, on `stable`), and strut's half of the screen share,
+> `GET /apps/look/stream` (strut#882); group-calls.md §6 now says what
+> recording sends (§7 here). Open: the Call Canvas page and the presenter
+> view (the canvas package, under way), voice's screen-share track,
+> "Record on the canvas" in Peel (stakwork/peel#608 for iOS and Mac;
+> Android under way).
+>
+> **Status (2026-11-24): proposed.** Nothing was built then. Builds on
 > `group-calls.md` (proposed, nothing built either): a box's `voice` service
 > in an encrypted group call, hearing each person with strut's streaming
 > STT. Read against stadeum `main` @38d3df9, stakwork/sphinx-voice `main`

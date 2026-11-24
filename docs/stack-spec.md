@@ -312,7 +312,8 @@ checked".
 ### voice
 - `sphinxlightning/sphinx-voice:${VOICE_TAG:-stable}` (Docker Hub), run as
   `node dist/one-to-one.js`: sphinx-voice's 1:1 mode, not the image's
-  default meeting mode. Port 8080 on the network only (`LISTEN_HOST=0.0.0.0`):
+  default meeting mode. From 0.44 the same process also joins a group call
+  it is asked into (below). Port 8080 on the network only (`LISTEN_HOST=0.0.0.0`):
   no published port, no route in Caddy. No state, so no volume and no backup
   label.
 - **Its channel.** sphinx-voice publishes an image per GitHub Release
@@ -366,9 +367,35 @@ checked".
   from before calls gets one by running `scripts/install.sh` again, which
   runs the release's `init-env.sh` (a box has no `scripts/` of its own: the
   script is in ops's image).
-- The voice turns ask for `VOICE_MODEL`, sphinx-voice's default `sonnet`,
-  not the org's model from the Models page: what strut resolves for
-  `sonnet`.
+- **A group call** (`plans/group-calls.md`, from 0.44). Peel asks the box
+  into a group call it started: `POST /voice/calls { mode: "group", room,
+  key, record? }` as the person, which strut forwards as it forwards a
+  person's own call. The room is Peel's (`sphinx.call.<name>`, never one of
+  the box's own `sphinx.call.voice.` rooms), the key the call's, made by
+  the Peel that starts it and posted in the call's link after `#`. The box
+  joins first, encrypted, then Peel posts the link. `GET /voice/calls`
+  answers `{ group, livekit }`: whether the box can join one (once strut's
+  streaming recognizer answered; the service loads it at start, downloading
+  it on a box without it) and the LiveKit it joins, so Peel offers the box
+  only on that server. A person linked to the box joins with its ticket
+  (`POST /voice/calls/ticket`, a `box_` identity), so their requests run as
+  them; anyone else's run as the call's starter, on the conversation
+  `host/voice/<call>`. A ticket is refused for a room the box is not in:
+  the LiveKit key the box holds is admin over Hive's unencrypted calls too.
+  The box hears each person through strut's `/audio/stream`, speaks with
+  Kokoro, puts live words on encrypted `lk.transcription` text streams, and
+  runs its gate through strut's `llm` step. Nothing new is needed in `.env`: no
+  service, port, secret or setting.
+- **Recording a call on the canvas** (`plans/call-canvas.md`, from 0.44).
+  "Jamie, take notes on the canvas", or `record: true` when Peel asks the
+  box in, starts a job of kind `Call Canvas` whose turns the service sends
+  chunks of the call, cut at pauses; everyone in the call is told. While a
+  call is recorded, everything said reaches the box's model, not only what
+  a request sends.
+- **The model.** From 0.44 the voice turns ask for none unless
+  `VOICE_MODEL` is set, so they run on strut's default: the org's model
+  from the Models page, as a person's turns in Jamie do. A group call's
+  gate asks for `VOICE_GATE_MODEL`, else the same default.
 
 ### treasury
 - `ghcr.io/stakwork/sphinx-daemon:${TREASURY_TAG:-stable}` (stakwork/sphinx
@@ -1181,8 +1208,6 @@ crash-looped, and its lab would not boot without a provider key.
 
 - **Calls.** A box running its own LiveKit, as an option beside the central
   one (decided 2026-11-14: until then, every box shares the central pair).
-  sphinx-voice's voice turns on strut's default model when `VOICE_MODEL` is
-  unset.
 
 - The node `created_by` property: `graph/create-node` passes `ctx.actor`, but
   a verify run's node came back with `created_by = NULL` although the run's
