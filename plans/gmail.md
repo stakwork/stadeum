@@ -1,8 +1,9 @@
 # Gmail: a person's mail, for Jamie and for their own workflows
 
-> **Status (2026-11-23): proposed.** Nothing is built. Revised twice the
-> same day: after rulings 5 to 7, building blocks in place of one
-> feature; and after a mock-up of the app, rulings 8 and 9.
+> **Status (2026-11-23): proposed.** Nothing is built yet; items 1, 2 and
+> 4 of §11 are under way. Revised the same day: after rulings 5 to 7,
+> building blocks in place of one feature; after a mock-up of the app,
+> rulings 8 and 9; and ruling 10, on whose Google app.
 >
 > - **The goal (Evan, 2026-11-23):** "letting Jamie send and receive email
 >   as you". Three uses came up: "help me respond to things", email as a
@@ -35,6 +36,7 @@
 | 7 | A team address | **Later.** "Just make sure its generic enough for now" (§6) |
 | 8 | Who may get a reply without a click | **The person picks one of three:** Draft, Send to people I've written to, Send to anyone. Sending only to people the person has written to was "too strict" as the one rule |
 | 9 | A person's own instructions | **A text box in the app,** kept for each person by the package and read into their replies. It moves to a page of the person's own when strut has one |
+| 10 | Whose Google app | **Both, "just as easily".** A shared app, so a person can "just connect and go", and a box's own, on the same two settings (§3) |
 
 How a person connects was decided before: the connect seam
 (`plans/software.md`, Decided row 4).
@@ -123,34 +125,49 @@ which also gets `CONNECT_URL`.
 
 ## 3. Whose Google app
 
-What Google's pages say (2026-11-23):
+**Either, just as easily** (ruling 10). The seam reads one client id and
+secret from the box's settings and doesn't know whose they are. A person
+clicks **Connect Google** in both cases.
+
+| | A shared app, Stakwork's | The box's own app |
+| --- | --- | --- |
+| What the admin does | Nothing | Makes the app in the company's Google Cloud project, once, in about ten minutes |
+| Who can connect | Anyone with a Google account, gmail.com too | The company's Google Workspace accounts |
+| What it needs first | Google's review | Nothing |
+| Who gives the box its two settings | Fleet, as it gives GitHub's | The admin |
+| Whose name Google's consent page shows | Stakwork's app | The company's own |
+
+**The shared app is the goal:** connect and go. What Google's pages say
+about it (2026-11-23):
 
 - **Both scopes are restricted.** A public app that asks for one must
   pass Google's verification. One that keeps the data on a server must
   also pass a security assessment by an outside assessor, again at least
   every 12 months.
-- **An Internal app is exempt:** one owned by a Google Workspace
-  organisation and offered only to its own people.
-- **An app in testing** is held to 100 people, and each person's grant
-  ends after seven days.
+- **Until it is verified,** it shows a warning page and is held to 100
+  people in all. In testing, each person's grant also ends after seven
+  days.
 
-**Each box gets its own Google app, marked Internal,** made by the box's
-admin in their company's Google Cloud project (§10 decision 1). It takes
-about ten minutes:
+The review is slow, so it starts now (§11 item 9).
 
-1. Make a project and turn on the Gmail API.
-2. Set the consent screen's audience to Internal.
-3. Make a web OAuth client with the redirect URL the box shows:
-   `redirectUri("google")`, the bounce's on a box that has one.
-4. Give the box the client id and secret.
+**The box's own app is how a box starts before that,** and what a
+self-hosted box uses for good: Stakwork's secret stays on Stakwork's
+machines (`plans/software.md` §8). Google exempts an Internal app from
+the review: one owned by a Google Workspace organisation and offered
+only to its own people. The admin:
 
-It works for a company on Google Workspace, hosted or not, with nothing
-central. It does not work for a personal gmail.com account. That waits
-for an app Stakwork gets verified (§12).
+1. makes a project and turns on the Gmail API;
+2. sets the consent screen's audience to Internal;
+3. makes a web OAuth client with the redirect URL the box shows:
+   `redirectUri("google")`, the bounce's on a box that has one;
+4. gives the box the client id and secret.
 
-**It is never the sign-in's Google client** (`AUTH_GOOGLE_*`). On a hosted
-box that one is Stakwork's, shared through the bounce. Restricted scopes
-on it would put every box's sign-in behind Google's review.
+**Neither is a way for mail to leave the box.** With either app the box
+talks to Google itself and keeps its own people's tokens. Nothing passes
+through Stakwork.
+
+**It is never the sign-in's Google client** (`AUTH_GOOGLE_*`). Restricted
+scopes on it would put every box's sign-in behind Google's review.
 
 ## 4. The package: `stadeum/gmail`
 
@@ -454,6 +471,9 @@ Software bundle.
   agent's shell can read it. `gmail.compose` sends as well as drafts, so
   the token can send whatever the person chose. Draft binds the package,
   not the token.
+- **The shared app's secret is on every hosted box,** in stadeum-ui
+  alone, as GitHub's and the sign-in's are (`plans/software.md` §10). A
+  refresh token copied off a box is no use without it.
 - **A page under `Mail Replies` steers everyone's replies.** Whoever may
   edit pages on the box may do that. Open: whether these pages should be
   an admin's to change.
@@ -468,7 +488,7 @@ Software bundle.
 
 | # | Question | Default | Why |
 | --- | --- | --- | --- |
-| 1 | One Google app per box, or one Stakwork app for every box | **One per box, Internal**, made by its admin | It needs no verification and nothing central, and works for a self-hosted box. A Stakwork app needs Google's review and a yearly assessment first (§3) |
+| 1 | Which Google app a box uses first | **Its own, until the shared one is verified.** Then a hosted box uses the shared one | Ruling 10: both work on the same two settings. Before Google's review the shared app can't take more than 100 people (§3) |
 | 2 | The sign-in's Google client, or a new one | **A new one** | §3 |
 | 3 | Which scopes | **`gmail.readonly` and `gmail.compose`** | The least that reads and drafts. `gmail.modify` would add labels, which nothing here needs |
 | 4 | How new mail is noticed | **Looked for every five minutes** | A few minutes is soon enough for mail. Gmail's push needs a Pub/Sub topic, a public route in strut and a check of Google's signed token (§12) |
@@ -478,7 +498,7 @@ Software bundle.
 | 8 | Does a sent reply say Jamie wrote it | **No** | As Support's replies don't. A box that wants a line adds it on its own page |
 | 9 | Strut holding the Google token | **Needs Evan's yes.** Accepted as GitHub's was, with the person's or the Google admin's revocation | Rule 4. Without it there is no feature |
 | 10 | Attachments | **Named to the model, never read or sent** | Simple first |
-| 11 | Where the client id and secret go | **`.env`**, through `install.sh`'s answers | As `CONNECT_GITHUB_*`. An admin page comes later, with Slack's (`plans/jamie-in-slack.md` §11) |
+| 11 | Where the client id and secret go | **`.env`**, through `install.sh`'s answers: fleet's for the shared app, the admin's for a box's own | As `CONNECT_GITHUB_*`. On a box fleet runs, `.env` is fleet's to write, so that box's own app needs fleet's hand until there is an admin page (§12) |
 | 12 | Whose mail `ask` takes | **Only mail the mailbox itself sent** | The mailbox proves who wrote it, so nothing has to trust a From address |
 | 13 | Whose instructions win | **The person's, over the shared pages** | They steer only that person's replies |
 
@@ -496,6 +516,7 @@ Each is its own PR against its repo's default branch, never stacked.
 | 6 | strut-gmail | **Send** (§4.3): the two Send choices, the rules, Sent for you | 5 |
 | 7 | strut-gmail | **`ask`** (§4.4): the workflow and its row | 3, 4 |
 | 8 | strut-gmail | **Asked in a chat** (§4.5): the job agent's four tools and the `Email` page | 4 |
+| 9 | none | **The shared Google app** (§3): Stakwork registers it, with a client of its own, and takes it through Google's review. Fleet then gives every hosted box its two values, as it gives GitHub's. No code | 2 |
 
 ## 12. Later
 
@@ -512,8 +533,9 @@ Each is its own PR against its repo's default branch, never stacked.
 - **Gmail's push** in place of the five-minute look. Google signs each
   delivery with a token of its own, which none of the three schemes
   planned for strut's webhook routes checks.
-- **Stakwork's verified app,** for gmail.com accounts and for a hosted box
-  with no setup.
+- **A page where an admin sets a box's own Google app,** so a hosted box
+  needs nobody at fleet and no restart. `plans/jamie-in-slack.md` §11 has
+  the same for Slack.
 - **Attachments** read and sent.
 - **Calendar,** a second Google package on the same token, so a reply can
   answer "are you free Tuesday".
