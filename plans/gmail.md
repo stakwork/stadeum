@@ -1,9 +1,9 @@
 # Gmail: a person's mail, for Jamie and for their own workflows
 
-> **Status (2026-11-23): proposed, and being built.** Items 1 and 4 are
-> merged (stakwork/strut#867, stakwork/strut-gmail#1). Items 2, 3 and 5
-> are up for review: stakwork/stadeum#107, stakwork/strut#871 and
-> stakwork/strut-gmail#2, with strut's cost cap as stakwork/strut#874.
+> **Status (2026-11-23): proposed, and being built.** Items 1 to 4 are
+> merged (stakwork/strut#867, stakwork/stadeum#107, stakwork/strut#871,
+> stakwork/strut-gmail#1). Item 5 is up for review as
+> stakwork/strut-gmail#2, and strut's cost cap as stakwork/strut#874.
 > Item 6 is built on a local branch and waits for #2. Revised the same
 > day:
 > after rulings 5 to 7, building blocks in place of one feature; after a
@@ -327,8 +327,11 @@ Email as a way to reach Jamie.
    anyone else sends to that address starts nothing.
 3. It runs a job with the mail as its brief, as the person, so with
    their GitHub token and their pods.
-4. When the job ends, **`send`** answers in the thread with the job's
-   reply and its links: a pull request, a pod.
+4. On its next look after the job ends, **`send`** answers in the thread
+   with the job's reply and its links: a pull request, a pod. Strut has
+   no way to tell a package's workflow that a job ended, so `ask` looks
+   at the jobs it started each time it runs. An answer can be up to five
+   minutes late (§12).
 
 A reply the person sends in that thread continues the same job.
 
@@ -563,6 +566,8 @@ Each is its own PR against its repo's default branch, never stacked.
   same place for a person's own instructions.
 - **A handoff that opens a chat** with Jamie about the thread
   (`conversation/start`).
+- **A workflow told when a job it started ends,** in strut, so Email
+  Jamie answers at once and not on its next look.
 - **Old run summaries removed,** by strut's retention, keeping each
   person's newest success for where their next run starts. Needed before
   a box has many people (ruling 12).
@@ -603,15 +608,16 @@ run by its tests):
 - a package's workflow may run `agent` with no built-in tools;
 - a package's step reaches its app's SQLite from a run no page started;
 - a step reads the pages under a Concept by name with `graph/graph-get`.
-  `context/concept` would not do: it inlines the entry page alone.
+  `context/concept` would not do: it inlines the entry page alone;
+- a package's workflow can start and continue a job as the person, but
+  nothing tells it that the job ended (§4.4).
 
 **To check before building:**
 
 - that Google's refresh never sends a new refresh token. Its sample
   answer has none;
 - with a real account: that mail a mailbox sends to itself carries both
-  Sent and Inbox, which `ask` relies on;
-- a package's workflow running a job and waiting for its end (§4.4).
+  Sent and Inbox, which `ask` relies on.
 
 ## 14. Rejected
 
