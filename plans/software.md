@@ -108,6 +108,21 @@
 > panels (row 25; §5, items 24 to 26; strut `plans/package-seams.md`).
 > §3.1, §3.2 and §14.4 are revised. Only the quoted rulings are the
 > owner's; the rest is proposed.
+>
+> **2026-11-23, after the first real Set Up:** it worked, but its job
+> ran outside any chat, so the person who pressed Set Up couldn't see it.
+> The owner ruled:
+> - Set Up takes optional "additional information". Jamie then *"just
+>   goes for it"*, and the person lands in a Jamie chat of their own with
+>   the job already running. No model turn decides it, and there is no
+>   extra click (row 26). *"THE JAMIE CHAT IS THE BEST UI FOR ALMOST
+>   EVERYTHING."*
+> - Pod Setup runs the app a person clicks through first, then *"any it
+>   can"* beside it, *"but not required"*, with no rule to ask first
+>   (row 27).
+>
+> Strut gains a fifth seam for this, `conversation/start` (§5, item 27;
+> strut `plans/package-seams.md` §7). §3.2 and §14.4 are revised.
 
 ## Problem
 
@@ -153,6 +168,8 @@ can't be fetched (strut `src/packages/git-source.ts:28`).
 | 23 | Who makes workspaces | **Anyone the Code app is shown to,** from the repositories their own token reaches: they pick the repositories, and Jamie sets the workspace up and bakes it in a job they can watch, as them and on their bill. **Jamie too,** when a job needs a workspace that doesn't exist. Making one starts its setup through `on: created` (§5, item 25), so Code names no other package (§3.2, §14.4). | **owner** (2026-11-23, anyone included: *"anyone can make a workspace"*); the mechanism is proposed |
 | 24 | The default workspace | **Every repository picked on GitHub.** When an org granted all of its repositories, the five most recently pushed. **It waits for Set up:** the Code app suggests it while the box has no workspace, and writes it only when someone presses Set up, so its setup runs as them (§14.4). | **owner** (2026-11-23, *"default waits for Set up"*); five, and a suggestion that is written only at Set up, are proposed |
 | 25 | How packages extend strut | **Through generic seams, never code in strut that knows a package's domain.** Packages meet in the graph by type name. Strut adds files on a node, workflows on graph writes, and a forge's steps by host, beside panels (§5, items 14 and 24 to 26; strut `plans/package-seams.md`). | **owner** (2026-11-23: the goal); the seams are proposed |
+| 26 | Where a workspace's setup shows | **In a Jamie chat of the person who pressed Set Up.** Set Up's optional "additional information" goes on the workspace as its `note`. pods' `setup` starts the chat with strut's `conversation/start`: the person's message ("Set up stakwork" and the note), strut's fixed reply ("On it."), and the job already running. The chat is about the workspace, so Code finds it and opens it (§3.2, §14.4; §5, item 27). | **owner** (2026-11-23: a chat, automatic, no extra click); the mechanism is proposed |
+| 27 | What Pod Setup runs | **The app a person clicks through first, end to end; then every other repository that can run beside it, wired to it,** since a change often spans several (stadeum and strut). One that can't run in a pod stays as source, to read and change in pull requests. No rule to ask first: Jamie takes whatever approach fits. The workspace's page says what runs and what is only source. | **owner** (2026-11-23) |
 
 ## 1. What Hive does
 
@@ -583,11 +600,21 @@ repository would write the same `.pod/`. So a pod for a workspace is:
 - **Setting a workspace up** is pods' own. `on: created: Workspace` (§5,
   item 25) runs pods' `setup`. When the workspace was made outside a job
   (a person in the Code app, the default included, which is written only
-  when someone presses Set up), `setup` starts
-  a job on the `Pod Setup` page as the person who made it. A job that
+  when someone presses Set up), `setup` starts a Jamie chat for the
+  person who made it, with strut's `conversation/start` (§5, item 27;
+  row 26). It sends:
+  - `message`: "Set up <name>", and under it the workspace's `note`;
+  - `job`: the title, `kind: "Pod Setup"` and a brief;
+  - `about`: the workspace.
+
+  Until 2026-11-23 it called `job/start`, outside any chat. A job that
   makes a workspace sets it up itself, as the `Code Change` page says
   today. `on: deleted: Workspace` deletes the workspace's images.
   `stadeum/code` names neither.
+- **What Pod Setup runs** (owner, row 27): the app a person clicks
+  through first, end to end, then every other repository that can run
+  beside it. One that can't stays as source. The `Pod Setup` page says
+  so as posture, with no rule to ask first.
 - **A workspace with no node** (`stadeum/code` not installed, or an
   unknown name): `claim` behaves as before, and the agent clones by hand.
   Its `/workspaces/.pod` is kept in its image alone.
@@ -764,6 +791,7 @@ manifest, and gains no new kind of thing.
 | 24 | **Files on a node:** a package's step keeps a folder of files on any node, its own package's folder alone, versioned at each write and gone with the node (strut `plans/package-seams.md` §1) | A workspace's `.pod/` in strut (row 22), kept by pods on code's `Workspace` with neither naming the other (§3.2) | A package has a node's fields, a run's artifacts and an app's SQLite. Nothing outlives a run and goes with a node |
 | 25 | **Workflows on graph writes:** `on:` in `strut.yaml`, a workflow run when a node of a type is created, updated or deleted, as the person whose run wrote it. Item 4's events join the same list (`package-seams.md` §2) | Making a workspace sets it up (§3.2), and adding a repository makes its webhook (§3.1), with no package naming another (open question 16) | Strut hears every write for its live feeds (`src/graph-writes.ts`) and runs nothing on one |
 | 26 | **A forge's steps by host:** a `provides.git` entry names the forge's `repositories` and `pull_request` steps, and strut's `git/repositories` and `git/pull-request` pick them by host (`package-seams.md` §4) | The Code app lists what every forge reaches (§14.4), and the `Code Change` page opens a pull request on any forge (item 17) | Each caller names `github/*` |
+| 27 | **A package starts a Jamie chat:** `conversation/start { message, job, about? }` starts, as the run's person, a new chat whose first turn is their message, strut's fixed reply and the job already running, with no model turn, and the job's end wakes it. `conversation/list { about }` finds the chat about a node (strut `plans/package-seams.md` §7) | A workspace's setup shows in the chat of whoever pressed Set Up, and Code opens it (row 26) | A job a workflow starts belongs to no chat, the orchestrator always asks the model first, and it is sealed |
 
 Smaller things the packages met, each a fix in strut:
 
@@ -1048,6 +1076,16 @@ Each is its own PR.
     and written at Set up) and stakwork/strut-github#5 (`stadeum/github`
     0.4.0, its list read only, without the webhooks), each merged to
     `main`. The last two reach boxes once promoted to `stable`.
+11. **Setup in a Jamie chat** (rows 26 and 27):
+    - Strut: a package starts a chat (§5, item 27; strut
+      `plans/package-seams.md` §7, work item 5).
+    - `stadeum/code`: Set Up takes optional "additional information",
+      written on the workspace as `note`; right after it, Code finds the
+      chat about the workspace and opens Jamie there; the card links it.
+      In review: stakwork/strut-code#11 (`stadeum/code` 0.8.0), not to be
+      promoted to `stable` until stakwork/strut#858 is merged and released.
+    - `stadeum/pods`: `setup` calls `conversation/start` in place of
+      `job/start`; the `Pod Setup` page's posture (row 27).
 
 ## 13. The GitHub App's settings
 
@@ -1390,7 +1428,8 @@ one app shows it.
   type wins and these fields go on it. A repository is the box's while
   it is in a workspace, and leaves the list when it leaves the last one.
 - **Its workspaces,** as nodes of their own (owner, 2026-11-20). A
-  workspace has a `name` and a link to each of its repositories. It has
+  workspace has a `name`, a link to each of its repositories, and the
+  `note` its Set up was given (row 26). It has
   no main repository (row 20). What runs it is its `.pod/`, which pods
   keeps on it as files (§3.2). What its systems are and how they connect
   is its page, a Concept (§14.2).
@@ -1403,7 +1442,8 @@ one app shows it.
     a forge reaches repositories (strut's `git/repositories`, §5 item
     26), the Code app suggests it with a Set up button. Nothing is written
     until someone presses it, so no setup job starts unasked, and pods'
-    `on: created` needs no exception.
+    `on: created` needs no exception. Its Set up is the same as any other's
+    (below).
   - Adding a repository no longer makes a workspace of its own.
 
 **Its app, Code,** is every person's, and it is about making workspaces:
@@ -1425,11 +1465,21 @@ Code
   any `Repository` that is new, and that is all Code does. The setup is
   pods', on `on: created: Workspace` (§3.2). A new repository's webhook
   is GitHub's, on `on: created: Repository` (§3.1).
+- **Set up** (owner, row 26) has one optional field, "Additional
+  information", for what the person knows ("the UI is strut; peel is for
+  reference"). It goes on the workspace as `note`, which pods' `setup`
+  puts under "Set up <name>" in the chat it starts. Right after Set up,
+  Code asks strut for the chat about the workspace (`conversation/list
+  { about }`, §5 item 27) for a few seconds and opens Jamie there. The
+  person lands in their chat with the job already running, with no extra
+  click. If no chat turns up (no package that sets workspaces up, such
+  as pods, or its setup refused), the card says so.
 - **A workspace's card:** its repositories with `checked` for each, a
   link to its page once it has been baked, and each other package's panel
   (§5, item 14). Pods' panel says whether the workspace is ready and when
   it was baked, and has Set up again. GitHub's says which repositories
-  have a webhook. Until panels exist, the card has the page link alone.
+  have a webhook. Until panels exist, the card has the page link alone,
+  and a link to the chat about the workspace, its newest first.
 - **Change a workspace:** add or remove repositories, rename it, or
   delete it. Deleting one deletes its page and its files, and pods'
   `on: deleted` drops its images.
