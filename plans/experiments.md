@@ -1,8 +1,9 @@
-# Experiments: a change to the pages, tested, whoever made it
+# Experiments: a goal and a budget, and Jamie does the rest
 
-> **Status (2026-11-23): a plan.** Strut does this today for one page at
-> a time, from an admin's Knowledge app. A change of any size, the tab,
-> and Jamie doing it from a prompt are not built.
+> **Status (2026-11-23): a plan.** Strut tests a change to one page
+> today, from an admin's Knowledge app. A budget on a job, a change that
+> spans pages, the form that starts one, and Jamie doing it all are not
+> built.
 >
 > **The goal (owner, 2026-11-23):** *"an Experiments tab in the Knowledge
 > app that generates a bunch of cases for you and runs them all the way
@@ -20,27 +21,49 @@
 > coding benchmarks, anything)"*. *"ideas like 'pods' or 'jamie picking
 > repositories' should JUST BE IN A PROMPT! Thats what i mean by GENERIC
 > - no specific logic about how or why an experiemnt runs."* *"Why does
-> it matter whether a human or jamie did it? Cant it be the same UI?
-> Whats the simplest possible flexible unconstrained way?"*
+> it matter whether a human or jamie did it? Cant it be the same UI?"*
+>
+> **You just set a budget (owner, the same day):** *"The point was for
+> jamie to do all this automatically so we can just go ahead and it
+> makes up all the cases."* The money is not a prompt's to keep: *"why
+> is money cap in the prompt?"* The owner's example:
+>
+> > evan: "Do this experiment of setting up solana dev tools and a full
+> > stack app on top".
+> > jamie: "whats your budget?"
+> > evan: 100 USD
+> > jamie: ok - keeps spinning up and optimizing until it either plateao
+> > in a good spot, or runs out of money! optimizations need to be
+> > GENERIC!!! legal tasks. web design. makeing a video. setting up
+> > pods. writing concepts for recurssive learning. etc etc
+>
+> And then: *"budget means model calls only"*. *"jamie doesnt need to
+> state anything extra. minimal is best"*. *"Just like the pod setup is
+> triggered from the Code app - could we trigger this from the Knowledge
+> app (and it would tie back to the knowledge app of course too, in the
+> trials UI right?)"* *"what about Experiment being the Job kind, and
+> then it has its own children?"*
 >
 > Only the quoted words are the owner's. The rest is proposed. Read
 > against strut `main` @07101d4b and stakwork/pods `main` @95d6c37.
->
-> **Earlier (2026-11-21):** the owner wanted pods to make it as easy for
-> Jamie to try things as it is for an agent on a laptop, and once
-> Software is built *"we'll run some experiments to optimize it"*, from
-> the Knowledge app, as claims on the pods pages. The owner also asked
-> for one design that judges a deliverable, a model guessing the right
-> setup, and questions about a company's own infrastructure, *"REALLY
-> simple and flexible"*, for *"future things we haven't even thought of
-> yet"*.
->
-> Earlier drafts had kinds of case, rounds, limits and a rule for
-> keeping a change. They are gone: this file's history has them.
+> Earlier drafts had kinds of case, rounds, a rule for keeping a change,
+> and the budget in the prompt. This file's history has them.
 
 ## The design
 
-Three things, all strut's already:
+An **experiment** is a goal and a budget. A person gives both. Jamie
+does the rest: makes up the cases, runs them, changes the pages, runs
+them again, and stops when it stops improving or the money is spent.
+
+Strut knows two things about one:
+
+- **Its budget.** A cap on its model calls, kept in code at the gateway,
+  where the money is spent. A prompt can ask Jamie to be careful. It
+  can't stop a run.
+- **Its tests.** What was tried. A test is one change to the pages, run
+  on some cases, with what the claims said with it and without it.
+
+The parts of a test are strut's already:
 
 | | |
 | --- | --- |
@@ -48,74 +71,108 @@ Three things, all strut's already:
 | A **claim** | A sentence the result must make true, with a check that judges it |
 | A **change** | A diff of the pages: any number edited, added or removed |
 
-An **experiment** is one change, run on some cases, with what the claims
-said with it and without it. That is the whole record: the diff, the
-cases, each side's verdicts, and what each run took and cost.
+Strut knows nothing more:
 
-Strut knows nothing more about one:
-
-- **No goal, round, limit or score in code.** Nothing decides. Whoever
-  ran it reads the verdicts and uses the change or doesn't.
-- **A climb is experiments in a row,** each starting from the best so
-  far. Whoever runs it picks the next.
-- **Everything else is a prompt:** where the cases come from, how many,
-  what to change, how many things at once, when to stop.
+- **No round, score or rule for keeping, in code.** A climb is tests in
+  a row, each starting from the best so far. Jamie picks the next.
+- **Everything else is a prompt:** what the cases are, how many, what
+  good means, what to change, how many things at once, when it has
+  stopped improving.
+- **It names no kind of work.** A case is whatever a workflow can run,
+  and a check is any step. Pods, a legal task and a video differ only in
+  what the prompt says.
 
 **A prompt is** a person's message, and pages. The subject's own pages
 say what the work is (`Pod Setup`). One page, `Experiment`, says how to
-experiment well: read every failure before changing anything, make every
-change the reading supports, keep some cases back, never reword a claim
-to pass it, stop when it stops improving. It is a page, so it has claims
-of its own and can be experimented on.
+experiment well: make up cases that cover the goal, read every failure
+before changing anything, make every change the reading supports, keep
+some cases back, never reword a claim to pass it, stop when it stops
+improving. It is a page, so it has claims of its own and can be
+experimented on.
 
-**A person and Jamie are the same.** Each adds a case, adds a claim,
-tests a change and uses it, through the same steps. The record says who.
-Asking Jamie is one more way to press the same buttons.
+**`Experiment` is a kind of job, and its children are kinds of
+experiment** (owner). Strut's `Job` page already says each child is a
+kind, and "A kind's own children refine it", as `Pod Setup` refines
+`Pod`. A page under `Experiment` says what one sort of experiment needs:
+for pods, to pick repositories, some the person's and some common, in a
+mix of languages. So that prompt has a home, and nobody types it twice.
 
-## The tab
+**A person can do any of it by hand,** through the same steps, and it
+is the same record drawn the same way. The record says who made each
+case, claim and change.
 
-Every experiment, newest first, a person's and Jamie's drawn alike. The
-numbers are made up.
+## Starting one
+
+From the Knowledge app, as Set up is from the Code app:
 
 ```text
-Experiments                  [ What should get better?                ]
+Experiments
 
-  Pod setup feels real                                  Jamie · today
-    Seed data, and a stub for each outside service        3 pages
-      With it      71 of 90   22 min   $0.49 a run
-      Without it   52 of 90   27 min   $0.58 a run        [Use it]
-    A page for each stack                                 5 pages
-      With it      64 of 90   24 min   $0.55 a run
-      Without it   71 of 90   22 min   $0.49 a run
+  What should get better?   [                                      ]
+  Budget                    [ $     ]                       [Start]
 
-  Orchestrator                                       Dana · 2 days ago
-    Says what its jobs can do                             1 page
-      With it       8 of 8
-      Without it    0 of 8                                [Use it]
+  Solana dev tools and a full stack app    running             $64 of $100
+  A lease review a lawyer would sign       stopped improving   $31 of $50
+  Pod setup feels real                     out of budget       $100 of $100
 ```
 
-- **The box** starts a Jamie chat with the message as its first turn.
-  The experiments that chat makes are listed under its title.
-- **By hand** is what the Knowledge app has today: open a page, Try a
-  change, Test it. It lands in the same list.
-- **A row opens** as a page's test does today: the diff, the verdicts by
-  claim and by case, and each sample (the message, the reply, what it
-  took and cost, the judge's line).
-- **Use it** puts the change on the pages, as today.
+- **Start** opens a Jamie chat with the experiment already running,
+  through the seam Set up uses (`conversation/start`): no model turn
+  decides it, and there is no second click.
+- **It starts a job of kind `Experiment`.** Jamie opens the page under
+  it that fits, as any job does with its kind.
+- **From a page,** the same form starts one about that page. From a
+  page under `Experiment`, it starts one of that kind.
+- **In a Jamie chat,** a person just asks, and Jamie asks for the
+  budget, as in the owner's example.
+- **Nothing is spent before the budget is set.** The steps that run a
+  test answer only a job that has one.
+- **Jamie says nothing extra** before he goes (owner).
+- **It ends one of two ways.** It stops improving, which is Jamie's
+  call. Or the budget is spent, which is strut's: it starts nothing
+  more, the gateway refuses what is in flight, and the chat is told in a
+  fixed line with no model turn. Either way the best so far is there to
+  use.
+
+The list is every job whose kind is `Experiment` or a page under it:
+its goal, what it has spent of its budget, and whether it is running. A
+row opens its chat and the pages it is about.
+
+## Where it shows
+
+In the trials UI the Knowledge app has, on each page's card. Nothing
+new is drawn for an experiment. Its trials show as each is judged, and
+stay after it ends.
+
+- **Every run Jamie makes is a trial.** Its verdict is a dot on the
+  page's check, beside its case, with what the run took and cost. A dot
+  opens its sample, as today: the message, the reply and the judge's
+  line. Once a sample's files are kept ("What strut needs"), it also
+  opens what the run left: a recording, a page it wrote.
+- **Every change he tries is a test.** The diff, a row of dots with it
+  and a row without, each side's time and cost, and which did better. A
+  change that spans pages shows on each page it touches.
+- **Use it** is the button a test has today. A person presses it. The
+  pages don't change while an experiment runs.
+- **A page lists its experiments,** and each opens its chat. The chat is
+  about the page (`conversation/start`'s `about`), as a workspace's chat
+  is in Code.
 
 ## What strut needs
 
 | What | Today |
 | --- | --- |
-| **A change of any size.** A test takes a diff of the tree, and either side can start from an earlier test's change | `test` takes one page's new wording against the page as it is |
-| **The same steps for Jamie:** `knowledge/checks`, `add-check`, `cases`, `trial`, `test`, `use` and `sample` as tools of a job an admin started, which is told when a test's last sample is judged | They answer only strut's own page shown to an admin: "a trial spends, and a page's words are an agent's rules" (open question 1). A trial's end wakes nothing |
-| **Every test in one view,** grouped by the chat that made it, with the box | A page's card lists that page's tests |
+| **A budget on a job:** a cap on the model calls of the job and every run it starts, kept at the gateway | A run carries a cap the gateway keeps, and a person's delegation a ceiling over all their work. Nothing caps a job and what it starts |
+| **A test of a change that spans pages,** either side able to start from an earlier test's change | `test` takes one page's new wording against the page as it is |
+| **The test steps as Jamie's tools:** `knowledge/checks`, `add-check`, `cases`, `trial`, `test` and `sample`, for a job with a budget, which is told when a test's last sample is judged | They answer only strut's own page shown to an admin: "a trial spends, and a page's words are an agent's rules" (open question 1). A trial's end wakes nothing |
+| **The form and the list** in the Knowledge app, and a page's experiments on its card | A page's card has its checks and tests |
+| **A sample's files kept with its verdict:** what its run left, for whoever opens the dot | A sample that ran as a job loses them. Strut closes the job once it is judged, and that deletes its directory |
 | **As many cases as a benchmark has** | At most 20 on a claim |
-| **The `Experiment` page,** under `Job` | Not there |
+| **The `Experiment` page,** under `Job`, and the list reading the kinds under it | Not there. A kind under a kind works already |
 
-That is all. No new kind of node, no workflow of its own, and nothing in
-stadeum: the tab is in strut's Knowledge app, framed as any app is
-(rule 1).
+That is all. The budget is any job's to have, not only an experiment's.
+No new kind of node, no workflow of its own, and nothing in stadeum: the
+Knowledge app is strut's, framed as any app is (rule 1).
 
 Already built, and used as it is:
 
@@ -124,17 +181,24 @@ Already built, and used as it is:
 - each run's time and cost beside its verdicts;
 - a check that is any step, so it can look at the world;
 - Concept branches, which a test's changed side runs on;
-- a package's pages carrying their claims and checks.
+- a package's pages carrying their claims and checks;
+- a cap on one run, kept at the gateway;
+- `conversation/start`, and the chat about a node.
 
 ## Everything else is a prompt
 
-| | What the person says | What judges it |
+The owner's list. Each could be a page under `Experiment`. Only the
+first has been looked at closely. The rest show the shape, and what
+Jamie would make up.
+
+| The goal | A case | A check |
 | --- | --- | --- |
-| **Pods setup** | "Pick ten repositories: some of mine, some common ones, a mix of languages. Set each one up. Improve `Pod` and `Pod Setup` from what went wrong, many changes at once, and try again until it stops getting better." | The claims on `Pod Setup`, which the pods package ships |
-| **A benchmark** | "Load the tasks in this repository as cases. Improve the pages under `Contracts` until the score stops rising. Keep a fifth of the tasks back and score them at the end." | One claim, "The answer matches the task's", whose check is the benchmark's grader |
-| **Knowing without trying** | "Ask twenty questions about what common stacks need to run, and fix the pages that got them wrong." | A claim for each fact: "It names Postgres, Redis and a worker" |
-| **Our own infrastructure** | "Ask about how staging is set up, and fix what the pages get wrong." | A claim for each fact |
-| **One line of one page** | Nothing. A person presses Try a change | The page's claims |
+| **Setting up pods** | A set of repositories to set up | The pods service, and a browser on the pod |
+| **A legal task** | A matter and its documents | A model reading the draft against the claim |
+| **Web design** | A brief for a page | A model looking at the page in a browser |
+| **Making a video** | A brief | A model watching the result |
+| **Writing concepts** | Conversations to learn from | A model reading the pages that were written |
+| **A benchmark** | One of its tasks | Its grader |
 
 The answer to a case is a claim's sentence, or something its check
 knows. The run sees neither: it is handed the page, never its claims.
@@ -143,6 +207,10 @@ knows. The run sees neither: it is handed the page, never its claims.
 
 None of it is strut's. It is the pods package's pages and steps.
 
+- **A page under `Experiment`,** say `Pod Setup Experiment`: pick about
+  ten sets of repositories, some the person's and some common, in a mix
+  of languages, set each up, and improve `Pod` and `Pod Setup` toward
+  what feels most real to a person.
 - **"Most usable" as claims** on `Pod Setup`. Four are there: it bakes,
   a person gets in, it asked for no secret, and the workspace's page is
   written. Three more:
@@ -156,7 +224,7 @@ None of it is strut's. It is the pods package's pages and steps.
 - **Mock data in the repository itself.** The owner: stubbing *"could
   include mock data prs directly if needed"*. Read here as pull requests
   that add seed data or stubs to a repository, opened by the setup
-  without asking (open question 2). `Pod Setup` would say so. In a
+  without asking (open question 3). `Pod Setup` would say so. In a
   trial, pods already holds the push and shows the judge what it would
   have sent.
 - **`claim` asks strut for a model key,** for an app that calls a model.
@@ -164,8 +232,9 @@ None of it is strut's. It is the pods package's pages and steps.
 - **A trial leaves nothing behind.** Built: a workspace of the sample's
   own, its images deleted with it, its page a file of the job.
 
-One setup takes about 25 minutes and $0.65 with its pod, so thirty are
-about $20. What to spend is in the prompt.
+The two real setups of hive cost $0.31 and $0.66 in model calls, so $100
+is 150 to 300 setups, before the judges' own calls. A pod's time is the
+pods service's bill, and is not in the budget.
 
 ## Later
 
@@ -182,24 +251,21 @@ Each is the same steps, used by something else:
 
 ## Open questions
 
-1. **Jamie holding these steps.** Strut keeps them to an admin's own
+1. **Jamie holding the test steps.** Strut keeps them to an admin's own
    page because a trial spends and a page's words are an agent's rules.
-   Proposed: a job an admin starts from the tab holds them, and acts as
-   that admin. Or any job of an admin's?
-2. **"Mock data prs."** Pull requests that add seed data or stubs to a
+   Proposed: a budget is the person's yes to the spending, so a job with
+   one holds them. All but `knowledge/use`: the page's words stay a
+   person's (question 2).
+2. **Who uses the result.** A person, with Use it (proposed). Or Jamie,
+   when it stops *"in a good spot"*?
+3. **"Mock data prs."** Pull requests that add seed data or stubs to a
    repository, as read above? Or made-up pull requests as data, for an
    app that shows them?
-3. **Jamie and the claims.** With the same steps, Jamie can add a claim,
-   as a person can. The `Experiment` page says never to reword one to
-   pass it, and the record says who wrote each. Is that enough?
-4. **Spending.** The limit is in the prompt. The one hard stop is the
-   person's spending cap at the gateway. Is that enough for a climb left
-   running overnight?
-5. **A package's pages.** Strut never changes a package's page in the
+4. **A package's pages.** Strut never changes a package's page in the
    graph. Use it writes into a checkout of the package where the box has
    one, and is refused where it doesn't. The pods package's source is
    `package/` in stakwork/pods, and boxes follow a published copy. So
    where does a climb on `Pod Setup` land?
-6. **What a question runs on.** A case that only asks something needs a
+5. **What a question runs on.** A case that only asks something needs a
    workflow that answers in one run. The orchestrator sends what it must
    find out to a job, and a trial holds jobs.
