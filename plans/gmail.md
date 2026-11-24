@@ -1,15 +1,14 @@
 # Gmail: a person's mail, for Jamie and for their own workflows
 
-> **Status (2026-11-24): proposed, and being built.** Items 1 to 5 are
+> **Status (2026-11-24): proposed, and being built.** Items 1 to 6 are
 > merged (stakwork/strut#867, stakwork/stadeum#107, stakwork/strut#871,
-> stakwork/strut-gmail#1 and #2), and so is strut's cost cap
-> (stakwork/strut#874). Item 6 is up for review as
-> stakwork/strut-gmail#3, and `reply`'s schedule and cap as
-> stakwork/strut-gmail#4. Items 7 and 8 are built on local branches and
-> go up one at a time after #3. Strut's fence fix is up as
-> stakwork/strut#880 (§7). Strut's `stable` holds neither #871 nor #874
-> yet, and moves before the package's own `stable` does (§11). Revised
-> 2026-11-23:
+> stakwork/strut-gmail#1, #2 and #3), and so are `reply`'s schedule and
+> cap (stakwork/strut-gmail#4), strut's cost cap (stakwork/strut#874)
+> and its fence fix (stakwork/strut#880, §7). Items 7 and 8 are built
+> and go up one at a time: 7 now, then 8. Nothing merged since the
+> morning of 2026-11-24 is on a box yet: strut's `stable` holds neither
+> #871, #874 nor #880, stadeum's holds no Google in the seam (#107), and
+> the package has no `stable` yet (§11). Revised 2026-11-23:
 > after rulings 5 to 7, building blocks in place of one feature; after a
 > mock-up of the app, rulings 8 and 9; and rulings 10 to 12, on whose
 > Google app, strut holding a person's token, and the runs a check makes.
@@ -481,7 +480,7 @@ second mailbox is a second member.
    step's `describe` with the agent's own context (strut
    `src/proposals.ts`). So any package's `describe` could read a secret
    on the box by name. The Gmail package's reads none. A step's
-   `answerGated` and `onReplay` were called the same way. Up as
+   `answerGated` and `onReplay` were called the same way. Built as
    stakwork/strut#880: every function of a package's step runs behind
    its fence, and a card whose code reads past it fails the call.
 
@@ -584,7 +583,8 @@ boxes follow its `stable` branch, which someone moves (`promote.yml`).
 Strut's `stable` must hold stakwork/strut#871 and #874 before the
 package's `stable` holds those two keys, since an older strut refuses a
 manifest with keys it does not know. Strut's `main` has held both since
-`0d6ec1fe`.
+`0d6ec1fe`, and the fence fix since `85993103`. Stadeum's `stable` must hold
+stakwork/stadeum#107 before anyone can connect Google at all.
 
 ## 12. Later
 
