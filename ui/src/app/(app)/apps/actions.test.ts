@@ -10,7 +10,7 @@ const who = vi.hoisted(() => ({ email: null as string | null }));
 vi.mock("@/auth", () => ({ auth: async () => (who.email ? { user: { email: who.email } } : null) }));
 vi.mock("next/cache", () => ({ revalidatePath: () => undefined }));
 
-const { pin } = await import("./actions");
+const { pin, remove } = await import("./actions");
 
 let fake: FakeStack;
 const saved = { ...process.env };
@@ -72,5 +72,31 @@ describe("pin", () => {
   it("is an admin's: a member is sent home", async () => {
     who.email = "ben@acme.test";
     await expect(pin("strut/earnings", false)).rejects.toEqual(expect.objectContaining({ digest: expect.stringMatching(/^NEXT_REDIRECT;replace;\/;/) }));
+  });
+});
+
+describe("remove", () => {
+  it("unpublishes an app, as the admin, and forgets its unpin", async () => {
+    fake.publish("stadeum/code/code", "Code");
+    expect(await pin("stadeum/code/code", false)).toEqual({});
+    expect(await remove("stadeum/code/code")).toEqual({});
+    expect((await listApps())?.map((a) => a.name)).not.toContain("stadeum/code/code");
+    expect(fake.state.requests).toContain("DELETE /strut/apps/stadeum%2Fcode%2Fcode");
+    // A later app of this name starts in the rail.
+    fake.publish("stadeum/code/code", "Code");
+    expect(await rail("member")).toEqual({ apps: ["strut/jamie", "stadeum/code/code"] });
+  });
+
+  it("never deletes the assistant or an app strut seeds, which comes back at every start", async () => {
+    expect(await remove("strut/jamie")).toEqual({ error: "That change isn’t allowed." });
+    expect(await remove("strut/earnings")).toEqual({ error: "Strut makes this app at every start, so it can’t be deleted. Unpin it instead." });
+    expect(fake.state.requests.filter((r) => r.startsWith("DELETE "))).toEqual([]);
+  });
+
+  it("is an admin's: a member is sent home", async () => {
+    who.email = "ben@acme.test";
+    fake.publish("stadeum/code/code", "Code");
+    await expect(remove("stadeum/code/code")).rejects.toEqual(expect.objectContaining({ digest: expect.stringMatching(/^NEXT_REDIRECT;replace;\/;/) }));
+    expect((await listApps())?.map((a) => a.name)).toContain("stadeum/code/code");
   });
 });
