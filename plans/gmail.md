@@ -4,8 +4,8 @@
 > merged (stakwork/strut#867, stakwork/stadeum#107, stakwork/strut#871,
 > stakwork/strut-gmail#1). Item 5 is up for review as
 > stakwork/strut-gmail#2, and strut's cost cap as stakwork/strut#874.
-> Items 6 and 7 are built on local branches and wait for #2. Revised the
-> same day:
+> Items 6, 7 and 8 are built on local branches and wait for #2, in that
+> order. Revised the same day:
 > after rulings 5 to 7, building blocks in place of one feature; after a
 > mock-up of the app, rulings 8 and 9; and rulings 10 to 12, on whose
 > Google app, strut holding a person's token, and the runs a check makes.
@@ -464,6 +464,12 @@ second mailbox is a second member.
    gives `reply`. It is up as stakwork/strut#874: `maxRunCostUsd:` in
    `strut.yaml`, a map from a workflow of the package to dollars. An
    admin's own cap wins, and an older strut refuses the package.
+4. **The fence on a step's `describe`.** Found while building the chat
+   tools: strut fences a package step's `run` and nothing else
+   (`fenceStep`, strut `src/packages/fence.ts`), and a proposal calls the
+   step's `describe` with the agent's own context (strut
+   `src/proposals.ts`). So any package's `describe` could read a secret
+   on the box by name. The Gmail package's reads none. Not built.
 
 Nothing else. No webhook route, no host key, no Gmail code.
 
