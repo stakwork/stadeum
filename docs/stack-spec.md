@@ -96,8 +96,8 @@ checked".
   admin UI is reached from inside, e.g. a local override that publishes
   `127.0.0.1:8181:8181`.
 - **Routes for the box's network alone**: the `{HOST}` site answers
-  `/api/ops/*` (ops's) and `/api/mothership/*` (strut's grant keys) with
-  404.
+  `/api/ops/*` (ops's), `/api/mothership/*` (strut's grant keys) and
+  `/api/connect/*/refresh` (strut's refresh of a person's token) with 404.
 
 ### neo4j
 - The stock `neo4j:5.26.32`: no APOC, no GDS, no index initializers. 5.26 is
@@ -226,6 +226,13 @@ checked".
   where strut asks for a grant's key, when a step grants model calls to a
   machine outside strut (a pod), with the deployment key (`docs/models.md`,
   "A grant's key"). A strut from before grants ignores it.
+- `CONNECT_URL=http://stadeum-ui:3000` and `CONNECT_TOKEN`, the secret
+  strut and stadeum-ui share: strut refreshes a person's secret whose
+  access token expires (`GOOGLE_TOKEN`) at stadeum-ui's
+  `POST /api/connect/<provider>/refresh`, with the token as the bearer (the
+  connect seam, below). The URL is set only when the token is in `.env`;
+  `scripts/init-env.sh` generates it, and a box from before it gets it by
+  running the installer again. Without it strut refreshes nothing.
 - No provider keys and no `LLM_PROVIDER`: strut calls a model only through
   bifrost, on the caller's delegation, so it boots and runs with none.
 - `STRUT_HOST_CONFIG` (`stack/strut/host-config.json`) takes the model pin
@@ -542,16 +549,28 @@ checked".
 - **The connect seam** (`ui/src/lib/connect.ts`, `ui/src/app/api/connect/`,
   `ui/src/app/connect/`;
   `plans/software.md` §2.1). A person connects an OAuth provider, GitHub
-  for now, and strut gets the token as their own actor secret
-  (`PUT /actors/:actor/secrets/GITHUB_TOKEN`). Every token the seam
-  writes is a person's: there is no box token, and the seam never writes
-  a deployment secret. Trading the
-  code needs the provider's client secret, which only stadeum-ui holds
-  (`CONNECT_GITHUB_CLIENT_ID`, `_CLIENT_SECRET`, `_SLUG`, never in strut's
+  or Google, and strut gets the token as their own actor secret
+  (`PUT /actors/:actor/secrets/GITHUB_TOKEN`, `GOOGLE_TOKEN`). Every token
+  the seam writes is a person's: there is no box token, and the seam never
+  writes a deployment secret. Trading the code, and refreshing a token,
+  needs the provider's client secret, which only stadeum-ui holds
+  (`CONNECT_GITHUB_CLIENT_ID`, `_CLIENT_SECRET`, `_SLUG`;
+  `CONNECT_GOOGLE_CLIENT_ID`, `_CLIENT_SECRET`; never in strut's
   container); everything else is a package's. A provider is one entry in
   the table in `connect.ts`, the only place that names one, and is there
   only when its client id and secret are set; otherwise its routes are a
   404.
+  - **GitHub:** a GitHub App. Its user tokens never expire, and its
+    settings decide its permissions, so a package asks for no scope.
+  - **Google** (`plans/gmail.md` §2, §3): a web OAuth client of the box's
+    own, in the company's Google Cloud project with its consent screen
+    Internal, never the sign-in's (`AUTH_GOOGLE_*`): Gmail's scopes are
+    restricted, and the sign-in's client is shared through the bounce. Its
+    scopes are `gmail.readonly` and `gmail.compose`. Its authorize URL
+    carries `access_type=offline` and `prompt=consent`, so every connect
+    brings a refresh token, and `include_granted_scopes=true`, so one
+    `GOOGLE_TOKEN` holds what every Google package asked for. Its access
+    tokens last an hour: the entry has `refresh`.
   - A connect is always a person's click on the box's own page, never a
     link they followed: GitHub skips its consent page for someone who
     authorized the App before, so a link alone could connect them.
@@ -585,18 +604,44 @@ checked".
     each secret the entry names that the response holds as the person's
     own, and redirects to `return`. A response
     with none of them is a failure (GitHub answers a spent code with a 200
-    and `{ error }`). A refusal is a short page with a link back to
+    and `{ error }`). For an entry with `refresh`, strut gets the access
+    token with its lifetime, the refresh token and the provider:
+    `{ value, expires_in, refresh_token, provider }`, and a response with
+    no `expires_in` or no `refresh_token` is a failure too. GitHub's is
+    `{ value }`. A refusal is a short page with a link back to
     `return` when the state was good. It keeps nothing and logs no code or
     token. An install comes back here with a code, and is a connect: its
     `installation_id` is ignored, the package reads installations itself.
+  - `POST /api/connect/:provider/refresh { refresh_token }`: strut, when a
+    person's secret is near its expiry. Strut alone calls it, on the box's
+    network (Caddy's public site 404s it), with
+    `Authorization: Bearer <CONNECT_TOKEN>`, compared in constant time. It
+    posts `grant_type=refresh_token` with the client id and secret to the
+    provider's token URL, and answers
+    `200 { access_token, expires_in, refresh_token? }`, the last only when
+    the provider rotated it. `400 { error: "invalid_grant" }` when the
+    provider refuses the refresh token (the person revoked it, say), and
+    for nothing else: strut then deletes the secret, and the person
+    connects again (strut `specs/API.md` §8.2). `502 { error }` when the
+    provider doesn't answer, or answers anything else: `invalid_client`
+    is the box's client gone wrong, and costs nobody their token. Another
+    bearer is a 401, and a body with no refresh token a 422. Without
+    `CONNECT_TOKEN`, or for a provider with no `refresh`, it is a 404.
+    Strut keeps the secret on all but the 400. It keeps and logs nothing:
+    strut keeps the new token.
   - Through a bounce, the redirect URI is the bounce's
     `/api/connect/<provider>/callback`, so a GitHub App registers that one
-    callback URL for every box behind it (`install.sh` prints it). Without
-    one it is the box's own.
+    callback URL for every box behind it, and a Google client one redirect
+    URI (`install.sh` prints each). Without one it is the box's own.
   - `npm run fake-stack` has a fake GitHub App (`/github`): its authorize
     and install pages, with a button back to the callback, and its token
     URL, one use per code. `CONNECT_GITHUB_URL` points GitHub's entry at
-    it; compose never hands that to a box.
+    it; compose never hands that to a box. It has a fake Google too
+    (`/google`): its consent page, and its token URL, which trades a code
+    for an access token that lasts an hour and a refresh token, and a
+    refresh token for a new access token. Google's two URLs are on two
+    hosts, so `CONNECT_GOOGLE_URL` puts both under the fake's; compose
+    never hands that to a box either.
 - **The frame.** Per page load the server mints a sign-in ticket for the
   person (`POST /auth/ticket { actor, role }` → `{ ticket, expiresAt }`, good
   once for 60 s; `role` is the person's stadeum role, `admin` or `member`:

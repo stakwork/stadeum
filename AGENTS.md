@@ -71,8 +71,10 @@ work on it. Read the rules before adding anything.
      `STADEUM_ENCRYPTION_KEY`, and in the `org` volume `bootstrap` writes.
      Nothing else reads them.
    - The connect seam's client secrets (`CONNECT_<PROVIDER>_CLIENT_SECRET`,
-     GitHub's first) are in `.env` and stadeum-ui's container alone, never
-     strut's or a browser's: with one, a code becomes a token.
+     GitHub's and Google's) are in `.env` and stadeum-ui's container alone,
+     never strut's or a browser's: with one, a code becomes a token, and a
+     refresh token a new one. Strut asks the seam for a refreshed token
+     with `CONNECT_TOKEN`, which the two share, on the box's network alone.
    - The Docker socket is mounted in `ops` alone, which has no open port.
      With it ops is the box: it reads every volume it backs up and `.env`,
      and gets the backup credentials from stadeum-ui with the deployment
@@ -111,8 +113,11 @@ work on it. Read the rules before adding anything.
      box's. It holds each person's GitHub token, which the connect seam
      hands it, so an agent could act on GitHub as any of them: accepted,
      with their revocation (`plans/software.md` §9: the GitHub package's,
-     to come; until then the person revokes the App on GitHub). There is
-     no box token: every token the seam writes is a person's. The
+     to come; until then the person revokes the App on GitHub). It holds
+     each person's Google token and its refresh token, so an agent could
+     read a person's mail and send as them: accepted, with the person's
+     revocation or their Google admin's (`plans/gmail.md` §10, decision 9).
+     There is no box token: every token the seam writes is a person's. The
      treasury's admin token and seed stay in the treasury's container.
 
 5. **Any cloud.** One compose file is the deployment: stock images, every
@@ -231,7 +236,7 @@ order of the work, each step its own PR:
 | `ui/src/lib/strut/` | The strut client: delegations, the status check, the apps, the brand, the frame's sign-in ticket, a call's room |
 | `ui/src/app/(app)/apps/` | A strut app framed for the person (`strut-frame.tsx`) and its one-use ticket (`open.ts`); the assistant's frame is the `(app)` layout's (`home-frame.tsx`), kept open across stadeum's pages. `ui/src/app/(app)/earnings/` frames strut's Earnings the same way, for an admin |
 | `ui/src/components/call.tsx`, `ui/src/lib/call*.ts` | A call: held by the `(app)` layout, its key and its checks, its LiveKit room (loaded only on a call), its transcript and artifacts; `ui/src/app/api/calls/` hands it to strut, `ui/src/app/(app)/calls/` draws it |
-| `ui/src/lib/connect.ts`, `ui/src/app/api/connect/`, `ui/src/app/connect/` | The connect seam: the provider table (GitHub's entry), the signed state, the confirm page whose Continue sends a person to the provider, and the callback that trades the code it sends back for tokens written to strut |
+| `ui/src/lib/connect.ts`, `ui/src/app/api/connect/`, `ui/src/app/connect/` | The connect seam: the provider table (GitHub's and Google's entries), the signed state, the confirm page whose Continue sends a person to the provider, the callback that trades the code it sends back for tokens written to strut (with the refresh token, for Google's), and the refresh route strut alone calls for a new access token |
 | `ui/src/lib/ops/` | ops's settings, status and history, and the routes it calls (`/api/ops/*`); the Updates and Backups pages |
 | `ui/src/lib/models/` | The Models page's work: each provider's key in the gateway, the org's model list and default, carried to every person's virtual key and to strut |
 | `ui/src/app/(app)/packages/`, `ui/src/lib/packages.ts` | The Packages page: strut's packages installed, searched, installed and uninstalled, their missing secrets set, the Software card (one bundle followed by its ref, `SOFTWARE_REF`), a package from a repository (followed, as the admin's subscription, or installed once) and what the box follows (a bundle as one row with its parts; checked now, stopped), the indexes followed, and the store's Install link (`?install=`) read |

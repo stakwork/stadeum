@@ -16,7 +16,11 @@ const BOX = "https://acme.example.com";
 const params = Promise.resolve({ provider: "github" });
 
 beforeAll(async () => {
-  fake = await startFakeStack({ token: "connect-test-token", github: { callbackUrl: `${BOX}/api/connect/github/callback` } });
+  fake = await startFakeStack({
+    token: "connect-test-token",
+    github: { callbackUrl: `${BOX}/api/connect/github/callback` },
+    google: { callbackUrl: `${BOX}/api/connect/google/callback` },
+  });
 });
 afterAll(() => fake.close());
 beforeEach(() => {
@@ -30,9 +34,14 @@ beforeEach(() => {
     CONNECT_GITHUB_CLIENT_SECRET: fake.state.github.app.clientSecret,
     CONNECT_GITHUB_SLUG: fake.state.github.app.slug,
     CONNECT_GITHUB_URL: fake.githubUrl,
+    CONNECT_GOOGLE_CLIENT_ID: fake.state.google.client.clientId,
+    CONNECT_GOOGLE_CLIENT_SECRET: fake.state.google.client.clientSecret,
+    CONNECT_GOOGLE_URL: fake.googleUrl,
   });
   who.user = { actor: "ada-c1", role: "member" };
   fake.state.secrets.clear();
+  fake.state.secretRefresh.clear();
+  fake.state.google.omit = [];
   fake.state.deploymentSecrets.clear();
   fake.state.github.app.callbackUrl = `${BOX}/api/connect/github/callback`;
   fake.state.down.strut = false;
@@ -56,6 +65,20 @@ async function authorize(query: string, button: "go" | "cancel" = "go"): Promise
 /** GitHub's redirect, as it lands on the box (through the bounce or not). */
 const land = (back: URL) => callback(new NextRequest(`${BOX}${back.pathname}${back.search}`), { params });
 
+const GMAIL = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose"];
+const google = Promise.resolve({ provider: "google" });
+
+/** The same for Google, asking for Gmail's two scopes: where Google sends the browser back once the person allows it. */
+async function allowGoogle(query = ""): Promise<URL> {
+  const ask = `?scope=${encodeURIComponent(GMAIL.join(" "))}${query ? `&${query.slice(1)}` : ""}`;
+  const started = await start(new NextRequest(`${BOX}/api/connect/google${ask}`, { method: "POST", headers: { origin: BOX } }), { params: google });
+  expect(started.status).toBe(303);
+  const page = await (await fetch(started.headers.get("location")!)).text();
+  return new URL(unescape(page.match(/<a class="go" href="([^"]+)"/)![1]!));
+}
+
+const landGoogle = (back: URL) => callback(new NextRequest(`${BOX}${back.pathname}${back.search}`), { params: google });
+
 describe("GET /api/connect/:provider/callback", () => {
   it("trades the code and gives strut the person's GITHUB_TOKEN, then goes back", async () => {
     const res = await land(await authorize("?return=/apps/stadeum/github"));
@@ -65,6 +88,31 @@ describe("GET /api/connect/:provider/callback", () => {
     expect([...fake.state.secrets]).toEqual([["ada-c1/GITHUB_TOKEN", fake.state.github.tokens.at(-1)]]);
     expect(fake.state.deploymentSecrets.size).toBe(0);
     expect(fake.state.requests).toContain("PUT /strut/actors/ada-c1/secrets/GITHUB_TOKEN");
+    // GitHub's tokens never expire: strut gets the value alone.
+    expect(fake.state.secretRefresh.size).toBe(0);
+  });
+
+  it("gives strut a Google token with its expiry, its refresh token and the provider, so strut can refresh it", async () => {
+    const res = await landGoogle(await allowGoogle("?return=/apps"));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(`${BOX}/apps`);
+    expect([...fake.state.secrets]).toEqual([["ada-c1/GOOGLE_TOKEN", fake.state.google.tokens.at(-1)]]);
+    const refresh = fake.state.secretRefresh.get("ada-c1/GOOGLE_TOKEN");
+    expect(refresh).toEqual({ expires_in: 3599, refresh_token: expect.stringMatching(/^1\/\//), provider: "google" });
+    expect(fake.state.google.refreshTokens.get(refresh!.refresh_token)).toMatchObject({ scope: GMAIL.join(" "), revoked: false });
+  });
+
+  it("is a failure when Google gives no refresh token or no expiry, and strut gets nothing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const left of ["refresh_token", "expires_in"] as const) {
+      fake.state.google.omit = [left];
+      const res = await landGoogle(await allowGoogle());
+      expect(res.status, left).toBe(502);
+      expect(await res.text()).toContain(`no ${left}`);
+      expect(fake.state.secrets.size).toBe(0);
+    }
+    const logged = warn.mock.calls.flat().join(" ");
+    for (const token of fake.state.google.tokens) expect(logged).not.toContain(token);
   });
 
   it("gives an admin's token to strut as their own, and a for=box link writes nothing to the deployment", async () => {

@@ -139,15 +139,29 @@ const SECRET_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export type ActorSecretStatus = "skipped" | "pushed" | "unsupported" | "failed";
 
+/** Beside a secret that expires: its lifetime in seconds, its refresh token, and the seam's provider that refreshes it. */
+export interface SecretRefresh {
+  expires_in: number;
+  refresh_token: string;
+  provider: string;
+}
+
 /**
  * `PUT /actors/:actor/secrets/:NAME { value }` — e.g. a person's
- * `GITHUB_TOKEN` for steps that clone code. Never throws; never logs the value.
+ * `GITHUB_TOKEN` for steps that clone code. A secret that expires carries
+ * `{ expires_in, refresh_token, provider }` too, and strut refreshes it
+ * through the seam (lib/connect.ts). Never throws; never logs a value.
  */
-export async function pushActorSecret(actor: string, name: string, value: string | null | undefined): Promise<ActorSecretStatus> {
+export async function pushActorSecret(
+  actor: string,
+  name: string,
+  value: string | null | undefined,
+  refresh?: SecretRefresh,
+): Promise<ActorSecretStatus> {
   if (!value) return "skipped";
   if (!SECRET_NAME_RE.test(name)) return "failed";
   try {
-    const res = await strutFetch("PUT", `/actors/${encodeURIComponent(actor)}/secrets/${name}`, { value });
+    const res = await strutFetch("PUT", `/actors/${encodeURIComponent(actor)}/secrets/${name}`, { value, ...refresh });
     if (res.status === 404) return "unsupported";
     if (!res.ok) {
       console.warn(`[strut] actor secret ${name} push for ${actor} returned ${res.status}`);
