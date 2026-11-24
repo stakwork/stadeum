@@ -3,10 +3,13 @@
 > **Status (2026-11-24): proposed, and being built.** Items 1 to 5 are
 > merged (stakwork/strut#867, stakwork/stadeum#107, stakwork/strut#871,
 > stakwork/strut-gmail#1 and #2), and so is strut's cost cap
-> (stakwork/strut#874). Items 6, 7 and 8 are built on local branches and
-> go up one at a time, in that order. Strut's `stable` holds neither
-> #871 nor #874 yet, and moves before the package's own `stable` does
-> (§11). Revised 2026-11-23:
+> (stakwork/strut#874). Item 6 is up for review as
+> stakwork/strut-gmail#3, and `reply`'s schedule and cap as
+> stakwork/strut-gmail#4. Items 7 and 8 are built on local branches and
+> go up one at a time after #3. Strut's fence fix is up as
+> stakwork/strut#880 (§7). Strut's `stable` holds neither #871 nor #874
+> yet, and moves before the package's own `stable` does (§11). Revised
+> 2026-11-23:
 > after rulings 5 to 7, building blocks in place of one feature; after a
 > mock-up of the app, rulings 8 and 9; and rulings 10 to 12, on whose
 > Google app, strut holding a person's token, and the runs a check makes.
@@ -478,7 +481,9 @@ second mailbox is a second member.
    step's `describe` with the agent's own context (strut
    `src/proposals.ts`). So any package's `describe` could read a secret
    on the box by name. The Gmail package's reads none. A step's
-   `answerGated` is called the same way. Being built (2026-11-24).
+   `answerGated` and `onReplay` were called the same way. Up as
+   stakwork/strut#880: every function of a package's step runs behind
+   its fence, and a card whose code reads past it fails the call.
 
 Nothing else. No webhook route, no host key, no Gmail code.
 
@@ -571,8 +576,8 @@ Each is its own PR against its repo's default branch, never stacked.
 
 **The schedule and the cap** (§4's `schedules:` and `maxRunCostUsd:`) are
 not in item 5 as merged: `reply` runs only when someone runs it. They are
-a small PR of their own in strut-gmail for `reply`, and `ask`'s schedule
-comes with item 7.
+a small PR of their own in strut-gmail for `reply`
+(stakwork/strut-gmail#4), and `ask`'s schedule comes with item 7.
 
 **The release order.** A merge to the package's `main` changes no box:
 boxes follow its `stable` branch, which someone moves (`promote.yml`).
