@@ -952,6 +952,15 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     }
     const one = path.match(/^\/apps\/([^/]+)\/(versions|usage|active|pin)$/);
     if (one) return appRoute(req, res, decodeURIComponent(one[1]!), one[2]!, body);
+    // Unpublish (strut §14): the app leaves the list; strut keeps its files.
+    const gone = m === "DELETE" && path.match(/^\/apps\/([^/]+)$/);
+    if (gone) {
+      const name = decodeURIComponent(gone[1]!);
+      if (!state.apps.some((a) => a.name === name)) return send(res, 404, { error: `App "${name}" not found` });
+      state.apps = state.apps.filter((a) => a.name !== name);
+      state.appRecords.delete(name);
+      return send(res, 200, { ok: true, name });
+    }
     if (path === "/llm/delegations" && m === "GET") {
       return send(res, 200, [...state.delegations.values()].map(({ actor, exp, delegationId, v }) => ({ actor, exp, delegationId, ...(v ? { v } : {}) })));
     }
