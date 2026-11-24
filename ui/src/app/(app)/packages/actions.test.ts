@@ -235,6 +235,19 @@ describe("listing and search", () => {
     expect(fake.state.requests).toContain("GET /strut/packages/search");
   });
 
+  it("lists no package on the page until the admin types, except the one the store's link names", async () => {
+    await followStakwork();
+    fake.state.requests = [];
+    const html = await page();
+    expect(fake.state.requests).not.toContain("GET /strut/packages/search");
+    expect(html).not.toContain("openlaw/legal-desk");
+    expect(html).not.toContain("Nothing matches");
+
+    // The link fills the box with its package, which is looked up at once.
+    await PackagesPage({ searchParams: Promise.resolve({ install: "openlaw/legal-desk" }) });
+    expect(fake.state.requests).toContain("GET /strut/packages/search");
+  });
+
   it("says strut is not answering when it isn't", async () => {
     fake.state.down.strut = true;
     try {

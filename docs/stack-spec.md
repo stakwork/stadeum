@@ -679,11 +679,12 @@ checked".
   followed package waits for, is set there, never `STRUT_DEFAULT_MODEL` or
   `STRUT_MODELS`. Uninstall asks
   first and says what strut kept. Find: `GET /packages/search` over the
-  indexes strut follows (peers' installs are left out: a hit is installed
-  by its name through an index), each hit with what the index read off the
-  release: what it brings, whether it spends model calls, acts on the
-  world or runs code, and its secrets. Install asks first with the same
-  facts, then `POST /packages/install { ref: <name>, index, digest, wait:
+  indexes strut follows, as the admin types (nothing before, but the
+  store's link's package), each hit by its name (peers' installs are left
+  out: a hit is installed by its name through an index). Clicking one
+  asks first, with what the index read off the release: what it brings,
+  whether it spends model calls, acts on the world or runs code, and its
+  secrets. Install, on that question, is `POST /packages/install { ref: <name>, index, digest, wait:
   false }`: the release reviewed, through the index that listed it, as
   the admin. Strut answers at once with the install's record (stakwork/
   strut#588; an older strut answers when it is done), and the dialog
