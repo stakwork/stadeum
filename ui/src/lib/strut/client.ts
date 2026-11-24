@@ -290,8 +290,8 @@ export interface InstalledPackage {
    * and for a package that reads no secret.
    */
   missing?: { secrets: string[] };
-  /** `distro`: the box's distro wrote it, and only the distro updates or removes it. */
-  door?: "install" | "distro";
+  /** `distro`: the box's distro wrote it, and only the distro updates or removes it. `repo`: a repository opened here wrote it (`listPackageRepos`). */
+  door?: "install" | "distro" | "repo";
   items: InstalledPackageItem[];
 }
 
@@ -374,7 +374,7 @@ export async function listPackages(): Promise<InstalledPackage[]> {
         ...(Array.isArray(p.optional) ? { optional: strings(p.optional) } : {}),
         ...(Array.isArray(provides?.secrets) ? { provides: { secrets: strings(provides.secrets) } } : {}),
         ...(Array.isArray(missing?.secrets) ? { missing: { secrets: strings(missing.secrets) } } : {}),
-        ...(p.door === "install" || p.door === "distro" ? { door: p.door } : {}),
+        ...(p.door === "install" || p.door === "distro" || p.door === "repo" ? { door: p.door } : {}),
         items: (Array.isArray(p.items) ? p.items : [])
           .filter((i): i is Record<string, unknown> => !!i && typeof i === "object" && (ITEM_KINDS as readonly unknown[]).includes((i as { kind?: unknown }).kind) && typeof (i as { name?: unknown }).name === "string")
           .map((i) => ({
@@ -779,6 +779,195 @@ export async function unfollowPackageSubscription(id: string): Promise<{ uninsta
   if (!res.ok) await fail("DELETE", path, res);
   const d = (await res.json()) as { uninstalled?: unknown };
   return { uninstalled: strings(d.uninstalled) };
+}
+
+// ── a package edited here, as a git repo (strut specs/API.md §16, "Working on a repository") ──
+
+/** A workflow, step, app or Concept page of a package edited here. */
+export interface PackageRepoItem {
+  kind: "workflow" | "step" | "app" | "concept";
+  name: string;
+}
+
+/**
+ * A package opened here as a git repo (strut `src/packages/repos.ts`,
+ * `RepoView`): the branch it follows, the commit last installed, and what
+ * was added, edited or deleted here since. `conflict`: the files a pull's
+ * merge left for a person; `merge`: a pull waits to be finished.
+ */
+export interface PackageRepo {
+  package: string;
+  /** The repository's address, as strut fetches it. */
+  url: string;
+  /** What Pull merges and a straight Commit pushes to. */
+  branch: string;
+  /** The folder holding its `strut.yaml`; absent: the root. */
+  path?: string;
+  /** The commit last installed. */
+  commit: string;
+  openedAt?: string;
+  /** Strut's copy of the repository, where a conflict is resolved. */
+  workdir: string;
+  added: PackageRepoItem[];
+  forked: PackageRepoItem[];
+  deleted: PackageRepoItem[];
+  conflict?: string[];
+  merge?: string;
+}
+
+/** What a Commit would push (`RepoDiff`): each file, how it changed, and the patch (cut at 200,000 characters). */
+export interface PackageRepoDiff {
+  files: Array<{ path: string; status: "added" | "modified" | "deleted" }>;
+  stat: string;
+  patch: string;
+  truncated?: boolean;
+}
+
+/** A Commit (`CommitResult`): `committed: false` when nothing changed here and nothing waited to be pushed. */
+export interface PackageRepoCommit {
+  package: string;
+  committed: boolean;
+  commit: string;
+  branch?: string;
+  pushed?: boolean;
+  /** A new branch's pull request on GitHub. */
+  pr?: { url: string; number: number };
+  /** Why a new branch has none. */
+  prSkipped?: string;
+}
+
+/** A Pull (`PullResult`): the commit installed, the commit that saved what was edited here first, or the files git could not merge. */
+export interface PackageRepoPull {
+  package: string;
+  commit: string;
+  local?: string;
+  conflict?: string[];
+  install?: InstallResult;
+}
+
+const REPO_ITEM_KINDS = new Set<string>(ITEM_KINDS);
+const repoItems = (v: unknown): PackageRepoItem[] =>
+  records(v)
+    .filter((i) => REPO_ITEM_KINDS.has(i.kind as string) && typeof i.name === "string")
+    .map((i) => ({ kind: i.kind as PackageRepoItem["kind"], name: i.name as string }));
+
+function readRepo(r: Record<string, unknown>): PackageRepo {
+  return {
+    package: String(r.package),
+    url: String(r.url ?? ""),
+    branch: String(r.branch ?? ""),
+    ...(str(r.path) ? { path: r.path as string } : {}),
+    commit: String(r.commit ?? ""),
+    ...(str(r.openedAt) ? { openedAt: r.openedAt as string } : {}),
+    workdir: String(r.workdir ?? ""),
+    added: repoItems(r.added),
+    forked: repoItems(r.forked),
+    deleted: repoItems(r.deleted),
+    ...(Array.isArray(r.conflict) ? { conflict: strings(r.conflict) } : {}),
+    ...(str(r.merge) ? { merge: r.merge as string } : {}),
+  };
+}
+
+const repoPath = (pkg: string) => `/packages/repos/${pkg.split("/").map(encodeURIComponent).join("/")}`;
+
+/** `GET /packages/repos`: every package opened here as a repo. */
+export async function listPackageRepos(): Promise<PackageRepo[]> {
+  const res = await strutFetch("GET", "/packages/repos", undefined, PACKAGE_READ_TIMEOUT_MS);
+  if (!res.ok) await fail("GET", "/packages/repos", res);
+  const { repos } = (await res.json()) as { repos?: unknown };
+  if (!Array.isArray(repos)) throw new Error("GET /packages/repos returned no repos list");
+  return records(repos).filter((r) => typeof r.package === "string").map(readRepo);
+}
+
+/** `GET /packages/repos/:publisher/:name`; `null` when it isn't open here. */
+export async function getPackageRepo(pkg: string): Promise<PackageRepo | null> {
+  const path = repoPath(pkg);
+  const res = await strutFetch("GET", path, undefined, PACKAGE_READ_TIMEOUT_MS);
+  if (res.status === 404) return null;
+  if (!res.ok) await fail("GET", path, res);
+  return readRepo((await res.json()) as Record<string, unknown>);
+}
+
+/**
+ * `POST /packages/repos { url, ref?, path? }` as `actor`: Open. Strut
+ * fetches the branch with the actor's own token for the repository's host,
+ * installs its package through the repo's door, and keeps a copy of the
+ * repository it commits from. Answered once installed.
+ */
+export async function openPackageRepo(body: { url: string; ref?: string; path?: string }, actor: string): Promise<{ repo: PackageRepo; install: InstallResult }> {
+  const res = await strutFetch("POST", "/packages/repos", body, PACKAGE_WRITE_TIMEOUT_MS, actor);
+  if (!res.ok) await fail("POST", "/packages/repos", res);
+  const d = (await res.json()) as Record<string, unknown>;
+  const repo = readRepo(d);
+  return { repo, install: readInstallResult(d.install, repo.package) };
+}
+
+/** `GET /packages/repos/:publisher/:name/diff`: what a Commit would push. */
+export async function packageRepoDiff(pkg: string): Promise<PackageRepoDiff> {
+  const path = `${repoPath(pkg)}/diff`;
+  const res = await strutFetch("GET", path, undefined, PACKAGE_WRITE_TIMEOUT_MS);
+  if (!res.ok) await fail("GET", path, res);
+  const d = (await res.json()) as Record<string, unknown>;
+  const STATUSES = ["added", "modified", "deleted"];
+  return {
+    files: records(d.files)
+      .filter((f) => typeof f.path === "string")
+      .map((f) => ({ path: f.path as string, status: STATUSES.includes(f.status as string) ? (f.status as PackageRepoDiff["files"][number]["status"]) : "modified" })),
+    stat: String(d.stat ?? ""),
+    patch: String(d.patch ?? ""),
+    ...(d.truncated === true ? { truncated: true } : {}),
+  };
+}
+
+/**
+ * `POST /packages/repos/:publisher/:name/commit { message, branch? }` as
+ * `actor`, who the commit is by: `branch` the one it follows pushes
+ * straight to it; none, a new branch and a pull request into it.
+ */
+export async function commitPackageRepo(pkg: string, body: { message: string; branch?: string }, actor: string): Promise<PackageRepoCommit> {
+  const path = `${repoPath(pkg)}/commit`;
+  const res = await strutFetch("POST", path, body, PACKAGE_WRITE_TIMEOUT_MS, actor);
+  if (!res.ok) await fail("POST", path, res);
+  const d = (await res.json()) as Record<string, unknown>;
+  const pr = d.pr as { url?: unknown; number?: unknown } | undefined;
+  return {
+    package: str(d.package) ?? pkg,
+    committed: d.committed === true,
+    commit: String(d.commit ?? ""),
+    ...(str(d.branch) ? { branch: d.branch as string } : {}),
+    ...(typeof d.pushed === "boolean" ? { pushed: d.pushed } : {}),
+    ...(pr && typeof pr.url === "string" && typeof pr.number === "number" ? { pr: { url: pr.url, number: pr.number } } : {}),
+    ...(str(d.prSkipped) ? { prSkipped: d.prSkipped as string } : {}),
+  };
+}
+
+/**
+ * `POST /packages/repos/:publisher/:name/pull` as `actor`: what was edited
+ * here is committed first, then git merges the branch and strut installs
+ * it. A conflict (409 with `conflict`) installs nothing and comes back as
+ * the files; any other refusal throws.
+ */
+export async function pullPackageRepo(pkg: string, actor: string): Promise<PackageRepoPull> {
+  const path = `${repoPath(pkg)}/pull`;
+  const res = await strutFetch("POST", path, undefined, PACKAGE_WRITE_TIMEOUT_MS, actor);
+  const d = res.ok || res.status === 409 ? ((await res.clone().json().catch(() => ({}))) as Record<string, unknown>) : {};
+  if (!res.ok && !(res.status === 409 && Array.isArray(d.conflict))) await fail("POST", path, res);
+  return {
+    package: str(d.package) ?? pkg,
+    commit: String(d.commit ?? ""),
+    ...(str(d.local) ? { local: d.local as string } : {}),
+    ...(Array.isArray(d.conflict) ? { conflict: strings(d.conflict) } : {}),
+    ...(d.install ? { install: readInstallResult(d.install, pkg) } : {}),
+  };
+}
+
+/** `DELETE /packages/repos/:publisher/:name`: Close. What it installed stays; `false` when it wasn't open. */
+export async function closePackageRepo(pkg: string, actor: string): Promise<boolean> {
+  const path = repoPath(pkg);
+  const res = await strutFetch("DELETE", path, undefined, PACKAGE_WRITE_TIMEOUT_MS, actor);
+  if (res.status === 404) return false;
+  if (!res.ok) await fail("DELETE", path, res);
+  return true;
 }
 
 // ── apps (strut specs/API.md §14) ───────────────────────────────────────

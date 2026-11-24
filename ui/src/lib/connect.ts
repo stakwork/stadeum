@@ -45,6 +45,8 @@ export interface Provider {
   params?: Record<string, string>;
   /** Each secret strut gets, by name: its paths in the token response, the first present wins. */
   secrets: Record<string, string[]>;
+  /** The git hosts its token reads and pushes to, as strut's host map has them (strut `src/git-hosts.ts`). */
+  hosts?: string[];
   /**
    * Its access tokens expire: strut gets the secret with its expiry and the
    * refresh token, and refreshes it through the seam. Such an entry names
@@ -77,6 +79,7 @@ const PROVIDERS: Record<string, () => Provider> = {
       token: "/login/oauth/access_token",
       scopes: [],
       secrets: { GITHUB_TOKEN: ["access_token"] },
+      hosts: ["github.com"],
     };
   },
   // A Google OAuth web client: a shared app a host gives, or the box's own
@@ -112,12 +115,12 @@ export function connectable(id: string): Connectable | undefined {
   return { ...PROVIDERS[id]!(), id, clientId, clientSecret };
 }
 
-/** Every provider a person can connect on this box: its id, its name and the secrets it writes to strut. */
-export function connectOffers(): Array<{ id: string; name: string; secrets: string[] }> {
+/** Every provider a person can connect on this box: its id, its name, the secrets it writes to strut, and the git hosts its token serves. */
+export function connectOffers(): Array<{ id: string; name: string; secrets: string[]; hosts?: string[] }> {
   return Object.keys(PROVIDERS)
     .map(connectable)
     .filter((p): p is Connectable => !!p)
-    .map((p) => ({ id: p.id, name: p.name, secrets: Object.keys(p.secrets) }));
+    .map((p) => ({ id: p.id, name: p.name, secrets: Object.keys(p.secrets), ...(p.hosts ? { hosts: p.hosts } : {}) }));
 }
 
 const at = (p: Provider, url: string) => (p.base ? `${p.base.replace(/\/+$/, "")}${url}` : url);

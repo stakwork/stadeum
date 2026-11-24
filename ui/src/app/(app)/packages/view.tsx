@@ -24,6 +24,9 @@ import {
   linkIndexState,
   parseRepositoryRef,
   refusalCode,
+  repoConnectFor,
+  repoEdits,
+  repoWhere,
   shortKey,
   shortName,
   SOFTWARE_REF,
@@ -34,15 +37,20 @@ import {
   type InstallLink,
   type InstallWatch,
 } from "@/lib/packages";
-import type { InstalledPackage, PackageHit, PackageIndex, UninstallResult } from "@/lib/strut/client";
+import type { InstalledPackage, PackageHit, PackageIndex, PackageRepo, PackageRepoCommit, PackageRepoDiff, UninstallResult } from "@/lib/strut/client";
 import {
   checkFollowed,
+  closeRepo,
+  commitRepo,
+  editRepository,
   findPackages,
   followedProgress,
   followIndex,
   followRepository,
   install,
   installFromRepository,
+  pullRepo,
+  repoChanges,
   setSecret,
   uninstall,
   unfollow,
@@ -62,9 +70,10 @@ const empty = "rounded-xl border border-dashed border-dash px-5 py-6 text-[14px]
 
 /**
  * The page: the store's link when it brought the admin here, the installs
- * going on, what is installed, a search over the indexes, a package from a
- * repository and what the box follows, and the indexes. Install and
- * Uninstall each ask first; the link only ever opens the question.
+ * going on, what is installed, a package from a repository, what the box
+ * follows and what is edited here, a search over the indexes, and the
+ * indexes. Install and Uninstall each ask first; the link only ever opens
+ * the question.
  */
 export function PackagesView(props: {
   link: InstallLink | null;
@@ -75,6 +84,8 @@ export function PackagesView(props: {
   followed: Followed[] | null;
   /** The ones strut is installing a release of now. */
   reading: string[];
+  /** The packages opened here as git repos, to change here and commit back. */
+  editing: PackageRepo[];
   /** The accounts a person can connect here, for a repository strut couldn't read. */
   connect: ConnectOffer[];
   indexes: PackageIndex[];
@@ -94,6 +105,19 @@ export function PackagesView(props: {
     setGone((now) => {
       const next = new Set(now);
       next.delete(f.id);
+      return next;
+    });
+  };
+  // Opened here and not yet in the page's reading of strut; closed here, and gone from it.
+  const [openedNow, setOpenedNow] = useState<PackageRepo[]>([]);
+  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const open = new Set(props.editing.map((r) => r.package));
+  const editing = [...props.editing, ...openedNow.filter((r) => !open.has(r.package))].filter((r) => !closed.has(r.package));
+  const onEdited = (r: PackageRepo) => {
+    setOpenedNow((now) => [...now.filter((x) => x.package !== r.package), r]);
+    setClosed((now) => {
+      const next = new Set(now);
+      next.delete(r.package);
       return next;
     });
   };
@@ -147,11 +171,11 @@ export function PackagesView(props: {
         onDismiss={(id) => setDismissed((now) => new Set(now).add(id))}
       />
 
-      <InstalledList installed={installed} secretsKnown={props.secretsKnown} followed={props.followed ?? []} />
+      <InstalledList installed={installed} secretsKnown={props.secretsKnown} followed={props.followed ?? []} editing={editing} />
 
       {followed && <SoftwareCard software={softwareOf(followed)} onFollowed={onFollowed} onRemove={(id) => setStopAsk((now) => ({ id, n: (now?.n ?? 0) + 1 }))} />}
 
-      <FromRepository connect={props.connect} onFollowed={onFollowed} />
+      <FromRepository connect={props.connect} onFollowed={onFollowed} onEdited={onEdited} />
 
       <FollowedList
         followed={followed}
@@ -161,6 +185,8 @@ export function PackagesView(props: {
         ask={stopAsk}
         onGone={(id) => setGone((now) => new Set(now).add(id))}
       />
+
+      <EditingList repos={editing} connect={props.connect} onClosed={(pkg) => setClosed((now) => new Set(now).add(pkg))} />
 
       <Find
         initialQuery={link?.pkg ?? ""}
@@ -317,8 +343,9 @@ function KeyBlock({ value, label = "Its key" }: { value: string; label?: string 
 
 // ── installed ───────────────────────────────────────────────────────────
 
-/** Where an installed package came from, in a few words: what the box follows (a bundle's part), a repository, a publisher's catalog. */
-function cameFrom(p: Installed, followed: readonly Followed[]): string {
+/** Where an installed package came from, in a few words: a repo edited here, what the box follows (a bundle's part), a repository, a publisher's catalog. */
+function cameFrom(p: Installed, followed: readonly Followed[], repo: PackageRepo | undefined): string {
+  if (repo) return `Edited here, from ${repoWhere(repo)} @ ${repo.branch}`;
   const at = followedBySource(followed, p.source?.ref);
   if (at) {
     const { sub, part } = at;
@@ -329,8 +356,9 @@ function cameFrom(p: Installed, followed: readonly Followed[]): string {
   return p.source?.url ? `From ${hostOf(p.source.url)}` : "Installed";
 }
 
-function InstalledList({ installed, secretsKnown, followed }: { installed: Installed[]; secretsKnown: boolean; followed: Followed[] }) {
+function InstalledList({ installed, secretsKnown, followed, editing }: { installed: Installed[]; secretsKnown: boolean; followed: Followed[]; editing: PackageRepo[] }) {
   const [removing, setRemoving] = useState<Installed | null>(null);
+  const repoOf = (pkg: string) => editing.find((r) => r.package === pkg);
   const [notice, setNotice] = useState<{ pkg: string; kept: UninstallResult["kept"] } | null>(null);
   return (
     <section aria-labelledby="installed" className="flex flex-col gap-3">
@@ -355,9 +383,9 @@ function InstalledList({ installed, secretsKnown, followed }: { installed: Insta
                     {p.package}
                     {p.version && <span className="ml-2 font-sans text-[13px] font-normal text-ink-3">{p.version}</span>}
                   </span>
-                  <span className="text-[13px] break-words text-ink-3">{cameFrom(p, followed)}</span>
+                  <span className="text-[13px] break-words text-ink-3">{cameFrom(p, followed, repoOf(p.package))}</span>
                 </div>
-                {p.door !== "distro" && (
+                {p.door !== "distro" && !repoOf(p.package) && (
                   <button type="button" onClick={() => setRemoving(p)} className={small}>
                     Uninstall
                   </button>
@@ -549,37 +577,66 @@ function SoftwareCard({ software, onFollowed, onRemove }: { software?: Followed;
 
 // ── from a repository ───────────────────────────────────────────────────
 
+/** How a repository's package comes in: once, followed, or opened to edit here and commit back. */
+type Way = "once" | "follow" | "edit";
+const WAYS: ReadonlyArray<{ way: Way; label: string; words: string; button: string; going: string }> = [
+  { way: "once", label: "Install once", words: "Installs it once, as it is now.", button: "Install", going: "Installing…" },
+  { way: "follow", label: "Follow", words: "Installs each new commit on the branch.", button: "Follow", going: "Following…" },
+  { way: "edit", label: "Edit here", words: "Change it here, then commit back to the branch.", button: "Edit here", going: "Opening…" },
+];
+
 /**
- * A package's repository, given by its address: followed (Keep it up to
- * date, on by default), strut installs the branch's package and each new
- * commit's after it, as this admin's; off, it is one install. What is
- * wrong with the address is said before anything is sent.
+ * A package's repository, given by its address: followed (the default),
+ * strut installs the branch's package and each new commit's after it, as
+ * this admin's; once, it is one install; to edit here, strut opens the
+ * branch, installs it, and takes changes to it for a commit back (under
+ * Editing). What is wrong with the address is said before anything is
+ * sent.
  */
-function FromRepository({ connect, onFollowed }: { connect: ConnectOffer[]; onFollowed: (f: Followed, before?: string) => void }) {
+function FromRepository({
+  connect,
+  onFollowed,
+  onEdited,
+}: {
+  connect: ConnectOffer[];
+  onFollowed: (f: Followed, before?: string) => void;
+  onEdited: (r: PackageRepo) => void;
+}) {
   const [ref, setRef] = useState("");
-  const [keep, setKeep] = useState(true);
-  const [error, setError] = useState<string>();
+  const [way, setWay] = useState<Way>("follow");
+  const [error, setError] = useState<{ text: string; offer?: ConnectOffer }>();
   const [followed, setFollowed] = useState<string>();
+  const [edited, setEdited] = useState<{ pkg: string; missingSecrets: string[] }>();
   const [pending, start] = useTransition();
+  const chosen = WAYS.find((w) => w.way === way)!;
   const { watch, follow, note } = useInstallWatch(null);
   const going = !!watch && (watch.status === "queued" || watch.status === "running") && !note?.final;
 
   const submit = () => {
     const r = parseRepositoryRef(ref);
-    if ("error" in r) return setError(r.error);
+    if ("error" in r) return setError({ text: r.error });
     start(async () => {
       setError(undefined);
       setFollowed(undefined);
-      if (keep) {
+      setEdited(undefined);
+      if (way === "follow") {
         const out = await followRepository(ref);
-        if (out.error !== undefined) return setError(out.error);
+        if (out.error !== undefined) return setError({ text: out.error });
         onFollowed(out.followed, out.before);
         setRef("");
         setFollowed(out.followed.ref);
         return;
       }
+      if (way === "edit") {
+        const out = await editRepository(ref);
+        if (out.error !== undefined) return setError({ text: out.error, offer: repoConnectFor(out.code, out.error, connect, r.address) });
+        onEdited(out.repo);
+        setRef("");
+        setEdited({ pkg: out.repo.package, missingSecrets: out.missingSecrets });
+        return;
+      }
       const out = await installFromRepository(ref);
-      if (out.status === undefined) return setError(out.error);
+      if (out.status === undefined) return setError({ text: out.error });
       follow(out);
     });
   };
@@ -618,33 +675,60 @@ function FromRepository({ connect, onFollowed }: { connect: ConnectOffer[]; onFo
           }}
           className={`${fieldClass} font-mono text-[14px]`}
         />
-        <label className="flex items-start gap-2.5 text-[14px] text-ink">
-          <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} className="mt-[3px] size-4 accent-accent" />
-          <span className="flex flex-col gap-0.5">
-            Keep it up to date
-            <span className="text-[13px] text-ink-3">
-              {keep
-                ? "Installs each new commit on the branch."
-                : "Installs it once, as it is now."}
-            </span>
-          </span>
-        </label>
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="sr-only">How to add it</legend>
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
+            {WAYS.map((w) => (
+              <label key={w.way} className="flex items-center gap-2 text-[14px] text-ink">
+                <input
+                  type="radio"
+                  name="repository-way"
+                  value={w.way}
+                  checked={way === w.way}
+                  disabled={pending}
+                  onChange={() => {
+                    setWay(w.way);
+                    setError(undefined);
+                  }}
+                  className="size-4 accent-accent"
+                />
+                {w.label}
+              </label>
+            ))}
+          </div>
+          <span className="text-[13px] text-ink-3">{chosen.words}</span>
+        </fieldset>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p aria-live="polite" className="min-w-0 text-[13px] break-words">
             {error ? (
               <span role="alert" className="text-warn">
-                {error}
+                {error.text}
               </span>
+            ) : pending && way === "edit" ? (
+              <span className="text-ink-3">Installing it. This can take a minute.</span>
             ) : followed ? (
               <span className="text-ink-2">
                 Now following <code className="font-mono break-all">{followed}</code>.
               </span>
+            ) : edited ? (
+              <span className="text-ink-2">
+                Now editing <code className="font-mono break-all">{edited.pkg}</code>. It’s under Editing.
+              </span>
             ) : null}
           </p>
           <button type="submit" disabled={pending || going || !ref.trim()} className={`${buttonClass.secondary} h-10 px-4 text-[14px]`}>
-            {pending ? (keep ? "Following…" : "Installing…") : keep ? "Follow" : "Install"}
+            {pending ? chosen.going : chosen.button}
           </button>
         </div>
+        {error?.offer && <ConnectLine offer={error.offer} then="try again" />}
+        {edited && edited.missingSecrets.length > 0 && (
+          <div className="flex flex-col gap-3 rounded-[12px] bg-warn-soft px-4 py-3.5">
+            <p className="text-[13.5px] text-ink-2">Needs these keys to run:</p>
+            {edited.missingSecrets.map((name) => (
+              <SecretField key={name} name={name} />
+            ))}
+          </div>
+        )}
         {watch && (
           <div className="flex flex-col gap-3 border-t border-rule-soft pt-3">
             {going && <InstallBar watch={watch} label={`Installing ${watch.ref}`} />}
@@ -1014,6 +1098,313 @@ function Problems({ f, read, connect, again }: { f: Followed; read: boolean; con
         </ul>
       )}
     </>
+  );
+}
+
+// ── editing ─────────────────────────────────────────────────────────────
+
+/** A commit, short. */
+const short = (sha: string) => sha.slice(0, 7);
+
+/** How a change here is marked, in the row and the commit's file list. */
+const MARKS = {
+  new: "bg-ok-soft text-ok",
+  edited: "bg-warn-soft text-warn",
+  deleted: "bg-raised text-ink-3",
+} as const;
+const FILE_MARKS = { added: "new", modified: "edited", deleted: "deleted" } as const;
+
+function Mark({ mark }: { mark: keyof typeof MARKS }) {
+  return <span className={`rounded-md px-1.5 py-px font-sans text-[12px] ${MARKS[mark]}`}>{mark}</span>;
+}
+
+/**
+ * The packages opened here as git repos (strut `specs/API.md` §16,
+ * "Working on a repository"): changed here by anyone, from any door (the
+ * builder, Jamie, an app's own pages), and committed back by an admin.
+ * Each row: the repo and branch, the commit installed, what changed here
+ * since, and Commit…, Pull and Close. Shown only while one is open.
+ */
+function EditingList({ repos, connect, onClosed }: { repos: PackageRepo[]; connect: ConnectOffer[]; onClosed: (pkg: string) => void }) {
+  const [notice, setNotice] = useState<string>();
+  if (repos.length === 0 && !notice) return null;
+  return (
+    <section aria-labelledby="editing" className="flex flex-col gap-3">
+      <SectionLabel id="editing">Editing</SectionLabel>
+      {notice && (
+        <p aria-live="polite" className="rounded-xl bg-ok-soft px-4 py-3 text-[13.5px] text-ink-2">
+          {notice}
+        </p>
+      )}
+      {repos.length > 0 && (
+        <ul className={`${card} divide-y divide-rule-soft`}>
+          {repos.map((r) => (
+            <EditingRow
+              key={r.package}
+              repo={r}
+              connect={connect}
+              onClosed={() => {
+                onClosed(r.package);
+                setNotice(`Closed ${r.package}. It stays installed.`);
+              }}
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function EditingRow({ repo: r, connect, onClosed }: { repo: PackageRepo; connect: ConnectOffer[]; onClosed: () => void }) {
+  const [committing, setCommitting] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [pulled, setPulled] = useState<{ text: string; missingSecrets: string[] }>();
+  // A conflict the last pull stopped on, until the page's reading of strut has it.
+  const [stopped, setStopped] = useState<string[]>();
+  const [failed, setFailed] = useState<{ error: string; code?: string }>();
+  const [pending, start] = useTransition();
+  const edits = repoEdits(r);
+  const conflict = r.conflict ?? stopped;
+  const waiting = !!conflict || !!r.merge;
+  const offer = failed ? repoConnectFor(failed.code, failed.error, connect, r.url) : undefined;
+
+  const pull = () =>
+    start(async () => {
+      setFailed(undefined);
+      setPulled(undefined);
+      const p = await pullRepo(r.package);
+      if (p.error !== undefined) return setFailed(p);
+      setStopped(p.conflict);
+      if (p.conflict) return;
+      const saved = p.local ? ` Your changes here went in first as ${short(p.local)}. Commit to push them.` : "";
+      setPulled({ text: p.commit === r.commit && !p.local ? "Already up to date." : `Pulled. Now at ${short(p.commit)}.${saved}`, missingSecrets: p.missingSecrets });
+    });
+  const close = () =>
+    start(async () => {
+      setFailed(undefined);
+      const c = await closeRepo(r.package);
+      if (c.error) return setFailed({ error: c.error });
+      onClosed();
+    });
+
+  return (
+    <li className="flex flex-col gap-3 px-5 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <code className="font-mono text-[14px] break-all text-ink">{r.package}</code>
+          <span className="text-[13px] break-all text-ink-3">
+            {repoWhere(r)} @ {r.branch} · at <span className="font-mono text-[12.5px]">{short(r.commit)}</span>
+          </span>
+        </div>
+        <span className="text-[13px]">
+          {conflict ? (
+            <Dot tone="attention" label="Conflict" />
+          ) : edits.length ? (
+            <Dot tone="pending" label={`${edits.length} change${edits.length === 1 ? "" : "s"}`} />
+          ) : (
+            <Dot tone="ok" label="No changes" />
+          )}
+        </span>
+      </div>
+
+      {edits.length > 0 && (
+        <ul aria-label="Changed here" className="flex flex-wrap gap-x-3 gap-y-1.5 text-[13px] text-ink-2">
+          {edits.map((e) => (
+            <li key={`${e.kind}:${e.name}`} className="inline-flex items-center gap-1.5" title={`${e.kind} ${e.name}`}>
+              <span className="font-mono">{shortName(r.package, e.name)}</span>
+              <Mark mark={e.mark} />
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {conflict ? (
+        <div className="rounded-[12px] bg-warn-soft px-4 py-3 text-[13.5px] text-ink-2">
+          Pull stopped on a conflict in <span className="font-mono text-[13px] break-all text-ink">{conflict.join(", ")}</span>. Resolve{" "}
+          {conflict.length === 1 ? "it" : "them"} in <code className="font-mono text-[13px] break-all text-ink">{r.workdir}</code>, then pull again.
+        </div>
+      ) : r.merge ? (
+        <p className="text-[13.5px] text-ink-2">A merge is ready. Pull again to finish it.</p>
+      ) : null}
+
+      {pulled && <p className="text-[13.5px] text-ink-2">{pulled.text}</p>}
+      {pulled && pulled.missingSecrets.length > 0 && (
+        <div className="flex flex-col gap-3 rounded-[12px] bg-warn-soft px-4 py-3.5">
+          <p className="text-[13.5px] text-ink-2">Needs these keys to run:</p>
+          {pulled.missingSecrets.map((name) => (
+            <SecretField key={name} name={name} />
+          ))}
+        </div>
+      )}
+      {failed && (
+        <p role="alert" className="text-[13.5px] break-words text-warn">
+          {failed.error}
+        </p>
+      )}
+      {offer && <ConnectLine offer={offer} then="try again" />}
+      {asking && <p className="text-[13.5px] text-ink-2">Close it? It stays installed. A commit made here and not pushed is lost.</p>}
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {asking ? (
+          <>
+            <button type="button" disabled={pending} onClick={() => setAsking(false)} className={buttonClass.quiet}>
+              Cancel
+            </button>
+            <button type="button" disabled={pending} onClick={close} className={small}>
+              {pending ? "Closing…" : "Close"}
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" disabled={pending || waiting} onClick={() => setCommitting(true)} className={small} title={waiting ? "Finish the pull first" : undefined}>
+              Commit…
+            </button>
+            <button type="button" disabled={pending} onClick={pull} className={small}>
+              {pending ? "Pulling…" : "Pull"}
+            </button>
+            <button type="button" disabled={pending} onClick={() => setAsking(true)} className={small}>
+              Close
+            </button>
+          </>
+        )}
+      </div>
+
+      {committing && <CommitDialog repo={r} connect={connect} onClose={() => setCommitting(false)} />}
+    </li>
+  );
+}
+
+/**
+ * Commit, asked first: the files it would push (strut writes the changes
+ * made here into its copy and says what differs), a message, and where it
+ * goes: straight to the branch (the default), or a new branch with a pull
+ * request into it. Strut commits as this admin and pushes with their own
+ * account. A refusal shows in plain words, with the account to connect
+ * when strut couldn't push with theirs.
+ */
+function CommitDialog({ repo: r, connect, onClose }: { repo: PackageRepo; connect: ConnectOffer[]; onClose: () => void }) {
+  const [changes, setChanges] = useState<PackageRepoDiff | null>(null);
+  const [message, setMessage] = useState("");
+  const [straight, setStraight] = useState(true);
+  const [done, setDone] = useState<PackageRepoCommit>();
+  const [failed, setFailed] = useState<{ error: string; code?: string }>();
+  const [pending, start] = useTransition();
+  useEffect(() => {
+    let live = true;
+    void repoChanges(r.package).then((c) => {
+      if (!live) return;
+      if (c.error !== undefined) setFailed(c);
+      else setChanges(c.diff);
+    });
+    return () => {
+      live = false;
+    };
+  }, [r.package]);
+  const commit = () =>
+    start(async () => {
+      setFailed(undefined);
+      const c = await commitRepo(r.package, message, straight);
+      if (c.error !== undefined) return setFailed(c);
+      setDone(c.commit);
+    });
+  const offer = failed ? repoConnectFor(failed.code, failed.error, connect, r.url) : undefined;
+
+  if (done) {
+    return (
+      <Modal label={`Commit ${r.package}`} onClose={onClose}>
+        <h2 className="text-[19px] font-medium">{done.committed ? `Pushed to ${done.branch ?? r.branch}` : "Nothing to commit"}</h2>
+        <p className="text-[14px] text-ink-2">
+          {done.committed ? (
+            <>
+              Commit <span className="font-mono text-[13px]">{short(done.commit)}</span>
+              {done.branch && done.branch !== r.branch ? `, on a new branch.` : "."}
+            </>
+          ) : (
+            `The repo has everything changed here.`
+          )}
+        </p>
+        {done.pr && (
+          <a href={done.pr.url} target="_blank" rel="noopener noreferrer" className="text-[14px] text-ink underline decoration-rule-strong underline-offset-2 hover:decoration-ink-3">
+            Pull request #{done.pr.number}
+          </a>
+        )}
+        {done.prSkipped && <p className="text-[13.5px] text-ink-3">No pull request: {done.prSkipped}.</p>}
+        <div className="flex justify-end">
+          <button type="button" onClick={onClose} className={`${buttonClass.primary} h-9 px-4 text-[14px]`}>
+            Done
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal label={`Commit ${r.package}`} onClose={pending ? () => {} : onClose}>
+      <div className="flex flex-col gap-1">
+        <h2 className="text-[19px] font-medium">
+          Commit <span className="font-mono text-[17px] break-all">{r.package}</span>
+        </h2>
+        <p className="text-[13.5px] break-all text-ink-3">
+          {repoWhere(r)} @ {r.branch}
+        </p>
+      </div>
+
+      {changes === null ? (
+        !failed && <p className="text-[13.5px] text-ink-3">Reading the changes…</p>
+      ) : changes.files.length === 0 ? (
+        <p className="text-[13.5px] text-ink-3">No file changes since {short(r.commit)}.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <ul aria-label="Files" className="flex max-h-[200px] flex-col gap-1 overflow-y-auto text-[13px]">
+            {changes.files.map((f) => (
+              <li key={f.path} className="flex items-center gap-2">
+                <Mark mark={FILE_MARKS[f.status]} />
+                <span className="min-w-0 font-mono break-all text-ink-2">{f.path}</span>
+              </li>
+            ))}
+          </ul>
+          {changes.patch && (
+            <details className="text-[13px]">
+              <summary className="text-ink-2">Show the diff{changes.truncated ? " (cut short)" : ""}</summary>
+              <pre className="mt-2 max-h-[280px] overflow-auto rounded-lg bg-raised p-3 font-mono text-[12px] leading-[1.5] text-ink-2">{changes.patch}</pre>
+            </details>
+          )}
+        </div>
+      )}
+
+      <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
+        Message
+        <textarea
+          rows={3}
+          value={message}
+          placeholder="What changed"
+          onChange={(e) => setMessage(e.target.value)}
+          className={`${fieldClass} h-auto py-2.5 text-[14px]`}
+        />
+      </label>
+      <label className="flex items-start gap-2.5 text-[14px] text-ink">
+        <input type="checkbox" checked={straight} onChange={(e) => setStraight(e.target.checked)} className="mt-[3px] size-4 accent-accent" />
+        <span className="flex flex-col gap-0.5">
+          Push straight to {r.branch}
+          <span className="text-[13px] text-ink-3">{straight ? `Goes onto ${r.branch} itself.` : `Goes on a new branch, with a pull request into ${r.branch}.`}</span>
+        </span>
+      </label>
+
+      {failed && (
+        <p role="alert" className="text-[13.5px] break-words text-warn">
+          {failed.error}
+        </p>
+      )}
+      {offer && <ConnectLine offer={offer} then="commit again" />}
+      <div className="flex flex-wrap justify-end gap-1.5">
+        <button type="button" disabled={pending} onClick={onClose} className={buttonClass.quiet}>
+          Cancel
+        </button>
+        <button type="button" disabled={pending || !message.trim()} onClick={commit} className={`${buttonClass.primary} h-9 px-4 text-[14px]`}>
+          {pending ? "Pushing…" : "Commit and push"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 

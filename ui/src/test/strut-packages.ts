@@ -224,6 +224,24 @@ export const STADEUM_PODS: FakeRelease = {
   ],
 };
 
+/** `stadeum/canvas`, made up for the fake: the Infinite Canvas app, a package edited on the box and committed back. */
+export const STADEUM_CANVAS: FakeRelease = {
+  package: "stadeum/canvas",
+  publisher: "stadeum",
+  key: "",
+  urls: [],
+  version: "0.1.0",
+  digest: digest("9e"),
+  description: "An infinite canvas to think on with Jamie.",
+  detail: { apps: [{ name: "canvas", title: "Canvas", can: { spends: true, acts: false, code: false } }], workflows: 2, steps: 1, concepts: 0, secrets: [], can: { spends: true, acts: false, code: false }, readme: true },
+  items: [
+    { kind: "app", name: "canvas" },
+    { kind: "workflow", name: "brainstorm" },
+    { kind: "workflow", name: "summarize" },
+    { kind: "step", name: "layout" },
+  ],
+};
+
 /** The repositories the fake strut can read, by address (lowercase, no `.git`). */
 export const STRUT_CODE_REPO = "https://github.com/stakwork/strut-code";
 export const STRUT_GITHUB_REPO = "https://github.com/stakwork/strut-github";
@@ -231,6 +249,7 @@ export const STRUT_PODS_REPO = "https://github.com/stakwork/strut-pods";
 /** A bundle's repository, as stakwork/strut-software is to hold it (it does not exist yet): the Software card's `SOFTWARE_REF`. */
 export const STRUT_SOFTWARE_REPO = "https://github.com/stakwork/strut-software";
 export const ACME_TOOLS_REPO = "https://github.com/acme/tools";
+export const STRUT_CANVAS_REPO = "https://github.com/stakwork/strut-canvas";
 
 /** `stadeum/software`: a bundle of the three, each on its `stable` branch. */
 export const STADEUM_SOFTWARE: FakeRelease = {
@@ -269,4 +288,5 @@ export const fakeRepos = (): Map<string, FakeRepo> =>
     [STRUT_PODS_REPO, { defaultBranch: "main", refs: { stable: { commit: commit("e5"), release: structuredClone(STADEUM_PODS) } } }],
     [STRUT_SOFTWARE_REPO, { defaultBranch: "main", refs: { stable: { commit: commit("f6"), release: structuredClone(STADEUM_SOFTWARE) } } }],
     [ACME_TOOLS_REPO, { private: true, defaultBranch: "main", folder: "package", refs: { main: { commit: commit("b2"), release: structuredClone(ACME_TOOLS) } } }],
+    [STRUT_CANVAS_REPO, { defaultBranch: "main", refs: { main: { commit: commit("c3"), release: structuredClone(STADEUM_CANVAS) } } }],
   ]);

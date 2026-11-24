@@ -18,6 +18,7 @@ import {
   installWatch,
   PACKAGE_NAME_RE,
   parseRepositoryRef,
+  repoRefusal,
   settableSecret,
   SUBSCRIPTION_ID_RE,
   subscriptionIdOf,
@@ -27,13 +28,19 @@ import {
 } from "@/lib/packages";
 import { requireAdmin } from "@/lib/session";
 import {
+  closePackageRepo,
+  commitPackageRepo,
   followPackageIndex,
   followPackageRef,
   getPackageInstall,
+  getPackageRepo,
   listPackageIndexes,
   listPackageInstalls,
   listPackages,
   listPackageSubscriptions,
+  openPackageRepo,
+  packageRepoDiff,
+  pullPackageRepo,
   putDeploymentSetting,
   searchPackages,
   startPackageInstall,
@@ -44,6 +51,9 @@ import {
   unfollowPackageSubscription,
   type PackageHit,
   type PackageIndex,
+  type PackageRepo,
+  type PackageRepoCommit,
+  type PackageRepoDiff,
   type PackageSubscription,
   type UninstallResult,
 } from "@/lib/strut/client";
@@ -340,4 +350,123 @@ export async function unfollow(id: string): Promise<{ uninstalled: string[]; err
   } catch (err) {
     return { error: refusal(err) };
   }
+}
+
+// ── a package edited here ───────────────────────────────────────────────
+
+/** A refusal for a package edited here: plain words, and strut's code, by which the page offers an account to connect. */
+type RepoFailed = Failed & { code?: string };
+
+function repoFailure(err: unknown, leads?: Record<string, string>): RepoFailed {
+  if (err instanceof StrutHttpError) return repoRefusal(err.detail, err.status, leads);
+  return { error: "Strut isn’t answering. Nothing changed." };
+}
+
+/** Open's own word for a name taken: strut says it for a package installed any other way. */
+const OPEN_LEADS = { package_conflict: "It’s already installed here another way. Uninstall it, or stop following it, first." };
+
+export type EditOutcome = { repo: PackageRepo; missingSecrets: string[]; error?: never; code?: never } | (RepoFailed & { repo?: never });
+
+/**
+ * Edit here: `POST /packages/repos { url, ref?, path? }` as this admin
+ * (strut `specs/API.md` §16, "Working on a repository"). Strut fetches the
+ * branch with the admin's own account, installs its package, and from then
+ * on takes edits to it from any door (the builder, Jamie, an app's own
+ * pages) for a Commit to push. A branch only: a tag or a commit never
+ * takes a push. Answered once installed, minutes for a big package.
+ */
+export async function editRepository(raw: string): Promise<EditOutcome> {
+  const me = await requireAdmin();
+  const r = parseRepositoryRef(raw);
+  if ("error" in r) return { error: r.error };
+  if (r.commit) return { error: "A commit can’t be edited. Name a branch." };
+  try {
+    const { repo, install: result } = await openPackageRepo({ url: r.address, ...(r.rev ? { ref: r.rev } : {}), ...(r.folder ? { path: r.folder } : {}) }, me.actor);
+    changed();
+    return { repo, missingSecrets: result.missingSecrets };
+  } catch (err) {
+    return repoFailure(err, OPEN_LEADS);
+  }
+}
+
+export type ChangesOutcome = { diff: PackageRepoDiff; error?: never; code?: never } | (RepoFailed & { diff?: never });
+
+/** What a Commit would push: `GET /packages/repos/:publisher/:name/diff`, the edits made here written into strut's copy. */
+export async function repoChanges(pkg: string): Promise<ChangesOutcome> {
+  await requireAdmin();
+  if (typeof pkg !== "string" || !PACKAGE_NAME_RE.test(pkg)) return { error: "That isn’t a package name." };
+  try {
+    return { diff: await packageRepoDiff(pkg) };
+  } catch (err) {
+    return repoFailure(err);
+  }
+}
+
+export type CommitOutcome = { commit: PackageRepoCommit; error?: never; code?: never } | (RepoFailed & { commit?: never });
+
+/**
+ * Commit and push: `POST /packages/repos/:publisher/:name/commit` as this
+ * admin, the commit theirs. `straight`: onto the branch it follows, which
+ * strut names (the page never does); else a new branch, and a pull
+ * request into it where the repository is on GitHub. Never forced: a
+ * branch that moved is `push_rejected`, and Pull comes first.
+ */
+export async function commitRepo(pkg: string, message: string, straight: boolean): Promise<CommitOutcome> {
+  const me = await requireAdmin();
+  if (typeof pkg !== "string" || !PACKAGE_NAME_RE.test(pkg)) return { error: "That isn’t a package name." };
+  message = typeof message === "string" ? message.trim() : "";
+  if (!message) return { error: "Say what changed first." };
+  if (message.length > 10_000) return { error: "That message is too long." };
+  try {
+    const repo = await getPackageRepo(pkg);
+    if (!repo) return { error: "It isn’t open for editing here any more." };
+    const commit = await commitPackageRepo(pkg, { message, ...(straight === true ? { branch: repo.branch } : {}) }, me.actor);
+    changed();
+    return { commit };
+  } catch (err) {
+    return repoFailure(err);
+  }
+}
+
+export type PullOutcome = { commit: string; local?: string; conflict?: string[]; missingSecrets: string[]; error?: never; code?: never } | (RepoFailed & { commit?: never });
+
+/**
+ * Pull: `POST /packages/repos/:publisher/:name/pull` as this admin. What
+ * was edited here is committed first (`local`), then git merges the
+ * branch and strut installs it. A conflict installs nothing: its files
+ * wait, in strut's copy, for a person (or an agent) to resolve them and
+ * Pull again.
+ */
+export async function pullRepo(pkg: string): Promise<PullOutcome> {
+  const me = await requireAdmin();
+  if (typeof pkg !== "string" || !PACKAGE_NAME_RE.test(pkg)) return { error: "That isn’t a package name." };
+  try {
+    const r = await pullPackageRepo(pkg, me.actor);
+    changed();
+    return {
+      commit: r.commit,
+      ...(r.local ? { local: r.local } : {}),
+      ...(r.conflict ? { conflict: r.conflict } : {}),
+      missingSecrets: r.install?.missingSecrets ?? [],
+    };
+  } catch (err) {
+    return repoFailure(err);
+  }
+}
+
+/**
+ * Close: `DELETE /packages/repos/:publisher/:name`. What it installed
+ * stays, uninstalled like any package's; strut's copy goes, and with it a
+ * commit made here that was never pushed.
+ */
+export async function closeRepo(pkg: string): Promise<{ error?: string }> {
+  const me = await requireAdmin();
+  if (typeof pkg !== "string" || !PACKAGE_NAME_RE.test(pkg)) return { error: "That isn’t a package name." };
+  try {
+    await closePackageRepo(pkg, me.actor);
+  } catch (err) {
+    return { error: refusal(err) };
+  }
+  changed();
+  return {};
 }

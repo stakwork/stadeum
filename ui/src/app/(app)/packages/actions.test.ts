@@ -16,6 +16,9 @@ import {
   parseInstallLink,
   parseRepositoryRef,
   refusalCode,
+  repoConnectFor,
+  repoEdits,
+  repoWhere,
   secretsNeeded,
   SOFTWARE_REF,
   SOFTWARE_WORDS,
@@ -23,7 +26,16 @@ import {
   subscriptionIdOf,
   type Followed,
 } from "@/lib/packages";
-import { listApps, listDeploymentSecretNames, listPackageIndexes, listPackageInstalls, listPackages, listPackageSubscriptions, startPackageInstall } from "@/lib/strut/client";
+import {
+  listApps,
+  listDeploymentSecretNames,
+  listPackageIndexes,
+  listPackageInstalls,
+  listPackageRepos,
+  listPackages,
+  listPackageSubscriptions,
+  startPackageInstall,
+} from "@/lib/strut/client";
 import { startFakeStack, type FakeStack } from "@/test/fake-stack";
 import {
   ACME_TOOLS_REPO,
@@ -33,6 +45,7 @@ import {
   STADEUM_PODS,
   STAKWORK_INDEX_KEY,
   STAKWORK_INDEX_URL,
+  STRUT_CANVAS_REPO,
   STRUT_CODE_REPO,
   STRUT_GITHUB_REPO,
   STRUT_PODS_REPO,
@@ -44,8 +57,25 @@ const who = vi.hoisted(() => ({ email: null as string | null }));
 vi.mock("@/auth", () => ({ auth: async () => (who.email ? { user: { email: who.email } } : null) }));
 vi.mock("next/cache", () => ({ revalidatePath: () => undefined }));
 
-const { checkFollowed, findPackages, followedProgress, followIndex, followRepository, install, installFromRepository, installProgress, setSecret, uninstall, unfollow, unfollowIndex } =
-  await import("./actions");
+const {
+  checkFollowed,
+  closeRepo,
+  commitRepo,
+  editRepository,
+  findPackages,
+  followedProgress,
+  followIndex,
+  followRepository,
+  install,
+  installFromRepository,
+  installProgress,
+  pullRepo,
+  repoChanges,
+  setSecret,
+  uninstall,
+  unfollow,
+  unfollowIndex,
+} = await import("./actions");
 const { default: PackagesPage } = await import("./page");
 
 /** The Packages page as the admin signed in gets it, rendered. */
@@ -71,7 +101,7 @@ beforeEach(async () => {
   await admit("ben@acme.test"); // a member
   who.email = "ada@acme.test";
   Object.assign(fake.state, { followed: [], installed: [], refusePackage: null, installMs: 0, installs: [], installWaits: false, requests: [] });
-  Object.assign(fake.state, { repos: fakeRepos(), subscriptions: [], subscriptionPuts: [] });
+  Object.assign(fake.state, { repos: fakeRepos(), subscriptions: [], subscriptionPuts: [], opened: [], pullConflict: null, pushes: [] });
   fake.state.deploymentSecrets.clear();
   fake.state.strutEnv.clear();
   fake.state.packagesOmitMissing = false;
@@ -430,6 +460,11 @@ describe("who may", () => {
     await expect(checkFollowed("strut-code-00000000")).rejects.toEqual(home);
     await expect(followedProgress("strut-code-00000000")).rejects.toEqual(home);
     await expect(unfollow("strut-code-00000000")).rejects.toEqual(home);
+    await expect(editRepository(STRUT_CANVAS_REPO)).rejects.toEqual(home);
+    await expect(repoChanges("stadeum/canvas")).rejects.toEqual(home);
+    await expect(commitRepo("stadeum/canvas", "x", true)).rejects.toEqual(home);
+    await expect(pullRepo("stadeum/canvas")).rejects.toEqual(home);
+    await expect(closeRepo("stadeum/canvas")).rejects.toEqual(home);
     // Nor the Software card, nor the page it is on.
     await expect(followRepository(SOFTWARE_REF)).rejects.toEqual(home);
     await expect(PackagesPage({ searchParams: Promise.resolve({}) })).rejects.toEqual(home);
@@ -540,7 +575,7 @@ describe("from a repository", () => {
   it("says why a private repository can't be read, and which account to connect; once it can, waits for its key, then installs", async () => {
     Object.assign(process.env, { CONNECT_GITHUB_CLIENT_ID: "Iv23.test", CONNECT_GITHUB_CLIENT_SECRET: "test-secret" });
     const offers = connectOffers();
-    expect(offers).toEqual([{ id: "github", name: "GitHub", secrets: ["GITHUB_TOKEN"] }]);
+    expect(offers).toEqual([{ id: "github", name: "GitHub", secrets: ["GITHUB_TOKEN"], hosts: ["github.com"] }]);
 
     const ref = `git+${ACME_TOOLS_REPO}#package`;
     const r = await followRepository(ref);
@@ -783,5 +818,203 @@ describe("a bundle, and the Software card", () => {
     const html = await page();
     expect(html).toContain("Add Software");
     expect(html).not.toContain("Remove Software");
+  });
+});
+
+describe("a package edited here", () => {
+  const CANVAS = "stadeum/canvas";
+  const opened = () => fake.state.opened.find((o) => o.package === CANVAS)!;
+  const main = () => fake.state.repos.get(STRUT_CANVAS_REPO)!.refs.main!;
+  /** The admin's own GitHub account, connected: what strut pushes with. */
+  const connected = () => fake.state.secrets.set(`${adminActor}/GITHUB_TOKEN`, "gho_ada");
+  async function edit(ref = STRUT_CANVAS_REPO) {
+    const r = await editRepository(ref);
+    if (r.error !== undefined) throw new Error(r.error);
+    return r.repo;
+  }
+  /** What the builder and Jamie change in the package, as strut reads it off the versions. */
+  const change = () =>
+    Object.assign(opened(), {
+      added: [{ kind: "app", name: `${CANVAS}/sticky` }],
+      forked: [{ kind: "workflow", name: `${CANVAS}/brainstorm` }],
+      deleted: [{ kind: "step", name: `${CANVAS}/layout` }],
+    });
+
+  it("opens a branch as this admin: strut installs its package, and the page lists it under Editing", async () => {
+    const repo = await edit();
+    expect(repo).toMatchObject({ package: CANVAS, url: STRUT_CANVAS_REPO, branch: "main", commit: "c3".repeat(20), added: [], forked: [], deleted: [], workdir: expect.stringContaining(CANVAS) });
+    expect(packageCalls()).toContain("POST /strut/packages/repos");
+    expect(opened()).toMatchObject({ by: adminActor, ref: `git+${STRUT_CANVAS_REPO}@main` });
+    expect(fake.state.installed.map((p) => [p.release.package, p.door, p.actor])).toEqual([[CANVAS, "repo", adminActor]]);
+    expect((await listPackages())[0]).toMatchObject({ package: CANVAS, door: "repo", source: { ref: `git+${STRUT_CANVAS_REPO}@main` } });
+    expect((await listApps()).map((a) => a.name)).toContain(`${CANVAS}/canvas`);
+    expect(await listPackageRepos()).toEqual([repo]);
+    expect(repoWhere(repo)).toBe("github.com/stakwork/strut-canvas");
+
+    const html = await page();
+    expect(html).toContain('id="editing"');
+    expect(html).toContain("Commit…");
+    expect(html).toMatch(/github\.com\/stakwork\/strut-canvas @ main · at <span[^>]*>c3c3c3c<\/span>/);
+    expect(html).toContain("No changes");
+    expect(html).toContain("Edited here, from github.com/stakwork/strut-canvas @ main");
+
+    // While it's open, nothing else writes it: not an uninstall, not an install of the same name.
+    expect((await uninstall(CANVAS)).error).toMatch(/^It’s open for editing here\. Close it under Editing first\./);
+    const again = await installFromRepository(STRUT_CANVAS_REPO);
+    if (again.status === undefined) throw new Error(again.error);
+    expect(await installProgress(again.id)).toMatchObject({ status: "failed", error: expect.stringMatching(/^It’s open for editing here/) });
+  });
+
+  it("says what is wrong before asking strut, and plainly when strut refuses: a tag, a package installed another way, one already open", async () => {
+    expect((await editRepository("")).error).toMatch(/Enter the repo’s address/);
+    expect((await editRepository(`${STRUT_CANVAS_REPO}@${"c3".repeat(20)}`)).error).toBe("A commit can’t be edited. Name a branch.");
+    expect(packageCalls()).toEqual([]);
+
+    expect((await editRepository(`${STRUT_CODE_REPO}@v0.1.0`)).error).toMatch(/^That isn’t a branch\. Name a branch to edit\./);
+
+    const once = await installFromRepository(`${STRUT_CODE_REPO}@main`);
+    if (once.status === undefined) throw new Error(once.error);
+    await installProgress(once.id);
+    const taken = await editRepository(`${STRUT_CODE_REPO}@main`);
+    expect(taken.error).toMatch(/^It’s already installed here another way\. Uninstall it, or stop following it, first\. Strut says: stadeum\/code is installed here already/);
+    expect(fake.state.opened).toEqual([]);
+
+    await edit();
+    expect((await editRepository(STRUT_CANVAS_REPO)).error).toMatch(/^It’s already open for editing here\./);
+  });
+
+  it("commits what changed here straight to the branch by default, as this admin, or to a new branch with a pull request", async () => {
+    connected();
+    await edit();
+    change();
+    const [repo] = await listPackageRepos();
+    expect(repoEdits(repo!).map((e) => [e.name, e.mark])).toEqual([
+      [`${CANVAS}/sticky`, "new"],
+      [`${CANVAS}/brainstorm`, "edited"],
+      [`${CANVAS}/layout`, "deleted"],
+    ]);
+    expect(await page()).toMatch(/sticky.*new/);
+
+    const changes = await repoChanges(CANVAS);
+    if (changes.error !== undefined) throw new Error(changes.error);
+    expect(changes.diff.files).toEqual([
+      { path: "apps/sticky/index.html", status: "added" },
+      { path: "workflows/brainstorm.json", status: "modified" },
+      { path: "steps/layout.ts", status: "deleted" },
+    ]);
+    expect(changes.diff.patch).toContain("diff --git a/apps/sticky/index.html");
+
+    expect((await commitRepo(CANVAS, "  ", true)).error).toBe("Say what changed first.");
+    expect(fake.state.pushes).toEqual([]);
+
+    // Straight to main: the branch the page read from strut, never one the browser names.
+    const straight = await commitRepo(CANVAS, " Sticky notes ", true);
+    if (straight.error !== undefined) throw new Error(straight.error);
+    expect(straight.commit).toMatchObject({ package: CANVAS, committed: true, branch: "main", pushed: true });
+    expect(straight.commit.pr).toBeUndefined();
+    expect(fake.state.pushes).toEqual([{ package: CANVAS, branch: "main", message: "Sticky notes", actor: adminActor }]);
+    expect(main().commit).toBe(straight.commit.commit);
+    expect((await listPackageRepos())[0]).toMatchObject({ commit: straight.commit.commit, added: [], forked: [], deleted: [] });
+
+    // Nothing changed since: nothing to push.
+    const none = await commitRepo(CANVAS, "Again", true);
+    expect(none.commit).toMatchObject({ committed: false });
+
+    // Off: a new branch, and a pull request into main; main stays.
+    change();
+    const pr = await commitRepo(CANVAS, "Try a darker theme", false);
+    if (pr.error !== undefined) throw new Error(pr.error);
+    expect(pr.commit.branch).toMatch(/^strut\/canvas-[0-9a-f]{7}$/);
+    expect(pr.commit.pr).toEqual({ url: `${STRUT_CANVAS_REPO}/pull/42`, number: 42 });
+    expect(main().commit).toBe(straight.commit.commit);
+  });
+
+  it("says what stops a push, offers the account to connect, and takes a pull before a branch that moved", async () => {
+    Object.assign(process.env, { CONNECT_GITHUB_CLIENT_ID: "Iv23.test", CONNECT_GITHUB_CLIENT_SECRET: "test-secret" });
+    const offers = connectOffers();
+    const repo = await edit();
+    change();
+
+    // No account of the admin's for github.com: strut can't push.
+    const refused = await commitRepo(CANVAS, "Sticky notes", true);
+    expect(refused).toMatchObject({ error: expect.stringMatching(/^Your account can’t push to that repo\./), code: "no_push_permission" });
+    expect(repoConnectFor(refused.code, refused.error!, offers, repo.url)).toEqual(offers[0]);
+
+    // Connected, but main moved on GitHub: never forced.
+    connected();
+    const theirs = "d4".repeat(20);
+    Object.assign(main(), { commit: theirs });
+    const moved = await commitRepo(CANVAS, "Sticky notes", true);
+    expect(moved).toMatchObject({ error: expect.stringMatching(/^The branch has new commits\. Pull, then commit again\./), code: "push_rejected" });
+    expect(repoConnectFor(moved.code, moved.error!, offers, repo.url)).toBeUndefined();
+
+    // Pull: what was edited here is committed first, then main is merged and installed.
+    const pulled = await pullRepo(CANVAS);
+    if (pulled.error !== undefined) throw new Error(pulled.error);
+    expect(pulled).toMatchObject({ commit: expect.stringMatching(/^[0-9a-f]{40}$/), local: expect.stringMatching(/^[0-9a-f]{40}$/), missingSecrets: [] });
+    expect(pulled.conflict).toBeUndefined();
+    expect(fake.state.installed[0]!.commit).toBe(pulled.commit);
+
+    // Then the commit that waits goes straight on top of main.
+    const pushed = await commitRepo(CANVAS, "Sticky notes", true);
+    expect(pushed.commit).toMatchObject({ committed: true, branch: "main" });
+    expect(main().commit).toBe(pushed.commit!.commit);
+  });
+
+  it("says when a pull stops on a conflict, installs nothing, and holds Commit until a pull finishes it", async () => {
+    connected();
+    const repo = await edit();
+    change();
+    Object.assign(main(), { commit: "d4".repeat(20) });
+    fake.state.pullConflict = ["apps/canvas/index.html"];
+
+    const stopped = await pullRepo(CANVAS);
+    expect(stopped).toMatchObject({ conflict: ["apps/canvas/index.html"], local: expect.any(String) });
+    expect(fake.state.installed[0]!.commit).toBe(repo.commit);
+    expect((await listPackageRepos())[0]).toMatchObject({ conflict: ["apps/canvas/index.html"], merge: expect.any(String) });
+    const html = await page();
+    expect(html).toContain("Pull stopped on a conflict in");
+    expect(html).toContain(`/data/packages/work/${CANVAS}`);
+
+    expect((await repoChanges(CANVAS)).error).toMatch(/^A pull is waiting on a conflict\. Resolve it, then pull again\./);
+    expect((await commitRepo(CANVAS, "Sticky notes", true)).error).toMatch(/^A pull is waiting on a conflict/);
+
+    // Resolved in strut's copy: the next pull finishes the merge.
+    fake.state.pullConflict = null;
+    const done = await pullRepo(CANVAS);
+    if (done.error !== undefined) throw new Error(done.error);
+    expect(done.conflict).toBeUndefined();
+    const [after] = await listPackageRepos();
+    expect(after).toMatchObject({ commit: done.commit });
+    expect(after!.conflict).toBeUndefined();
+    expect(after!.merge).toBeUndefined();
+  });
+
+  it("reads a private repo with this admin's own account, and offers it to connect when strut can't", async () => {
+    Object.assign(process.env, { CONNECT_GITHUB_CLIENT_ID: "Iv23.test", CONNECT_GITHUB_CLIENT_SECRET: "test-secret" });
+    const offers = connectOffers();
+    const ref = `git+${ACME_TOOLS_REPO}#package`;
+
+    const denied = await editRepository(ref);
+    expect(denied).toMatchObject({ error: expect.stringMatching(/^Can’t read that repo\. It may be private, or not exist\. Strut says: could not fetch/), code: "package_repo_denied" });
+    expect(repoConnectFor(denied.code, denied.error!, offers, ACME_TOOLS_REPO)).toEqual(offers[0]);
+    // A repo that isn't answering is no account's to fix.
+    expect(repoConnectFor("package_repo_unreachable", "The repo isn’t answering.", offers, ACME_TOOLS_REPO)).toBeUndefined();
+
+    connected();
+    const r = await editRepository(ref);
+    if (r.error !== undefined) throw new Error(r.error);
+    expect(r).toMatchObject({ repo: { package: "acme/tools", path: "package", branch: "main" }, missingSecrets: ["ACME_API_KEY"] });
+    expect(repoWhere(r.repo)).toBe("github.com/acme/tools#package");
+  });
+
+  it("closes it: what it installed stays, and can be uninstalled then", async () => {
+    await edit();
+    expect(await closeRepo(CANVAS)).toEqual({});
+    expect(await listPackageRepos()).toEqual([]);
+    expect(fake.state.installed.map((p) => [p.release.package, p.door])).toEqual([[CANVAS, "repo"]]);
+    expect(await page()).not.toContain('id="editing"');
+    expect((await uninstall(CANVAS)).error).toBeUndefined();
+    expect((await closeRepo("../../secrets")).error).toBe("That isn’t a package name.");
   });
 });
