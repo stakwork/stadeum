@@ -1,11 +1,12 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { preconnect } from "react-dom";
 
 import { STRUT_FRAME_ALLOW } from "@/lib/frame-allow";
 import { shownTheme } from "@/lib/theme";
-import { openApp } from "./open";
+import { appPage, openApp } from "./open";
 
 /**
  * A strut app's page, framed for one person, in the theme stadeum shows
@@ -19,6 +20,13 @@ import { openApp } from "./open";
  * (strut takes no new input from its host). A URL with none leaves the
  * app where it is and takes its place: the rail's link back to an app
  * returns to it, not to its start.
+ *
+ * An app that opens another as the page (strut's `appLink(…, { open:
+ * "page" })`, as Code's link to its chat in Jamie) has strut post `{type:
+ * "strut:open", app, input}`, and stadeum goes to that app's own page with
+ * `?input=` (`appPage`): Jamie's is the home, `/`, whose frame (kept open)
+ * follows that `input` as it would any link's. An app that is not one of
+ * the person's opens nothing, and a hidden frame opens nothing either.
  *
  * `shown` is whether the frame is the page on screen. Hidden, it stays
  * mounted with the app in it and leaves the URL alone: the assistant's
@@ -58,6 +66,7 @@ export function StrutFrame({
   shown?: boolean;
 }) {
   preconnect(origin);
+  const router = useRouter();
   const ref = useRef<HTMLIFrameElement>(null);
   const [loaded, setLoaded] = useState(false);
   const [pageLoaded, setPageLoaded] = useState(false);
@@ -121,19 +130,34 @@ export function StrutFrame({
     return () => clearTimeout(fallback);
   }, [pageLoaded, loaded]);
 
-  // The URL follows the app while it is the page on screen.
+  // The URL follows the app while it is the page on screen, and another
+  // app it opens as the page becomes stadeum's page.
   useEffect(() => {
+    let live = true;
     function onMessage(e: MessageEvent) {
       if (e.origin !== origin || e.source !== ref.current?.contentWindow) return;
-      const data = e.data as { type?: string; params?: Record<string, string> } | null;
+      const data = e.data as { type?: string; params?: Record<string, string>; app?: unknown; input?: unknown } | null;
       if (data?.type === "strut:ready") setLoaded(true);
-      if (data?.type !== "strut:location") return;
-      where.current = data.params?.input;
-      if (shown) follow(where.current);
+      if (data?.type === "strut:location") {
+        where.current = data.params?.input;
+        if (shown) follow(where.current);
+      }
+      if (data?.type === "strut:open" && shown && typeof data.app === "string") {
+        const input = typeof data.input === "string" ? data.input : undefined;
+        appPage(data.app, input).then(
+          (page) => {
+            if (live && page) router.push(page);
+          },
+          () => undefined,
+        );
+      }
     }
     window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [origin, shown]);
+    return () => {
+      live = false;
+      window.removeEventListener("message", onMessage);
+    };
+  }, [origin, shown, router]);
 
   // On screen at a URL without an input (back from another page, the
   // rail's link): the URL takes the app's place.

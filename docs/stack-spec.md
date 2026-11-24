@@ -607,7 +607,11 @@ checked".
   to the app, whose links to paste are built on it (strut `specs/API.md`
   §14.3).
   strut's UI trades the ticket for its own session cookie as that person and
-  takes it off the URL (strut `specs/API.md` §13.1).
+  takes it off the URL (strut `specs/API.md` §13.1). The framed page posts
+  stadeum `strut:ready` once the app is on screen, `strut:location` as the
+  person moves in it (stadeum's `?input=` follows), and `strut:open` when
+  the app opens another as the page: stadeum goes to that app's page with
+  its `input` (`/` for Jamie), if it is one of the person's.
 - **Packages** (admins; `ui/src/app/(app)/packages/`, strut `specs/API.md`
   §16). Installed: each package, its version, apps, workflows, steps and
   Concepts (an item edited here is marked), and the secrets it requires
