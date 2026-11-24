@@ -1,10 +1,11 @@
 # Gmail: a person's mail, for Jamie and for their own workflows
 
-> **Status (2026-11-23): proposed.** Nothing is built yet; items 1, 2 and
-> 4 of §11 are under way. Revised the same day: after rulings 5 to 7,
-> building blocks in place of one feature; after a mock-up of the app,
-> rulings 8 and 9; and rulings 10 and 11, on whose Google app and on
-> strut holding a person's token.
+> **Status (2026-11-23): proposed.** Items 1 to 4 of §11 are up for
+> review: stakwork/strut#867, stakwork/stadeum#107, stakwork/strut#871
+> and stakwork/strut-gmail#1. Item 5 is under way. Revised the same day:
+> after rulings 5 to 7, building blocks in place of one feature; after a
+> mock-up of the app, rulings 8 and 9; and rulings 10 to 12, on whose
+> Google app, strut holding a person's token, and the runs a check makes.
 >
 > - **The goal (Evan, 2026-11-23):** "letting Jamie send and receive email
 >   as you". Three uses came up: "help me respond to things", email as a
@@ -39,6 +40,7 @@
 | 9 | A person's own instructions | **A text box in the app,** kept for each person by the package and read into their replies. It moves to a page of the person's own when strut has one |
 | 10 | Whose Google app | **Both, "just as easily".** A shared app, so a person can "just connect and go", and a box's own, on the same two settings (§3) |
 | 11 | Strut holding each person's Google token | **Accepted,** as GitHub's was, with the person's or their Google admin's revocation (§9) |
+| 12 | The runs a look every five minutes makes | **Kept, with their logs dropped after a day.** Old run summaries piling up is strut's to fix (§7) |
 
 How a person connects was decided before: the connect seam
 (`plans/software.md`, Decided row 4).
@@ -234,7 +236,8 @@ needs nothing new for this.
 ### 4.2 Ready-made: `reply`
 
 Support's `support-reply`, with Gmail's names. It runs for each connected
-person, as them, on their own spending cap, with `maxRunCostUsd: 1`.
+person, as them, on their own spending cap, with `maxRunCostUsd: 1`. Its
+runs' logs are dropped after a day (`retain`, ruling 12).
 
 1. **`new`,** with the person's search: `in:inbox category:primary to:me`
    unless they changed it. Mail marked `machine` is dropped. No search
@@ -432,6 +435,12 @@ second mailbox is a second member.
      (strut `src/actor-secrets.ts`).
    - It names no domain. Calendar, Outlook and a Slack package need the
      same thing.
+   - It is up as stakwork/strut#871.
+   - **What it costs.** A look every five minutes is 288 runs a day for
+     each person and workflow. Strut keeps every run's summary, and reads
+     the whole list at each fire. The package drops its runs' logs after
+     a day (ruling 12). Removing old summaries too is strut's own work,
+     and is needed before a box has many people (§12).
 
 Nothing else. No webhook route, no host key, no Gmail code.
 
@@ -532,7 +541,11 @@ Each is its own PR against its repo's default branch, never stacked.
   same place for a person's own instructions.
 - **A handoff that opens a chat** with Jamie about the thread
   (`conversation/start`).
-- **Gmail's push** in place of the five-minute look. Google signs each
+- **Old run summaries removed,** by strut's retention, keeping each
+  person's newest success for where their next run starts. Needed before
+  a box has many people (ruling 12).
+- **Gmail's push** in place of the five-minute look. It also ends the
+  runs that find nothing. Google signs each
   delivery with a token of its own, which none of the three schemes
   planned for strut's webhook routes checks.
 - **A page where an admin sets a box's own Google app,** so a hosted box
@@ -556,17 +569,18 @@ Each is its own PR against its repo's default branch, never stacked.
   ends the whole grant;
 - Gmail's address for the person is readable with `gmail.readonly`;
 - a draft costs 10 quota units, a send 100 and a history read 2, against
-  6,000 a minute for one person.
+  6,000 a minute for one person;
+- a reply joins a thread with the thread's id, the two reply headers and
+  a matching subject; Gmail's Sent label can't be put on mail from
+  outside; and mail to `name+tag@` arrives in the same mailbox. The
+  package's README names the pages.
 
 **To check before building:**
 
-- a draft made as a reply inside an existing thread, and the headers it
-  needs. The reference page fetched does not say;
 - that Google's refresh never sends a new refresh token. Its sample
   answer has none;
-- how a step knows the mailbox itself sent a message (`mine`), in a way
-  mail from outside can't fake, and that mail to an address with `+jamie`
-  arrives;
+- with a real account: that mail a mailbox sends to itself carries both
+  Sent and Inbox, which `ask` relies on;
 - a package's workflow running `agent` with `toolFilter: ["none"]`.
   Strut's own workflows do, and no package does yet;
 - counting the drafts still waiting: whether a draft the package left
