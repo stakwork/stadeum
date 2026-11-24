@@ -4,11 +4,12 @@
 > merged (stakwork/strut#867, stakwork/stadeum#107, stakwork/strut#871,
 > stakwork/strut-gmail#1, #2 and #3), and so are `reply`'s schedule and
 > cap (stakwork/strut-gmail#4), strut's cost cap (stakwork/strut#874)
-> and its fence fix (stakwork/strut#880, §7). Items 7 and 8 are built
-> and go up one at a time: 7 now, then 8. Nothing merged since the
-> morning of 2026-11-24 is on a box yet: strut's `stable` holds neither
-> #871, #874 nor #880, stadeum's holds no Google in the seam (#107), and
-> the package has no `stable` yet (§11). Revised 2026-11-23:
+> and its fence fix (stakwork/strut#880, §7). Item 7 is up for review
+> as stakwork/strut-gmail#5, and item 8 is built and goes up after it.
+> Nothing merged since the morning of 2026-11-24 is on a box yet:
+> strut's `stable` holds neither #871, #874 nor #880, stadeum's holds no
+> Google in the seam (#107), and the package has no `stable` yet (§11).
+> Revised 2026-11-23:
 > after rulings 5 to 7, building blocks in place of one feature; after a
 > mock-up of the app, rulings 8 and 9; and rulings 10 to 12, on whose
 > Google app, strut holding a person's token, and the runs a check makes.
@@ -344,6 +345,15 @@ Email as a way to reach Jamie.
    minutes late (§12).
 
 A reply the person sends in that thread continues the same job.
+
+It is off until the person turns it on (§10 decision 5). The package's
+schedule runs `ask` for everyone who has connected, so a run for a person
+with it off does nothing: no call to Gmail and no job.
+
+`ask` ships no cost cap, as built. Its own run calls no model, and the
+job it starts is strut's `job` workflow in runs of its own, so a cap on
+`ask` would count nothing. What a job may spend is the box's cap on
+`job`, a budget the person gives it, and the person's own spending cap.
 
 ### 4.5 Asked in a chat
 
