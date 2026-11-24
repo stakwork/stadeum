@@ -10,6 +10,10 @@
 >
 > The canvas app is being worked on at the same time. This plan asks it for
 > one view (§6.3) and one Concept page (§3).
+>
+> **Ruled 2026-11-24 (Evan):** the scribe runs on Sonnet, since it decides
+> every card that goes on the canvas; a recording has no budget by default
+> (§3).
 
 ## Problem
 
@@ -141,8 +145,14 @@ POST /workflows/job/run
   spoken.
 - **One at a time.** While a turn runs, a new launch is `job_busy:`. Voice
   keeps the chunk and sends it with the next.
-- **Its model** is voice's to pass (`params.model`), the call's by default
-  (Open).
+- **Sonnet (ruled).** The scribe decides every card that goes on the
+  canvas; `canvas` is code that checks and writes what it planned. So voice
+  passes `params.model: sonnet` on every scribe turn (aieo's alias,
+  `claude-sonnet-5-5` today). On a box a job otherwise runs on the org's
+  default (`stack/strut/host-config.json` unpins `job`'s model,
+  `docs/models.md`), which may be a cheaper model. A box whose model list
+  leaves Sonnet out refuses the turn at the gateway, and the chat says so.
+- **No budget (ruled).** A recording takes none by default.
 
 The job gives the rest:
 
@@ -279,10 +289,6 @@ must say so.
 
 ## Open
 
-- **The scribe's model.** The call's model by default. A cheaper one may do
-  for Call Canvas; the replays (work item 1) give the cases to compare on.
-- **A budget per call.** A job can have a budget. Whether a recording takes
-  one by default, and what voice says when it is spent.
 - **1:1 calls.** The same chunker could record a 1:1 call. Not in this
   plan.
 
