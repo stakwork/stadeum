@@ -1,9 +1,10 @@
 # Gmail: a person's mail, for Jamie and for their own workflows
 
-> **Status (2026-11-23): proposed, and being built.** Item 1 is merged
-> (stakwork/strut#867). Items 2, 3 and 4 are up for review:
-> stakwork/stadeum#107, stakwork/strut#871 and stakwork/strut-gmail#1.
-> Item 5 is built on a local branch and waits for #1. Revised the same day:
+> **Status (2026-11-23): proposed, and being built.** Items 1 and 4 are
+> merged (stakwork/strut#867, stakwork/strut-gmail#1). Items 2, 3 and 5
+> are up for review: stakwork/stadeum#107, stakwork/strut#871 and
+> stakwork/strut-gmail#2. Item 6 is built on a local branch and waits
+> for #2. Revised the same day:
 > after rulings 5 to 7, building blocks in place of one feature; after a
 > mock-up of the app, rulings 8 and 9; and rulings 10 to 12, on whose
 > Google app, strut holding a person's token, and the runs a check makes.
@@ -290,9 +291,15 @@ instruction changes them:
 1. the mail went to more people than the person (§10 decision 6);
 2. three replies have already gone out this way in the thread since the
    person last wrote in it themselves;
-3. the model handed the mail off.
+3. the model handed the mail off;
+4. the message's `Reply-To` points somewhere other than its sender.
+   Someone could forge the From of a person the mailbox writes to and
+   set a Reply-To of their own, and so be sent a reply written from the
+   real person's mail. `context` reads the thread alone for such a
+   message. Found while building (§10 decision 14).
 
-Mail from a list or a machine never gets this far (§4.2).
+Mail from a list or a machine never gets this far (§4.2). "Written to
+before" counts the person's own sent mail, never a reply sent for them.
 
 What makes sending safe is §4.2's reading rule: **a reply is written from
 what its recipient has already seen, and from what the box and the person
@@ -351,7 +358,8 @@ because the drafts are in Gmail.
 - **Needs you:** the threads handed to the person, each with the sender,
   the subject and the reason.
 - **Sent for you:** what went out without a click, each with the sender
-  and the reply's first line. It is empty under Draft.
+  and the reply's first line. It is empty for someone who has only used
+  Draft (§10 decision 15).
 
 A row in either list opens its thread in Gmail.
 
@@ -519,6 +527,8 @@ Software bundle.
 | 11 | Where the client id and secret go | **`.env`**, through `install.sh`'s answers: fleet's for the shared app, the admin's for a box's own | As `CONNECT_GITHUB_*`. On a box fleet runs, `.env` is fleet's to write, so that box's own app needs fleet's hand until there is an admin page (§12) |
 | 12 | Whose mail `ask` takes | **Only mail the mailbox itself sent** | The mailbox proves who wrote it, so nothing has to trust a From address |
 | 13 | Whose instructions win | **The person's, over the shared pages** | They steer only that person's replies |
+| 14 | A message whose Reply-To is not its sender | **Always a draft,** under both Send choices | Added while building Send: it closes a forged From with the forger's own Reply-To (§4.3) |
+| 15 | Sent for you after switching back to Draft | **Still shows what was sent before** | Built that way: more useful than hiding it. Hiding it is a small change |
 
 ## 11. Work items
 
