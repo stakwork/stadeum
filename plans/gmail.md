@@ -3,7 +3,8 @@
 > **Status (2026-11-23): proposed.** Nothing is built yet; items 1, 2 and
 > 4 of §11 are under way. Revised the same day: after rulings 5 to 7,
 > building blocks in place of one feature; after a mock-up of the app,
-> rulings 8 and 9; and ruling 10, on whose Google app.
+> rulings 8 and 9; and rulings 10 and 11, on whose Google app and on
+> strut holding a person's token.
 >
 > - **The goal (Evan, 2026-11-23):** "letting Jamie send and receive email
 >   as you". Three uses came up: "help me respond to things", email as a
@@ -37,6 +38,7 @@
 | 8 | Who may get a reply without a click | **The person picks one of three:** Draft, Send to people I've written to, Send to anyone. Sending only to people the person has written to was "too strict" as the one rule |
 | 9 | A person's own instructions | **A text box in the app,** kept for each person by the package and read into their replies. It moves to a page of the person's own when strut has one |
 | 10 | Whose Google app | **Both, "just as easily".** A shared app, so a person can "just connect and go", and a box's own, on the same two settings (§3) |
+| 11 | Strut holding each person's Google token | **Accepted,** as GitHub's was, with the person's or their Google admin's revocation (§9) |
 
 How a person connects was decided before: the connect seam
 (`plans/software.md`, Decided row 4).
@@ -445,7 +447,7 @@ Nothing else. No webhook route, no host key, no Gmail code.
 - **Docs:** `docs/stack-spec.md`, "The connect seam".
 - **Rule 4 gains a line** (`AGENTS.md`): strut holds each person's Google
   token and its refresh token, so an agent could read a person's mail and
-  send as them (§10 decision 9).
+  send as them. Accepted (ruling 11).
 
 No table, no page and no route that knows an email. The package is
 followed from the Packages page's From a repository. It is not in the
@@ -496,7 +498,7 @@ Software bundle.
 | 6 | Mail that went to several people | **Always a draft,** under both Send choices | A reply to all reaches people the sender chose, not the person. Asked on 2026-11-23 and not yet answered: under Send to anyone it could send too, since the reply reads only that thread |
 | 7 | What a reply reads | **The thread, the last 20 messages with that sender, the pages and the person's instructions** | What the recipient has already seen, and what was written for replies. It is Support's ruling 1, turned around |
 | 8 | Does a sent reply say Jamie wrote it | **No** | As Support's replies don't. A box that wants a line adds it on its own page |
-| 9 | Strut holding the Google token | **Needs Evan's yes.** Accepted as GitHub's was, with the person's or the Google admin's revocation | Rule 4. Without it there is no feature |
+| 9 | Strut holding the Google token | **Ruled: accepted** (ruling 11) | Rule 4. Without it there is no feature |
 | 10 | Attachments | **Named to the model, never read or sent** | Simple first |
 | 11 | Where the client id and secret go | **`.env`**, through `install.sh`'s answers: fleet's for the shared app, the admin's for a box's own | As `CONNECT_GITHUB_*`. On a box fleet runs, `.env` is fleet's to write, so that box's own app needs fleet's hand until there is an admin page (§12) |
 | 12 | Whose mail `ask` takes | **Only mail the mailbox itself sent** | The mailbox proves who wrote it, so nothing has to trust a From address |
