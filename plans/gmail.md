@@ -1,11 +1,12 @@
 # Gmail: a person's mail, for Jamie and for their own workflows
 
-> **Status (2026-11-23): proposed, and being built.** Items 1 to 4 are
+> **Status (2026-11-24): proposed, and being built.** Items 1 to 5 are
 > merged (stakwork/strut#867, stakwork/stadeum#107, stakwork/strut#871,
-> stakwork/strut-gmail#1). Item 5 is up for review as
-> stakwork/strut-gmail#2, and strut's cost cap as stakwork/strut#874.
-> Items 6, 7 and 8 are built on local branches and wait for #2, in that
-> order. Revised the same day:
+> stakwork/strut-gmail#1 and #2), and so is strut's cost cap
+> (stakwork/strut#874). Items 6, 7 and 8 are built on local branches and
+> go up one at a time, in that order. Strut's `stable` holds neither
+> #871 nor #874 yet, and moves before the package's own `stable` does
+> (§11). Revised 2026-11-23:
 > after rulings 5 to 7, building blocks in place of one feature; after a
 > mock-up of the app, rulings 8 and 9; and rulings 10 to 12, on whose
 > Google app, strut holding a person's token, and the runs a check makes.
@@ -451,7 +452,7 @@ second mailbox is a second member.
      (strut `src/actor-secrets.ts`).
    - It names no domain. Calendar, Outlook and a Slack package need the
      same thing.
-   - It is up as stakwork/strut#871.
+   - Built: stakwork/strut#871.
    - **What it costs.** A look every five minutes is 288 runs a day for
      each person and workflow. Strut keeps every run's summary, and reads
      the whole list at each fire. The package drops its runs' logs after
@@ -461,7 +462,7 @@ second mailbox is a second member.
 3. **A cost cap a package ships.** Found while building `reply`: a
    workflow's `maxRunCostUsd` was set only on the box (`PUT
    /workflows/:name/run-cap`), so a package couldn't carry the cap §4.2
-   gives `reply`. It is up as stakwork/strut#874: `maxRunCostUsd:` in
+   gives `reply`. Built as stakwork/strut#874: `maxRunCostUsd:` in
    `strut.yaml`, a map from a workflow of the package to dollars. An
    admin's own cap wins, and an older strut refuses the package.
 4. **The fence on a step's `describe`.** Found while building the chat
@@ -469,7 +470,8 @@ second mailbox is a second member.
    (`fenceStep`, strut `src/packages/fence.ts`), and a proposal calls the
    step's `describe` with the agent's own context (strut
    `src/proposals.ts`). So any package's `describe` could read a secret
-   on the box by name. The Gmail package's reads none. Not built.
+   on the box by name. The Gmail package's reads none. A step's
+   `answerGated` is called the same way. Being built (2026-11-24).
 
 Nothing else. No webhook route, no host key, no Gmail code.
 
@@ -559,6 +561,18 @@ Each is its own PR against its repo's default branch, never stacked.
 | 7 | strut-gmail | **`ask`** (§4.4): the workflow and its row | 3, 4 |
 | 8 | strut-gmail | **Asked in a chat** (§4.5): the job agent's four tools and the `Email` page | 4 |
 | 9 | none | **The shared Google app** (§3): Stakwork registers it, with a client of its own, and takes it through Google's review. Fleet then gives every hosted box its two values, as it gives GitHub's. No code | 2 |
+
+**The schedule and the cap** (§4's `schedules:` and `maxRunCostUsd:`) are
+not in item 5 as merged: `reply` runs only when someone runs it. They are
+a small PR of their own in strut-gmail for `reply`, and `ask`'s schedule
+comes with item 7.
+
+**The release order.** A merge to the package's `main` changes no box:
+boxes follow its `stable` branch, which someone moves (`promote.yml`).
+Strut's `stable` must hold stakwork/strut#871 and #874 before the
+package's `stable` holds those two keys, since an older strut refuses a
+manifest with keys it does not know. Strut's `main` has held both since
+`0d6ec1fe`.
 
 ## 12. Later
 
