@@ -5,7 +5,7 @@ import { connectOffers } from "@/lib/connect";
 import { namesOf } from "@/lib/members";
 import { followedActors, followedIdOf, followedOf, installWatch, parseInstallLink, secretsNeeded } from "@/lib/packages";
 import { requireAdmin } from "@/lib/session";
-import { listDeploymentSecretNames, listPackageIndexes, listPackageInstalls, listPackages, listPackageSubscriptions, searchPackages } from "@/lib/strut/client";
+import { listDeploymentSecretNames, listPackageIndexes, listPackageInstalls, listPackageRepos, listPackages, listPackageSubscriptions, searchPackages } from "@/lib/strut/client";
 import { PackagesView } from "./view";
 
 export const metadata: Metadata = { title: "Packages" };
@@ -20,9 +20,9 @@ const warn = (what: string) => (err: unknown) => {
  * Strut's packages on this box, for an admin: the installs going on (any
  * door's: this page, a proposal someone accepted, the boot list, the
  * distro), what is installed and the keys it still needs, the Software
- * card, a package from a repository and what the box follows (a bundle
- * with its parts), a search over the indexes the box follows, and those
- * indexes. The store's Install link lands here
+ * card, a package from a repository, what the box follows (a bundle
+ * with its parts) and the packages edited here as git repos, a search over
+ * the indexes the box follows, and those indexes. The store's Install link lands here
  * (`?install=<publisher/name>&index=<key>&index_url=<url>`): it opens the
  * package's confirmation, after following its index when the box does not
  * yet, and nothing installs until the admin says so. Strut keeps all of it.
@@ -30,13 +30,14 @@ const warn = (what: string) => (err: unknown) => {
 export default async function PackagesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const me = await requireAdmin();
   const link = parseInstallLink(await searchParams);
-  const [installs, installed, indexes, secretNames, found, subscriptions] = await Promise.all([
+  const [installs, installed, indexes, secretNames, found, subscriptions, repos] = await Promise.all([
     listPackageInstalls().catch(warn("GET /packages/installs")),
     listPackages().catch(warn("GET /packages")),
     listPackageIndexes().catch(warn("GET /packages/indexes")),
     listDeploymentSecretNames().catch(warn("GET /secrets")),
     searchPackages(link?.pkg ?? "").catch(warn("GET /packages/search")),
     listPackageSubscriptions().catch(warn("GET /packages/subscriptions")),
+    listPackageRepos().catch(warn("GET /packages/repos")),
   ]);
   const set = secretNames ? new Set(secretNames) : null;
   const followed = subscriptions ? followedOf(subscriptions, await namesOf(followedActors(subscriptions)), me.actor) : null;
@@ -59,6 +60,7 @@ export default async function PackagesPage({ searchParams }: { searchParams: Pro
           secretsKnown={set !== null}
           followed={followed}
           reading={reading}
+          editing={repos ?? []}
           connect={connectOffers()}
           indexes={indexes}
           initial={found}

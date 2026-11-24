@@ -703,8 +703,8 @@ checked".
   repo[@<branch>][#<folder>]` (`git+` may be left off), checked as strut
   checks it before anything is sent (`parseRepositoryRef`: http(s), no
   name or password in it, an owner and a name, a branch and a folder
-  that can be one). **Keep it up to date**, on by default, follows the
-  branch: `PUT /packages/subscriptions/:id { ref }` with the admin as
+  that can be one). Then one of three. **Follow**, the default, follows
+  the branch: `PUT /packages/subscriptions/:id { ref }` with the admin as
   `x-strut-actor`, never a person in the body. That admin is then the
   subscription's person (strut `specs/API.md` §16, "Whose a subscription
   is"): what it installs is theirs, its schedules run as them, and a
@@ -720,10 +720,11 @@ checked".
   reads the branch behind the answer; the row under **Followed** reads
   `GET /packages/subscriptions` and the install strut files under
   `subscription:<id>` (a bundle's part's under `subscription:<id>/<part>`)
-  every second until the read is done. Off, it is one
+  every second until the read is done. **Install once** is one
   install, `POST /packages/install { ref, wait: false }` as the admin,
   followed as any install is (a tag or a commit after @ is fine there; a
-  commit is refused for following, as strut refuses it). Followed lists
+  commit is refused for following, as strut refuses it). **Edit here**
+  opens it to change on the box and commit back (Editing, below). Followed lists
   every subscription strut has: where it comes from, whose it is, when it
   was last checked, the commit and the packages it is at, the keys a
   package waits for (each settable there; setting one reads it again at
@@ -752,6 +753,35 @@ checked".
   it, or the secret its words name; none for a host no secret serves)
   (`connectOffers`, `ui/src/lib/connect.ts`): the Packages page names no
   forge.
+- **Editing** (the Packages page, admins; strut `specs/API.md` §16,
+  "Working on a repository"). A package opened as a git repo: changed on
+  the box by anyone, from any door (the builder, Jamie, an app's own
+  pages), and committed back by an admin. **Edit here** is `POST
+  /packages/repos { url, ref?, path? }` as the admin, a branch only (a
+  commit is refused before anything is sent; strut refuses a tag):
+  strut fetches it with the admin's own token for its host, installs it
+  through the repo's door, and answers once installed. Editing, shown
+  while one is open (`GET /packages/repos`), has a row each: the repo and
+  branch, the commit installed, and what was added, edited or deleted
+  there since (`added`, `forked`, `deleted`). **Commit…** asks first: the
+  files strut would push (`GET …/diff`, the patch behind a toggle), a
+  message, and **Push straight to <branch>**, on by default, which sends
+  the branch strut has on file (the browser never names one); off, strut
+  pushes a new branch and opens a pull request into it on GitHub, whose
+  link the result shows. A branch that moved is refused (`push_rejected`:
+  Pull, then commit again), never forced. **Pull** (`POST …/pull`)
+  commits what changed here first, then merges and installs; a conflict
+  installs nothing and the row names its files and strut's copy
+  (`workdir`) to resolve them in, and Commit… waits until a Pull finishes
+  the merge. **Close** (`DELETE /packages/repos/:publisher/:name`) asks
+  first: the package stays installed (uninstalled as any is), and a
+  commit made there and never pushed is lost. While one is open, Installed
+  says "Edited here, from" it, with no Uninstall: strut refuses any other
+  door's write to it (`package_repo_owned`). When strut can't read the
+  repository or push to it with the admin's account (`package_repo_denied`,
+  or strut's `package_repo_unreachable` with git asking for credentials;
+  `no_push_permission`), **Connect** offers the seam's provider whose
+  token serves the repository's host (its `hosts`, `ui/src/lib/connect.ts`).
 - **The Software card** (the Packages page, admins; `plans/software.md`
   §4). One sentence, and **Add Software**: From a repository's follow of
   one constant ref, `SOFTWARE_REF` in `ui/src/lib/packages.ts`

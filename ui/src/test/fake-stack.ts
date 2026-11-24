@@ -19,7 +19,8 @@
  *               over the indexes in `state.indexes`; `git+` installs and the
  *               subscriptions that follow a branch or a bundle's parts,
  *               over the repositories in `state.repos`, each read with the
- *               token for its host), /voice/calls (strut
+ *               token for its host; a package opened as a repo, edited,
+ *               committed and pushed, pulled and closed), /voice/calls (strut
  *               specs/API.md): a call's answer carries a real LiveKit token
  *               for `livekit` (default `livekit-server --dev`), but no agent
  *               joins the room, unless the call is forwarded to a voice
@@ -388,9 +389,15 @@ export interface FakeState {
   /** `GET /packages/indexes`: the indexes strut follows, in order. Starts empty, as strut's default does. */
   followed: Array<{ id: string; key: string; urls: string[]; label?: string }>;
   /** `GET /packages`: what is installed, with the release it came from, and its source when not the release's catalog (`git+…`, `subscription:<id>`). */
-  installed: Array<{ release: FakeRelease; door: "install" | "distro"; actor?: string; source?: { ref: string }; commit?: string; modified: string[] }>;
-  /** The git repositories strut can read, by address: `git+` installs and subscriptions. */
+  installed: Array<{ release: FakeRelease; door: "install" | "distro" | "repo"; actor?: string; source?: { ref: string }; commit?: string; modified: string[] }>;
+  /** The git repositories strut can read, by address: `git+` installs and subscriptions, and the remotes a repo opened here pushes to. */
   repos: Map<string, FakeRepo>;
+  /** `GET /packages/repos`: each package opened here as a repo, and what was changed here since its commit (a test edits these). */
+  opened: FakeOpened[];
+  /** Set to make every pull stop on a conflict in these files; cleared, the next pull finishes the merge. */
+  pullConflict: string[] | null;
+  /** Each push a Commit made: the package, the branch, the message, who, and the pull request's number. */
+  pushes: Array<{ package: string; branch: string; message: string; actor?: string; pr?: number }>;
   /** `GET /packages/subscriptions`: each git branch strut follows, whose it is, and its last read; a bundle's parts on it. */
   subscriptions: FakeSubscription[];
   /** Each `PUT /packages/subscriptions/:id` as it came: the actor beside the key, and the body. */
@@ -491,6 +498,29 @@ export interface FakeSubscription {
   parts?: FakeSubscription[];
 }
 
+/** A package opened here as a repo (strut `RepoRecord` and `RepoView`), and the fake's own reading of its working copy. */
+export interface FakeOpened {
+  package: string;
+  url: string;
+  branch: string;
+  path?: string;
+  ref: string;
+  /** The commit last installed. */
+  commit: string;
+  digest: string;
+  openedAt: string;
+  by?: string;
+  added: Array<{ kind: "workflow" | "step" | "app" | "concept"; name: string }>;
+  forked: Array<{ kind: "workflow" | "step" | "app" | "concept"; name: string }>;
+  deleted: Array<{ kind: "workflow" | "step" | "app" | "concept"; name: string }>;
+  conflict?: string[];
+  merge?: string;
+  /** The remote branch's commit the working copy has: a straight push needs the branch still there. */
+  base: string;
+  /** Commits made here that no push has taken yet (a pull's, a push refused). */
+  unpushed: boolean;
+}
+
 /** A fake install's record: when it started and how long it takes. */
 export interface FakeInstall {
   id: string;
@@ -543,6 +573,9 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     followed: [],
     installed: [],
     repos: fakeRepos(),
+    opened: [],
+    pullConflict: null,
+    pushes: [],
     subscriptions: [],
     subscriptionPuts: [],
     refusePackage: null,
@@ -1231,6 +1264,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     const no = (status: number, error: string): FakePlan => ({ status, error, steps: [] });
     const ref = release.package;
     const here = state.installed.find((p) => p.release.package === ref);
+    if (here?.door === "repo") return no(409, repoOwned(ref));
     if (door === "install" && here?.door === "distro") return no(409, `package_distro_owned: ${ref} was installed by the distro: only it updates or removes it`);
     const r = state.refusePackage;
     state.refusePackage = null;
@@ -1441,6 +1475,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       if (!rec) return send(res, 404, { error: `no install ${decodeURIComponent(inst[1]!)} here: an install's record is kept for an hour after it ends, and a restart forgets it` });
       return send(res, 200, installView(rec, Date.now()));
     }
+    if (path === "/packages/repos" || path.startsWith("/packages/repos/")) return reposRoute(res, m, path, body, actor);
     if (path === "/packages/subscriptions" && m === "GET") return send(res, 200, { subscriptions: state.subscriptions.map(subscriptionInfo) });
     const sub = path.match(/^\/packages\/subscriptions\/([^/]+)(\/sync)?$/);
     if (sub) return subscriptionRoute(res, m, decodeURIComponent(sub[1]!), !!sub[2], url, body, actor);
@@ -1451,6 +1486,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       if (at < 0) return send(res, 404, { error: `package_not_installed: ${pkg} is not installed here` });
       const rec = state.installed[at]!;
       if (rec.door === "distro") return send(res, 409, { error: `package_distro_owned: ${pkg} was installed by the distro: only it updates or removes it` });
+      if (state.opened.some((o) => o.package === pkg)) return send(res, 409, { error: repoOwned(pkg) });
       if (refused()) return;
       const items = listed(rec).items;
       const kept = items.filter((i) => i.modified).map((i) => ({ kind: i.kind, name: i.name, reason: i.kind === "concept" ? "edited here" : "a fork: its active version was made here" }));
@@ -1463,6 +1499,204 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       return send(res, 200, { ok: true, package: pkg, removed, kept });
     }
     send(res, 404, { error: "not found" });
+  }
+
+  /** Strut's refusal of any other door's write to a package opened here as a repo. */
+  const repoOwned = (pkg: string) =>
+    `package_repo_owned: ${pkg} is opened here as a git repo, which changes it through its commits alone — Pull brings in the repo's changes; to install it from elsewhere, close the repo (Packages → Repos) and uninstall it first`;
+
+  /**
+   * A package worked on as a git repo (strut `src/packages/repos.ts`): Open
+   * reads the branch with the actor's own token for its host, then the
+   * deployment's, and installs it through the repo's door; the edits a test
+   * puts on `state.opened` are what a diff shows and a Commit pushes, with
+   * that token, straight to the branch (never over a branch that moved) or
+   * to a new one with a pull request; Pull commits the edits first, then
+   * merges, or stops on `state.pullConflict`; Close forgets it, its
+   * package installed still. Strut's refusals, word for word where it
+   * matters.
+   */
+  function reposRoute(res: ServerResponse, m: string | undefined, path: string, body: any, actor: string | undefined) {
+    const sha = () => randomBytes(20).toString("hex");
+    const now = () => new Date().toISOString();
+    const tokenFor = (url: string) => {
+      const secret = secretOfHost(url);
+      return secret ? ((actor ? state.secrets.get(`${actor}/${secret}`) : undefined) ?? state.deploymentSecrets.get(secret)) : undefined;
+    };
+    const view = (o: FakeOpened) => ({
+      package: o.package,
+      url: o.url,
+      branch: o.branch,
+      ...(o.path ? { path: o.path } : {}),
+      ref: o.ref,
+      commit: o.commit,
+      digest: o.digest,
+      openedAt: o.openedAt,
+      ...(o.by ? { by: o.by } : {}),
+      workdir: `/data/packages/work/${o.package}`,
+      added: o.added,
+      forked: o.forked,
+      deleted: o.deleted,
+      ...(o.conflict ? { conflict: o.conflict } : {}),
+      ...(o.merge ? { merge: o.merge } : {}),
+    });
+    const installResult = (release: FakeRelease, ref: string, status: string) => ({
+      package: release.package,
+      digest: release.digest,
+      packages: [{ package: release.package, version: release.version, digest: release.digest, source: { ref }, status, items: release.items.map((i) => ({ kind: i.kind, name: i.name, status })) }],
+      missing: { secrets: requiredSecrets(release).filter((s) => !state.deploymentSecrets.has(s) && !state.strutEnv.has(s)).sort(), binaries: [], runtimes: [] },
+      warnings: [],
+    });
+    /** The package's install through the repo's door, at the remote's commit. */
+    const apply = (o: FakeOpened, release: FakeRelease, commit: string) => {
+      const here = state.installed.find((p) => p.release.package === o.package);
+      const rec = { release: structuredClone(release), door: "repo" as const, ...(actor ? { actor } : {}), source: { ref: o.ref }, commit, modified: here?.modified ?? [] };
+      if (here) state.installed[state.installed.indexOf(here)] = rec;
+      else state.installed.push(rec);
+      for (const app of release.detail?.apps ?? []) publish(`${o.package}/${app.name}`, app.title);
+    };
+    const edits = (o: FakeOpened) => [...o.added.map((i) => ({ ...i, status: "added" as const })), ...o.forked.map((i) => ({ ...i, status: "modified" as const })), ...o.deleted.map((i) => ({ ...i, status: "deleted" as const }))];
+    const diffOf = (o: FakeOpened) => {
+      const files = edits(o).map((e) => {
+        const short = e.name.startsWith(`${o.package}/`) ? e.name.slice(o.package.length + 1) : e.name;
+        const file = { workflow: `workflows/${short}.json`, step: `steps/${short}.ts`, app: `apps/${short}/index.html`, concept: `concepts/${short}.md` }[e.kind];
+        return { path: o.path ? `${o.path}/${file}` : file, status: e.status };
+      });
+      const patch = files.map((f) => `diff --git a/${f.path} b/${f.path}\n--- ${f.status === "added" ? "/dev/null" : `a/${f.path}`}\n+++ ${f.status === "deleted" ? "/dev/null" : `b/${f.path}`}\n@@ -1 +1 @@\n-before\n+after\n`).join("");
+      return { files, stat: files.length ? ` ${files.length} file${files.length === 1 ? "" : "s"} changed` : "", patch };
+    };
+
+    if (path === "/packages/repos" && m === "GET") return send(res, 200, { repos: state.opened.map(view) });
+    if (path === "/packages/repos" && m === "POST") {
+      if (body?.tokenSecret !== undefined) return send(res, 400, { error: TOKEN_SECRET_GONE });
+      const str = (v: unknown) => v === undefined || typeof v === "string";
+      if (typeof body?.url !== "string" || !body.url || !str(body.ref) || !str(body.path)) {
+        return send(res, 400, { error: "url is the repository (https://github.com/acme/moonlander); ref (a branch) and path (the folder holding strut.yaml) are strings" });
+      }
+      const url = body.url.replace(/\/+$/, "");
+      const ref = `git+${url}${body.ref ? `@${body.ref}` : ""}${body.path ? `#${body.path}` : ""}`;
+      const got = readRepo(ref, { token: (name) => (actor ? state.secrets.get(`${actor}/${name}`) : undefined) ?? state.deploymentSecrets.get(name), branch: true });
+      if ("error" in got) {
+        const code = /^([a-z_]+):/.exec(got.error)?.[1];
+        if (code === "package_repo_denied") return send(res, 502, { error: `package_repo_unreachable: could not fetch ${url}: fatal: could not read Username for 'https://${new URL(url).host}': terminal prompts disabled` });
+        if (code === "package_repo_not_found") return send(res, 502, { error: `package_repo_unreachable: could not fetch ${url}: remote: Repository not found.` });
+        if (code === "package_ref_not_found") return send(res, 400, { error: `package_repo_branch: ${body.ref} is not a branch of ${url}: a repo is opened on a branch, which Commit and Pull follow` });
+        return send(res, got.status, { error: got.error });
+      }
+      const pkg = got.release.package;
+      const repo = state.repos.get(url.toLowerCase().replace(/\.git$/, ""))!;
+      const branch = body.ref ?? repo.defaultBranch;
+      if (state.opened.some((o) => o.package === pkg)) return send(res, 409, { error: `package_repo_open: ${pkg} is opened here already — one repo per package` });
+      const here = state.installed.find((p) => p.release.package === pkg);
+      if (here && here.door !== "repo") {
+        return send(res, 409, {
+          error: `package_conflict: ${pkg} is installed here already (${here.door === "distro" ? "by the distro" : `from ${here.source?.ref ?? "a package"}`}) — uninstall it first (DELETE /packages/${pkg}), then open its repo`,
+        });
+      }
+      const o: FakeOpened = {
+        package: pkg,
+        url,
+        branch,
+        ...(body.path ? { path: body.path } : {}),
+        ref: `git+${url}@${branch}${body.path ? `#${body.path}` : ""}`,
+        commit: got.commit,
+        digest: got.release.digest,
+        openedAt: now(),
+        ...(actor ? { by: actor } : {}),
+        added: [],
+        forked: [],
+        deleted: [],
+        base: got.commit,
+        unpushed: false,
+      };
+      apply(o, got.release, got.commit);
+      state.opened.push(o);
+      return send(res, 201, { ...view(o), install: installResult(got.release, o.ref, here ? "present" : "installed") });
+    }
+    const one = path.match(/^\/packages\/repos\/([^/]+)\/([^/]+)(\/diff|\/commit|\/pull)?$/);
+    if (!one) return send(res, 404, { error: "not found" });
+    const pkg = `${decodeURIComponent(one[1]!)}/${decodeURIComponent(one[2]!)}`;
+    const o = state.opened.find((r) => r.package === pkg);
+    const what = one[3];
+    if (!o) {
+      if (!what && m === "GET") return send(res, 404, { error: `${pkg} is not opened here as a repo` });
+      if (!what && m === "DELETE") return send(res, 404, { error: `${pkg} is not opened here as a repo` });
+      return send(res, 404, { error: `package_repo_not_open: ${pkg} is not opened here as a repo (POST /packages/repos)` });
+    }
+    const merging = () => send(res, 409, { error: `package_repo_merging: a pull's merge waits in the working copy (${(o.conflict ?? []).join(", ") || "resolved"}) — resolve it and Pull` });
+    const remote = state.repos.get(o.url.toLowerCase().replace(/\.git$/, ""))!;
+
+    if (!what && m === "GET") return send(res, 200, view(o));
+    if (!what && m === "DELETE") {
+      state.opened.splice(state.opened.indexOf(o), 1);
+      return send(res, 200, { ok: true });
+    }
+    if (what === "/diff" && m === "GET") return o.merge ? merging() : send(res, 200, diffOf(o));
+    if (what === "/commit" && m === "POST") {
+      if (typeof body?.message !== "string" || !body.message.trim() || (body.branch !== undefined && typeof body.branch !== "string") || (body.pr !== undefined && typeof body.pr !== "boolean")) {
+        return send(res, 400, { error: "message is the commit message; branch (where to push — the followed branch pushes straight to it) is a string, pr a boolean" });
+      }
+      if (o.merge) return merging();
+      const diff = diffOf(o);
+      if (!diff.files.length && !o.unpushed) return send(res, 200, { package: pkg, committed: false, commit: o.commit, diff, stamped: [] });
+      // The commit is made in the working copy first: a push refused leaves it there for the next Commit.
+      o.unpushed = true;
+      if (secretOfHost(o.url) && !tokenFor(o.url)) {
+        return send(res, 403, { error: `no_push_permission: the push to ${o.url} was refused — fatal: could not read Username for 'https://${new URL(o.url).host}': terminal prompts disabled` });
+      }
+      const straight = body.branch === o.branch;
+      const tip = remote.refs[o.branch];
+      if (straight && tip?.commit !== o.base) {
+        return send(res, 409, { error: `push_rejected: the push to ${o.url} was rejected — ! [rejected] ${o.branch} -> ${o.branch} (fetch first): Pull, then Commit again` });
+      }
+      const commit = sha();
+      const branch = straight ? o.branch : (body.branch ?? `strut/${pkg.split("/")[1]}-${commit.slice(0, 7)}`);
+      const release = structuredClone(tip?.release ?? state.installed.find((p) => p.release.package === pkg)!.release);
+      remote.refs[branch] = { commit, release };
+      const onGithub = new URL(o.url).host.toLowerCase() === "github.com";
+      const pr = !straight && onGithub && body.pr !== false ? { url: `${o.url}/pull/${42 + state.pushes.filter((p) => p.pr).length}`, number: 42 + state.pushes.filter((p) => p.pr).length, created: true } : undefined;
+      state.pushes.push({ package: pkg, branch, message: body.message.trim(), ...(actor ? { actor } : {}), ...(pr ? { pr: pr.number } : {}) });
+      const stamped = [...o.added, ...o.forked];
+      Object.assign(o, { commit, added: [], forked: [], deleted: [], unpushed: false, ...(straight ? { base: commit } : {}) });
+      const installed = state.installed.find((p) => p.release.package === pkg);
+      if (installed) installed.commit = commit;
+      return send(res, 201, {
+        package: pkg,
+        committed: true,
+        commit,
+        branch,
+        pushed: true,
+        ...(pr ? { pr } : {}),
+        ...(!straight && !pr ? { prSkipped: body.pr === false ? "pr: false" : `${new URL(o.url).host} is not GitHub` } : {}),
+        diff,
+        stamped,
+        install: installResult(release, o.ref, "present"),
+      });
+    }
+    if (what === "/pull" && m === "POST") {
+      // What was edited here is committed first: git has both sides.
+      const local = !o.merge && edits(o).length ? sha() : undefined;
+      if (local) o.unpushed = true;
+      if (state.pullConflict) {
+        Object.assign(o, { conflict: [...state.pullConflict], merge: o.merge ?? local ?? sha() });
+        return send(res, 409, {
+          error: `package_repo_conflict: git could not merge ${state.pullConflict.join(", ")} — resolve the conflict in the working copy and Pull again; nothing was installed`,
+          package: pkg,
+          commit: o.commit,
+          ...(local ? { local } : {}),
+          conflict: [...state.pullConflict],
+        });
+      }
+      const tip = remote.refs[o.branch]!;
+      if (tip.commit === o.base && !local && !o.merge && !o.unpushed) return send(res, 200, { package: pkg, commit: o.commit });
+      const commit = o.unpushed ? sha() : tip.commit;
+      apply(o, tip.release, commit);
+      Object.assign(o, { commit, base: tip.commit, digest: tip.release.digest, added: [], forked: [], deleted: [] });
+      delete o.conflict;
+      delete o.merge;
+      return send(res, 200, { package: pkg, commit, ...(local ? { local } : {}), install: installResult(tip.release, o.ref, "updated") });
+    }
+    return send(res, 404, { error: "not found" });
   }
 
   /**
