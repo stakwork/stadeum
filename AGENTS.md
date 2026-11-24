@@ -116,7 +116,7 @@ work on it. Read the rules before adding anything.
      to come; until then the person revokes the App on GitHub). It holds
      each person's Google token and its refresh token, so an agent could
      read a person's mail and send as them: accepted, with the person's
-     revocation or their Google admin's (`plans/gmail.md` §10, decision 9).
+     revocation or their Google admin's (`plans/gmail.md`, ruling 11).
      There is no box token: every token the seam writes is a person's. The
      treasury's admin token and seed stay in the treasury's container.
 
