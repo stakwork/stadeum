@@ -1,14 +1,14 @@
 # Gmail: a person's mail, for Jamie and for their own workflows
 
-> **Status (2026-11-24): proposed, and being built.** Items 1 to 6 are
+> **Status (2026-11-24): proposed, and being built.** Items 1 to 7 are
 > merged (stakwork/strut#867, stakwork/stadeum#107, stakwork/strut#871,
-> stakwork/strut-gmail#1, #2 and #3), and so are `reply`'s schedule and
-> cap (stakwork/strut-gmail#4), strut's cost cap (stakwork/strut#874)
-> and its fence fix (stakwork/strut#880, §7). Item 7 is up for review
-> as stakwork/strut-gmail#5, and item 8 is built and goes up after it.
-> Nothing merged since the morning of 2026-11-24 is on a box yet:
-> strut's `stable` holds neither #871, #874 nor #880, stadeum's holds no
-> Google in the seam (#107), and the package has no `stable` yet (§11).
+> stakwork/strut-gmail#1, #2, #3 and #5), and so are `reply`'s schedule
+> and cap (stakwork/strut-gmail#4), strut's cost cap (stakwork/strut#874)
+> and its fence fix (stakwork/strut#880, §7). Item 8, the last of the
+> package, is built and going up for review. Nothing merged since the
+> morning of 2026-11-24 is on a box yet: strut's `stable` holds neither
+> #871, #874 nor #880, stadeum's holds no Google in the seam (#107), and
+> the package has no `stable` yet (§11).
 > Revised 2026-11-23:
 > after rulings 5 to 7, building blocks in place of one feature; after a
 > mock-up of the app, rulings 8 and 9; and rulings 10 to 12, on whose
