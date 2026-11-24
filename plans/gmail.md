@@ -1,7 +1,8 @@
 # Gmail: a person's mail, for Jamie and for their own workflows
 
-> **Status (2026-11-23): proposed.** Nothing is built. Revised the same
-> day, after rulings 5 to 7: building blocks in place of one feature.
+> **Status (2026-11-23): proposed.** Nothing is built. Revised twice the
+> same day: after rulings 5 to 7, building blocks in place of one
+> feature; and after a mock-up of the app, rulings 8 and 9.
 >
 > - **The goal (Evan, 2026-11-23):** "letting Jamie send and receive email
 >   as you". Three uses came up: "help me respond to things", email as a
@@ -32,6 +33,8 @@
 | 5 | One feature, or several | **Building blocks.** Mail steps any workflow can use, and ready-made workflows built from them. Asked: "how can we support all these without building a lot?" |
 | 6 | Whose mailbox | **Each person's own,** as their GitHub token is theirs. Never one for the box |
 | 7 | A team address | **Later.** "Just make sure its generic enough for now" (§6) |
+| 8 | Who may get a reply without a click | **The person picks one of three:** Draft, Send to people I've written to, Send to anyone. Sending only to people the person has written to was "too strict" as the one rule |
+| 9 | A person's own instructions | **A text box in the app,** kept for each person by the package and read into their replies. It moves to a page of the person's own when strut has one |
 
 How a person connects was decided before: the connect seam
 (`plans/software.md`, Decided row 4).
@@ -48,7 +51,8 @@ the shape of Support's reply turn. `ask` takes mail a person sends to
 themselves to Jamie as a job, and answers in the thread with its links. A
 person's own workflow is a third, built the same way. **There is no rules
 engine:** strut already runs a workflow on a schedule and hands it where
-the last run stopped. How to answer is in Concept pages. Stadeum gains a
+the last run stopped. How to answer is in Concept pages, with each
+person's own instructions beside them. Stadeum gains a
 Google row and a refresh route. Strut gains secrets that refresh and a
 schedule that runs for each person. Neither learns what an email is.
 
@@ -222,20 +226,21 @@ person, as them, on their own spending cap, with `maxRunCostUsd: 1`.
    - the thread;
    - the last 20 messages between the person and the sender, so the
      reply sounds like the person and knows what was said;
-   - `Mail Replies` and every page under it (§5);
+   - `Mail Replies` and every page under it, then the person's own
+     instructions (§5);
    - whether the person has written to this sender before.
 
    When the mail went to more people than the person, it gathers the
    thread alone.
 3. **`agent`,** with `toolFilter: ["none"]`, no `agentTools`, `mcp: false`,
    no session, and a schema of `{ reply?, handoff? }`. Its prompt is the
-   pages, then the mail, marked as someone else's words. The YAML holds no
-   instructions of its own.
+   pages, then the person's instructions, then the mail, marked as
+   someone else's words. The YAML holds no instructions of its own.
 4. **`answer`** stands down as step 2 does. Otherwise:
    - **Draft:** it leaves a draft in Gmail, in the thread, in place of
      one it left there before. The person edits and sends it in Gmail.
-   - **Send:** it sends the reply when §4.3 allows it, and leaves a
-     draft when it doesn't.
+   - **Either Send choice:** it sends the reply when §4.3 allows it, and
+     leaves a draft when it doesn't.
    - **A handoff:** nothing is sent. The thread is listed under Needs
      you with the reason, with the draft if the model wrote one.
    - **Neither:** nothing. Most mail needs no reply.
@@ -247,23 +252,35 @@ never acts on one twice.
 
 ### 4.3 Sending without a click
 
-`answer` sends only when all of these hold. They are in the step, and no
-page changes them:
+The person picks one of three (ruling 8):
 
-1. the person set their replies to Send;
-2. the person has written to this sender before. A stranger gets a draft;
-3. the mail was to the person alone. A thread with several people gets a
-   draft;
-4. fewer than three replies have gone out this way in the thread since
-   the person last wrote in it themselves;
-5. the model handed nothing off.
+| Choice | A reply is sent to |
+| --- | --- |
+| Draft | Nobody. Every reply is a draft |
+| Send to people I've written to | A sender the person has written to before. Anyone else gets a draft |
+| Send to anyone | Any sender |
 
-What makes this safe is §4.2's reading rule: **a reply is written from
-what its recipient has already seen, and from the pages the box wrote for
-replies.** So the worst a planted email can do is get a wrong reply sent
-to its own sender. That is the risk Send accepts. The pages say what to
-hand off (money, a contract, a date the person hasn't given), and that
-part is guidance, not a wall.
+Under both Send choices `answer` still leaves a draft, and sends nothing,
+when any of these holds. They are in the step, and no page or
+instruction changes them:
+
+1. the mail went to more people than the person (§10 decision 6);
+2. three replies have already gone out this way in the thread since the
+   person last wrote in it themselves;
+3. the model handed the mail off.
+
+Mail from a list or a machine never gets this far (§4.2).
+
+What makes sending safe is §4.2's reading rule: **a reply is written from
+what its recipient has already seen, and from what the box and the person
+wrote for replies.** So the worst a planted email can do is get a wrong
+reply sent to its own sender. A stranger has no earlier mail with the
+person, so their reply is written from their own message alone.
+
+What **Send to anyone** gives up is that a stranger gets an answer in the
+person's name before the person sees it. The pages say what to hand off
+(money, a contract, a date the person hasn't given), and that part is
+guidance, not a wall.
 
 ### 4.4 Ready-made: `ask`
 
@@ -290,19 +307,33 @@ works" is then a job, as any work Jamie starts.
 
 ### 4.6 The app, Gmail
 
-Every person's own. It is small, because the drafts are in Gmail.
+Every person's own, one page, as mocked up on 2026-11-23. It is small,
+because the drafts are in Gmail.
 
-- **Connect Google,** a link to the seam with the two scopes. Back in the
-  app it reads "Connected as ana@example.com", from Gmail with the
-  person's own token. **Disconnect** revokes the grant at Google and
-  deletes the secret.
-- **A row for each ready-made workflow,** on or off. The reply's row
-  also holds Draft or Send, and its search.
-- **Needs you:** the threads handed to the person, each with the reason.
-- **Sent for you:** what went out without a click.
+- **Before connecting:** one button, **Connect Google**, a link to the
+  seam with the two scopes.
+- **At the top, once connected:** the person's address, read from Gmail
+  with their own token, and **Disconnect**, which revokes the grant at
+  Google and deletes the secret.
+- **Replies,** a switch, with one line under it saying what it does. On,
+  it shows:
+  - the choice of §4.3, a dropdown, with a few words beside it that
+    change with the choice;
+  - how many drafts are waiting, with a link that opens Gmail's drafts;
+  - **Your instructions,** a text box that saves as the person types
+    (ruling 9). Beside its label a link, **Shared instructions**, opens
+    the `Mail Replies` page;
+  - **Mail to answer,** the search.
+- **Email Jamie,** a switch. On, it shows the address to write to.
+- **Needs you:** the threads handed to the person, each with the sender,
+  the subject and the reason.
+- **Sent for you:** what went out without a click, each with the sender
+  and the reply's first line. It is empty under Draft.
 
-Its SQLite keeps each person's rows, and what `answer` did with each
-message. It keeps no mail. A mock-up settles the rest.
+A row in either list opens its thread in Gmail.
+
+Its SQLite keeps each person's choices and instructions, and what
+`answer` did with each message. It keeps no mail.
 
 ## 5. Where the logic lives
 
@@ -312,8 +343,9 @@ Ruling 4.
 | --- | --- | --- |
 | How to answer: tone, length, what to hand off, when to say nothing | The `Mail Replies` page, the package's | A release |
 | This box's own rules | Pages the box adds under `Mail Replies` | The box's people, or Jamie when asked |
+| A person's own instructions: how they sign off, how short, what they never agree to | A text box in the app, per person | The person |
 | Which mail a ready-made workflow takes, and whether it is on | Per person, in the app | The person |
-| Draft or Send | Per person, in the app | The person |
+| Draft, or which of the two Send choices | Per person, in the app | The person |
 | Anything else a person wants done with their mail | A workflow of their own, from the mail steps | The person, or Jamie when asked |
 | The Gmail calls, who a reply goes to, when one may be sent | The steps | A release |
 | The order of the steps | `reply.yaml` and `ask.yaml` | A release |
@@ -323,8 +355,13 @@ Ruling 4.
   as it is, and an edited workflow becomes a fork with the release beside
   it (strut `src/packages/install.ts`). A page of the box's own under
   `Mail Replies` loses nothing.
-- **What is on these pages can end up in a reply.** They are written for
-  that.
+- **What is on these pages, and in a person's instructions, can end up
+  in a reply.** They are written for that.
+- **A person's instructions come after the shared pages, and win where
+  they disagree.** Neither loosens what the steps hold.
+- **The text box is the one place instructions sit outside a Concept
+  page.** Pages are the box's, and strut has none that is one person's.
+  The instructions move there when it does (§12).
 
 ## 6. Kept generic
 
@@ -400,9 +437,13 @@ Software bundle.
 ## 9. Security
 
 - **A stranger's words are untrusted.** In `reply` they steer one reply,
-  to themselves, written from what they had already seen and the box's
-  reply pages. The model holds no tool. The step names the recipient.
-- **In Draft, the person reads every word before it goes.**
+  to themselves, written from what they had already seen, the box's reply
+  pages and the person's instructions. The model holds no tool. The step
+  names the recipient.
+- **In Draft, the person reads every word before it goes.** Under Send
+  to anyone, a stranger gets an answer in the person's name unseen. It
+  is written from the stranger's own message, the pages and the person's
+  instructions, and from nothing else in the mailbox.
 - **`ask` takes only mail the mailbox itself sent.** Text the person
   forwards into it is a stranger's all the same, as a page a job reads
   is.
@@ -432,13 +473,14 @@ Software bundle.
 | 3 | Which scopes | **`gmail.readonly` and `gmail.compose`** | The least that reads and drafts. `gmail.modify` would add labels, which nothing here needs |
 | 4 | How new mail is noticed | **Looked for every five minutes** | A few minutes is soon enough for mail. Gmail's push needs a Pub/Sub topic, a public route in strut and a check of Google's signed token (§12) |
 | 5 | What is on when a person connects | **`reply`, in Draft.** `ask` is off | Drafts are what they connected for, and a draft sends nothing |
-| 6 | Who may get a reply without a click | **Someone the person has written to before, who wrote to them alone** | Support answers known workers and never a stranger |
-| 7 | What a reply reads | **The thread, the last 20 messages with that sender, and the pages** | What the recipient has already seen. It is Support's ruling 1, turned around |
+| 6 | Mail that went to several people | **Always a draft,** under both Send choices | A reply to all reaches people the sender chose, not the person. Asked on 2026-11-23 and not yet answered: under Send to anyone it could send too, since the reply reads only that thread |
+| 7 | What a reply reads | **The thread, the last 20 messages with that sender, the pages and the person's instructions** | What the recipient has already seen, and what was written for replies. It is Support's ruling 1, turned around |
 | 8 | Does a sent reply say Jamie wrote it | **No** | As Support's replies don't. A box that wants a line adds it on its own page |
 | 9 | Strut holding the Google token | **Needs Evan's yes.** Accepted as GitHub's was, with the person's or the Google admin's revocation | Rule 4. Without it there is no feature |
 | 10 | Attachments | **Named to the model, never read or sent** | Simple first |
 | 11 | Where the client id and secret go | **`.env`**, through `install.sh`'s answers | As `CONNECT_GITHUB_*`. An admin page comes later, with Slack's (`plans/jamie-in-slack.md` §11) |
 | 12 | Whose mail `ask` takes | **Only mail the mailbox itself sent** | The mailbox proves who wrote it, so nothing has to trust a From address |
+| 13 | Whose instructions win | **The person's, over the shared pages** | They steer only that person's replies |
 
 ## 11. Work items
 
@@ -450,8 +492,8 @@ Each is its own PR against its repo's default branch, never stacked.
 | 2 | stadeum | **Google in the seam** (§2, §8): the entry, the callback's step, the refresh route, the settings, the fake Google, the docs, rule 4's line | 1 released |
 | 3 | strut | **A schedule for each person** (§7): `each:` on a package's schedule, and who holds a secret | — |
 | 4 | strut-gmail | **Connect and the mail steps** (§4.1): the app's Connect and Disconnect, and `new`, `read`, `search`, `draft`, `send`. A person's own workflow works from here. Its tests stand in for Gmail | 1, 2 |
-| 5 | strut-gmail | **`reply`, in Draft** (§4.2): `context`, `answer`, the workflow, the `Mail Replies` page, the app's row and Needs you. Its tests stand in for the model too | 3, 4 |
-| 6 | strut-gmail | **Send** (§4.3): the choice in the row, the rules, Sent for you | 5 |
+| 5 | strut-gmail | **`reply`, in Draft** (§4.2): `context`, `answer`, the workflow, the `Mail Replies` page, and the app's Replies card (§4.6) with Your instructions, the drafts waiting and Needs you. Its tests stand in for the model too | 3, 4 |
+| 6 | strut-gmail | **Send** (§4.3): the two Send choices, the rules, Sent for you | 5 |
 | 7 | strut-gmail | **`ask`** (§4.4): the workflow and its row | 3, 4 |
 | 8 | strut-gmail | **Asked in a chat** (§4.5): the job agent's four tools and the `Email` page | 4 |
 
@@ -462,6 +504,9 @@ Each is its own PR against its repo's default branch, never stacked.
 - **How each person writes.** Notes learned from their sent mail and from
   what they changed in a draft, as Support's notes job learns an app.
   Where a person's own page lives is open: Concept pages are the box's.
+- **A page that is one person's,** in strut. Your instructions moves
+  there from the app's text box (ruling 9), and every package gets the
+  same place for a person's own instructions.
 - **A handoff that opens a chat** with Jamie about the thread
   (`conversation/start`).
 - **Gmail's push** in place of the five-minute look. Google signs each
@@ -500,6 +545,8 @@ Each is its own PR against its repo's default branch, never stacked.
   arrives;
 - a package's workflow running `agent` with `toolFilter: ["none"]`.
   Strut's own workflows do, and no package does yet;
+- counting the drafts still waiting: whether a draft the package left
+  has since been sent or deleted;
 - a package's workflow running a job and waiting for its end (§4.4);
 - a package's step reaching its app's SQLite from a scheduled run, and
   reading the pages under a Concept by name.
