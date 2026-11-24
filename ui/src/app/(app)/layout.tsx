@@ -20,7 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ]);
   const access = describeDelegation(mothership);
   const home = apps?.find((a) => a.assistant);
-  const rail = railApps(apps ?? [], admins, isAdmin(user.role));
+  const rail = railApps(apps ?? [], admins);
 
   // The call and the assistant's frame live here, above every page, so they keep going as the person moves between them.
   return (
@@ -31,7 +31,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           home={home?.title ?? "Home"}
           apps={rail.apps.filter((a) => !a.assistant).map((a) => ({ title: a.title, href: a.href }))}
           admin={isAdmin(user.role)}
-          adminApps={rail.settings.map((a) => ({ title: a.title, href: a.href }))}
           person={{
             name: user.name || user.email,
             email: user.email,

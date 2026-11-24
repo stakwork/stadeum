@@ -894,6 +894,13 @@ export async function setAppLive(name: string, target: LiveTarget, actor: string
   return { active: d.active ?? "", live: d.live ?? "latest" };
 }
 
+/** `DELETE /apps/:name`: unpublish the app (strut removes its pointers and grants; its files stay). */
+export async function deleteApp(name: string, actor: string): Promise<void> {
+  const path = appPath(name);
+  const res = await strutFetch("DELETE", path, undefined, undefined, actor);
+  if (!res.ok) await fail("DELETE", path, res);
+}
+
 // ── the brand (strut specs/API.md §14.12) ───────────────────────────────
 
 /** The look of every app on the box. A field left out is the kit's own. */

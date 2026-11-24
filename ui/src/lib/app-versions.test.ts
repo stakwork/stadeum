@@ -98,10 +98,10 @@ describe("the confirm notes say what everyone gets", () => {
     expect(liveLabel("v11", "latest")).toBe("Every publish goes live");
   });
 
-  it("says pinning moves an app between the rail and the organisation's pages, and nothing about versions", () => {
+  it("says pinning moves an app in and out of the rail, and nothing about versions", () => {
     expect(pinNote({ pinned: false, admin: false })).toBe("Everyone sees the app in their rail.");
-    expect(pinNote({ pinned: true, admin: false })).toBe("The app leaves everyone's rail. Admins can still open it under Organisation.");
+    expect(pinNote({ pinned: true, admin: false })).toBe("The app leaves everyone's rail. It stays installed, and admins can still open it from this page.");
     expect(pinNote({ pinned: false, admin: true })).toBe("Admins see the app in their rail.");
-    expect(pinNote({ pinned: true, admin: true })).toBe("The app leaves admins' rail. Admins can still open it under Organisation.");
+    expect(pinNote({ pinned: true, admin: true })).toBe("The app leaves admins' rail. It stays installed, and admins can still open it from this page.");
   });
 });
