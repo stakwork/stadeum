@@ -60,7 +60,7 @@ describe("the provider table", () => {
     for (const id of ["slack", "GITHUB", "GOOGLE", "__proto__", "constructor", "toString", ""]) expect(connectable(id)).toBeUndefined();
   });
 
-  it("has Google only with a client of its own, never the sign-in's", () => {
+  it("has Google only with its connect client set, never with the sign-in's", () => {
     Object.assign(process.env, { AUTH_GOOGLE_ID: "signin.apps.googleusercontent.com", AUTH_GOOGLE_SECRET: "signin-secret" });
     expect(connectable("google")).toBeUndefined();
     process.env.CONNECT_GOOGLE_CLIENT_ID = "box.apps.googleusercontent.com";

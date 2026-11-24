@@ -95,9 +95,10 @@
 #                             docs/stack-spec.md, "The connect seam")
 #   STADEUM_CONNECT_GOOGLE_CLIENT_ID, STADEUM_CONNECT_GOOGLE_CLIENT_SECRET
 #                             (optional, never asked: a Google OAuth client
-#                             of the box's own, never the sign-in's, for
-#                             people to connect Google; its redirect URI is
-#                             the box's, or the bounce's; plans/gmail.md §3)
+#                             for people to connect Google, a shared app a
+#                             host gives or the box's own; never the
+#                             sign-in's; its redirect URI is the box's, or
+#                             the bounce's; plans/gmail.md §3)
 #   STADEUM_LIVEKIT_API_KEY, STADEUM_LIVEKIT_API_SECRET (optional: calls stay
 #                             off without them; STADEUM_LIVEKIT_URL for a
 #                             LiveKit server other than the central one)
@@ -560,8 +561,9 @@ configure() {
   [ -z "${STADEUM_CONNECT_GITHUB_CLIENT_ID:-}" ] || setting CONNECT_GITHUB_CLIENT_ID "GitHub App client ID" check_github_client_id
   [ -z "$(env_get CONNECT_GITHUB_CLIENT_ID)" ] || setting CONNECT_GITHUB_CLIENT_SECRET "GitHub App client secret" given secret
   [ -z "${STADEUM_CONNECT_GITHUB_SLUG:-}" ] || setting CONNECT_GITHUB_SLUG "GitHub App slug" check_github_slug
-  # Google for the connect seam: a client of the box's own, never the
-  # sign-in's, taken only when given, its client secret with its client ID.
+  # Google for the connect seam: a shared app a host gives, or the box's
+  # own, never the sign-in's; taken only when given, its client secret with
+  # its client ID.
   [ -z "${STADEUM_CONNECT_GOOGLE_CLIENT_ID:-}" ] || setting CONNECT_GOOGLE_CLIENT_ID "Google connect client ID" check_google_id
   [ -z "$(env_get CONNECT_GOOGLE_CLIENT_ID)" ] || setting CONNECT_GOOGLE_CLIENT_SECRET "Google connect client secret" given secret
   check_replaced
@@ -792,7 +794,7 @@ finish() {
   say "    Google     $(callback_base)/api/auth/callback/google"
   say "    Microsoft  $(callback_base)/api/auth/callback/microsoft-entra-id"
   [ -z "$(env_get CONNECT_GITHUB_CLIENT_ID)" ] || say "    GitHub     $(callback_base)/api/connect/github/callback (the App's one callback URL)"
-  [ -z "$(env_get CONNECT_GOOGLE_CLIENT_ID)" ] || say "    Google     $(callback_base)/api/connect/google/callback (the connect client's, not the sign-in's)"
+  [ -z "$(env_get CONNECT_GOOGLE_CLIENT_ID)" ] || say "    Google     $(callback_base)/api/connect/google/callback (the connect app's, not the sign-in's)"
   say "  Keep ports 80 and 443 (TCP, and 443 UDP) open to the internet, in the cloud's"
   say "  firewall or security group: Caddy renews the certificates through them."
   admin=$(env_get STADEUM_ADMIN_EMAIL)

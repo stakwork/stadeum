@@ -109,7 +109,7 @@ describe("POST /api/connect/:provider/refresh", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "invalid_grant" });
 
-    // The box's own client gone wrong is no reason to drop anyone's token.
+    // A wrong client secret is no reason to drop anyone's token.
     fake.state.google.refreshTokens.get(SEEDED)!.revoked = false;
     process.env.CONNECT_GOOGLE_CLIENT_SECRET = "not-the-secret";
     res = await refresh();

@@ -562,11 +562,13 @@ checked".
   404.
   - **GitHub:** a GitHub App. Its user tokens never expire, and its
     settings decide its permissions, so a package asks for no scope.
-  - **Google** (`plans/gmail.md` §2, §3): a web OAuth client of the box's
-    own, in the company's Google Cloud project with its consent screen
-    Internal, never the sign-in's (`AUTH_GOOGLE_*`): Gmail's scopes are
-    restricted, and the sign-in's client is shared through the bounce. Its
-    scopes are `gmail.readonly` and `gmail.compose`. Its authorize URL
+  - **Google** (`plans/gmail.md` §2, §3): a web OAuth client. It is a
+    shared app a host gives the box, as fleet gives GitHub's, or the box's
+    own, an Internal app the admin makes in the company's Google Cloud
+    project. The seam reads the same two settings either way and doesn't
+    know whose they are. It is never the sign-in's (`AUTH_GOOGLE_*`):
+    Gmail's scopes are restricted, and would put sign-in behind Google's
+    review. Its scopes are `gmail.readonly` and `gmail.compose`. Its authorize URL
     carries `access_type=offline` and `prompt=consent`, so every connect
     brings a refresh token, and `include_granted_scopes=true`, so one
     `GOOGLE_TOKEN` holds what every Google package asked for. Its access
@@ -624,7 +626,7 @@ checked".
     for nothing else: strut then deletes the secret, and the person
     connects again (strut `specs/API.md` §8.2). `502 { error }` when the
     provider doesn't answer, or answers anything else: `invalid_client`
-    is the box's client gone wrong, and costs nobody their token. Another
+    is the client's settings gone wrong, and costs nobody their token. Another
     bearer is a 401, and a body with no refresh token a 422. Without
     `CONNECT_TOKEN`, or for a provider with no `refresh`, it is a 404.
     Strut keeps the secret on all but the 400. It keeps and logs nothing:
@@ -632,7 +634,8 @@ checked".
   - Through a bounce, the redirect URI is the bounce's
     `/api/connect/<provider>/callback`, so a GitHub App registers that one
     callback URL for every box behind it, and a Google client one redirect
-    URI (`install.sh` prints each). Without one it is the box's own.
+    URI (`install.sh` prints each), registered once by whoever made the
+    app. Without a bounce it is the box's own URL.
   - `npm run fake-stack` has a fake GitHub App (`/github`): its authorize
     and install pages, with a button back to the callback, and its token
     URL, one use per code. `CONNECT_GITHUB_URL` points GitHub's entry at

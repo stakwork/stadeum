@@ -79,9 +79,10 @@ const PROVIDERS: Record<string, () => Provider> = {
       secrets: { GITHUB_TOKEN: ["access_token"] },
     };
   },
-  // A Google OAuth client of the box's own, never the sign-in's
-  // (AUTH_GOOGLE_*): Gmail's scopes are restricted (plans/gmail.md §3). Its
-  // access tokens last an hour. `access_type=offline` and `prompt=consent`
+  // A Google OAuth web client: a shared app a host gives, or the box's own
+  // (plans/gmail.md §3); the seam doesn't know whose. Never the sign-in's
+  // (AUTH_GOOGLE_*): Gmail's scopes are restricted. Its access tokens last
+  // an hour. `access_type=offline` and `prompt=consent`
   // get a refresh token on every connect; `include_granted_scopes` adds a
   // package's scopes to what the person granted before, so one GOOGLE_TOKEN
   // serves every Google package. Google's two URLs are on two hosts:
@@ -375,7 +376,7 @@ export type Refreshed =
  * expired or another client's, is a refusal (400): strut then deletes the
  * secret, and the person connects again. Any other answer that isn't a
  * token is a 502, which strut retries later: `invalid_client`, say, is the
- * box's client secret gone wrong, and must not cost everyone their token.
+ * client's settings gone wrong, and must not cost everyone their token.
  */
 export async function refreshAccess(p: Connectable, refreshToken: string): Promise<Refreshed> {
   const { ok, status, data } = await tokenUrl(p, { grant_type: "refresh_token", refresh_token: refreshToken });
