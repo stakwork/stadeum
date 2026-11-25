@@ -1,5 +1,11 @@
 # Recording a call on the canvas: Jamie takes the notes and shows them
 
+> **Built 2026-11-25: the transcript view (§9).** A recorded call opens on
+> a live transcript of its finished lines. Every line is kept in the
+> call's notes job (§7). The `stadeum/canvas` package and app were changed
+> in place on this box, not in stakwork/strut-canvas; voice's half is
+> sphinx-voice#52, open, not yet released.
+
 > **Proposed 2026-11-24 (Evan asked), not built:** the canvas itself in
 > Jamie's screen tile for people on the box (§6.5), and the package saying
 > what a call records onto, in place of names built into voice (§8). Work
@@ -279,6 +285,12 @@ that job: it moves to each card as it is written and marks the new ones,
 from `job/updates` and `graph/changes`, which the app is already granted.
 This is the one thing this plan asks of the canvas app.
 
+**Since 2026-11-25 (§9)** the presenter view opens on the call's
+**transcript**, then switches to the planning view at the call's first
+initiative, unless someone toggled the view; later initiatives only pulse
+the picture-in-picture, the live window of the other view in the bottom
+left. Jamie's screen share opens the same deep link, so it does the same.
+
 ### 6.4 Why a video for everyone
 
 In a group call, the key is the only thing that says who is in it. People
@@ -330,6 +342,16 @@ a chunk at a time. It is still the box's model, as for every strut turn,
 and a box on a private provider keeps it private. §6 and the notice (§4)
 must say so.
 
+**What is stored (since 2026-11-25, §9).** While a call is recorded, every
+finished line (speech, chat and Jamie's own) is kept in the call's notes
+job, `transcript.jsonl` in its directory, until that job is deleted.
+Anyone who can open the canvas on the box can read it. The lines are also
+sent on the canvas app's channel while the call is live; the channel keeps
+only its last 256 messages, in memory. A call recorded before this has no
+stored lines: its transcript is rebuilt from the scribe's prompts, with
+times to the minute. Nothing new leaves the box: the same text already
+reached strut's STT and the scribe.
+
 ## 8. What the package says (proposed)
 
 Voice names the canvas twice in its own code: the screen's app
@@ -360,6 +382,49 @@ calls:
   chunks, and writes in its own way. That costs a turn per package for
   each chunk, which is the box owner's choice when installing. Jamie's
   screen shows the first package's app, by package name.
+
+## 9. The transcript view (built 2026-11-25)
+
+The scribe's chunks come minutes after the speech (median 2½ min), so the
+view is fed **finished lines straight from voice**, about 2 s after each
+pause. The scribe is unchanged. No live words: a text-free "speaking…"
+mark shows while someone talks.
+
+**What's built where.**
+
+- **The `stadeum/canvas` package and app, changed in place on this box**
+  (not pushed to stakwork/strut-canvas):
+  - steps `transcript-append` (appends lines to `transcript.jsonl`, skips
+    an `n` it has, `end: true` when recording stops), `transcript` (v2:
+    reads them, takes the page's `app/…`-prefixed job id, rebuilds an old
+    call from its prompts) and `calls` (the recorded calls, newest first).
+    `call-…` jobs only.
+  - card back-links on stories, requirements, questions and options:
+    `call_job`, `call_lines` (the chunk's line numbers), `speaker`,
+    `quote`; a choice said aloud has `state_call_job` / `state_call_lines`.
+    Cards from real calls get them once the Call Canvas page edit asking
+    the scribe for `lines` is accepted.
+  - app v3: the transcript view (bubbles with names and initials, follow
+    and **Live**), the Planning | Transcript toggle, the live
+    picture-in-picture, tags from lines to cards and back, a **Calls**
+    list, and replay of past calls.
+- **Voice: sphinx-voice#52** (`feature/call-transcript-view`), open, not
+  yet released or on `stable`. It sends the channel below and stores each
+  line through `transcript-append`; a 404 there means it sends nothing.
+  Captions and the scribe are unchanged.
+
+**The channel contract.** `canvas-transcript.<job>` (`<job>` the scribe's
+`call-…` job), on app `stadeum/canvas/canvas`, sent by voice as the
+recorder:
+
+- a `line` EVENT per finished line: `{ type: "line", n, at, speaker,
+  identity?, source: "voice"|"chat"|"jamie", text }` (`at` epoch ms here,
+  ISO when stored; text cut at 6000 chars on the channel only);
+- a `speaking:<identity>` STATE: `{ type: "speaking", speaker, identity,
+  on, at }`, no text; the page treats an `on` older than 30 s as off;
+- `{ type: "end" }` when recording stops, after every `speaking` is off.
+
+The page loads the stored lines on open and merges the channel's by `n`.
 
 ## Work items
 

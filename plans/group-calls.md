@@ -279,7 +279,8 @@ and a recording (below).
 
 **While a call is recorded on the canvas** (`call-canvas.md` §7), everything
 said reaches the box's model too, a chunk at a time, and everyone in the
-call is told.
+call is told. Every finished line is also kept on the box, in the call's
+notes job, for the canvas's transcript view (`call-canvas.md` §7, §9).
 
 All of it goes to the box's model, as every strut turn does. A box that uses a
 private provider (strut `docs/privacy.md`: Private AI, Maple) keeps them
