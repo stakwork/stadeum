@@ -367,6 +367,9 @@ services:
     init: true
     environment:
       STRUT_URL: http://strut:3000
+      # strut's address outside the box: Jamie names the app it shows a call
+      # by its link there, so Peel can open it (plans/call-canvas.md §6.5).
+      STRUT_PUBLIC_URL: https://strut.${HOST}
       STRUT_API_KEY: ${SHARED_API_TOKEN}
       STRUT_VOICE_TOKEN: ${STRUT_VOICE_TOKEN:-}
       # It binds loopback unless told otherwise; strut calls it, and posts
