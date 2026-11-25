@@ -391,7 +391,10 @@ checked".
   box in, starts a job of kind `Call Canvas` whose turns the service sends
   chunks of the call, cut at pauses; everyone in the call is told. While a
   call is recorded, everything said reaches the box's model, not only what
-  a request sends.
+  a request sends. `STRUT_PUBLIC_URL=https://strut.${HOST}` is strut's
+  address outside the box: Jamie names the app it shows by its link there,
+  so a Peel linked to the box can show the app itself in place of the
+  video (`plans/call-canvas.md` §6.5).
 - **The model.** From 0.44 the voice turns ask for none unless
   `VOICE_MODEL` is set, so they run on strut's default: the org's model
   from the Models page, as a person's turns in Jamie do. A group call's

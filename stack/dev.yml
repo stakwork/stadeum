@@ -18,6 +18,10 @@ services:
     environment:
       STRUT_PUBLIC_URL: http://strut.${HOST}
 
+  voice:
+    environment:
+      STRUT_PUBLIC_URL: http://strut.${HOST}
+
   treasury:
     environment:
       DAEMON_JAMIE_URL: http://${HOST}/
