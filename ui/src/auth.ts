@@ -59,12 +59,16 @@ export const authConfig: NextAuthConfig = {
       const email = emailFrom(user, profile as Record<string, unknown> | undefined, account?.provider);
       return checkSignIn(user, email, account?.provider);
     },
-    jwt({ token, user }) {
+    jwt({ token, user, profile }) {
       if (user?.email) token.email = user.email.toLowerCase();
+      // The provider's profile picture (Google's `picture`), kept on the token so the avatar can show it.
+      const picture = user?.image ?? (profile as { picture?: unknown } | undefined)?.picture;
+      if (typeof picture === "string" && /^https:\/\//.test(picture)) token.picture = picture;
       return token;
     },
     session({ session, token }) {
       if (typeof token.email === "string") session.user.email = token.email;
+      if (typeof token.picture === "string") session.user.image = token.picture;
       return session;
     },
   },

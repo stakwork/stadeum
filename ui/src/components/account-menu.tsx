@@ -13,6 +13,8 @@ export interface Person {
   role: string;
   tone: Tone;
   state: string;
+  /** Profile picture URL from the sign-in provider, if any. */
+  image?: string | null;
 }
 
 function initials(name: string): string {
@@ -21,6 +23,23 @@ function initials(name: string): string {
     .split(/[\s._-]+/)
     .filter(Boolean);
   return ((words[0]?.[0] ?? "") + (words.length > 1 ? (words.at(-1)?.[0] ?? "") : "")).toUpperCase() || "?";
+}
+
+/** The profile picture, or the initials when there is none or it fails to load. Google-hosted images refuse a referrer, so none is sent. */
+function Avatar({ name, image }: { name: string; image?: string | null }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [image]);
+  if (!image || failed) return <>{initials(name)}</>;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={image}
+      alt=""
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      className="size-full rounded-full object-cover"
+    />
+  );
 }
 
 const menuItem =
@@ -98,7 +117,7 @@ export function AccountMenu({ person, admin }: { person: Person; admin: boolean 
         className={`flex w-full items-center gap-2.5 rounded-[10px] p-2 text-left transition-colors duration-150 hover:bg-raised ${open ? "bg-raised" : ""}`}
       >
         <span className="relative grid size-8 shrink-0 place-items-center rounded-full bg-raised text-[12px] font-semibold text-ink-2 ring-1 ring-rule">
-          {initials(person.name)}
+          <Avatar name={person.name} image={person.image} />
           {person.tone !== "ok" && (
             <span
               aria-label={`AI access: ${person.state}`}
