@@ -23,6 +23,7 @@ model User {
 
   mothership MothershipUser?
   invitesSent Invite[] @relation("InvitedBy")
+  apiKeys     ApiKey[]
 }
 
 model Invite {
@@ -166,4 +167,21 @@ model LimitChange {
   before    String
   after     String
   createdAt DateTime @default(now())
+}
+
+/// A key for the box's HTTP API (lib/api-keys.ts). Only the SHA-256 of the secret is kept;
+/// the secret itself is shown once, at creation. Revoking deletes the row.
+model ApiKey {
+  id          String    @id @default(cuid())
+  name        String
+  /// The first characters of the key, for telling keys apart in a list.
+  prefix      String
+  /// SHA-256 hex of the whole key.
+  hash        String    @unique
+  /// read | read_write
+  scope       String    @default("read")
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
 }
