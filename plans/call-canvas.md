@@ -1,12 +1,19 @@
 # Recording a call on the canvas: Jamie takes the notes and shows them
 
+> **Proposed 2026-11-24 (Evan asked), not built:** the canvas itself in
+> Jamie's screen tile for people on the box (§6.5), and the package saying
+> what a call records onto, in place of names built into voice (§8). Work
+> items 8 to 13.
+>
 > **Built 2026-11-24:** the recording, in sphinx-voice#44 and #47
-> (released in 0.44, on `stable`), and strut's half of the screen share,
+> (released in 0.44), and strut's half of the screen share,
 > `GET /apps/look/stream` (strut#882); group-calls.md §6 now says what
-> recording sends (§7 here). Open: the Call Canvas page and the presenter
-> view (the canvas package, under way), voice's screen-share track,
-> "Record on the canvas" in Peel (stakwork/peel#608 for iOS and Mac;
-> Android under way).
+> recording sends (§7 here). Then voice's screen-share track
+> (sphinx-voice#48, 0.45 on `stable`), the Call Canvas page and the
+> presenter view (the canvas package, strut-canvas `main` @61b5951), and
+> "Record on the canvas" in Peel (stakwork/peel#608, stakwork/peel-android#145).
+> Tried on stadeum.stakwork.ai on 11-24: the scribe wrote an initiative from
+> the call, and Jamie's screen showed it.
 >
 > **Status (2026-11-24): proposed.** Nothing was built then. Builds on
 > `group-calls.md` (proposed, nothing built either): a box's `voice` service
@@ -107,6 +114,11 @@ still being worked out. The next chunk comes into the same session, so the
 half it held back is still there when the rest arrives. Whether an idea is
 finished is the scribe's call, made with everything said so far.
 
+*Changed after the first live call (11-24):* a scribe told to wait until an
+idea settled wrote nothing. The page now has it write an idea once its
+speaker has stated it, as proposed cards, and refine those cards as the
+idea grows. It still writes nothing for small talk.
+
 Why not a small model (Haiku) after every sentence:
 
 - It cannot know. Whether an idea is finished depends on what is said next.
@@ -157,9 +169,9 @@ POST /workflows/job/run
   model (strut `createStrut.ts`, `launchingTurnOf`: the turn's
   `params.model` goes to the job). Voice launches the scribe's turns
   itself, so nothing is inherited: it passes the model it passes on the
-  call's own turns, `VOICE_MODEL` (`sonnet` unless set,
-  `member-config.ts`). The scribe then writes on the model a job started
-  from the call would.
+  call's own turns. That is `VOICE_MODEL` when it is set, and otherwise no
+  model, so both run on the box's default (sphinx-voice#43). The scribe
+  then writes on the model a job started from the call would.
 - **No budget (ruled).** A recording takes none by default.
 
 The job gives the rest:
@@ -267,13 +279,48 @@ that job: it moves to each card as it is written and marks the new ones,
 from `job/updates` and `graph/changes`, which the app is already granted.
 This is the one thing this plan asks of the canvas app.
 
-### 6.4 Why a video, not the app in every client
+### 6.4 Why a video for everyone
 
 In a group call, the key is the only thing that says who is in it. People
 who joined through meet, or who are linked to another box, cannot open this
 box's app. A video shows the canvas to exactly the people who can hear the
-call, and to no one else. Anyone linked to the box can still open the real
-canvas from its link in the chat (sphinx-voice `plans/call-artifacts.md`).
+call, and to no one else. People who can open the app get the app itself,
+in the same tile (§6.5).
+
+### 6.5 The canvas itself, for people on the box (proposed)
+
+On the video, nobody can scroll, open an initiative or read a card that is
+off screen. For a person linked to the box, Peel puts the app itself in
+Jamie's screen tile in place of its video, so the canvas stays part of the
+call:
+
+- **Jamie says where.** Voice sets one participant attribute, `screen`, to
+  the app's deep link on the box, strut's `?app=<name>&input=<query>`:
+  `https://strut.<host>/?app=stadeum%2Fcanvas%2Fcanvas&input=present%3D<job>`.
+  It sets the attribute when the track starts and clears it when the track
+  stops. The address is `STRUT_PUBLIC_URL`, which the stack already gives
+  strut; voice gets it too.
+- **Peel opens it when it can.** When the link's address is a box this Peel
+  is linked to, Jamie's screen tile loads that app with the person's own
+  access, as Peel loads any of the box's apps (`StrutPage` on the Mac,
+  `OrgPageSheet`'s page on the iPhone). Otherwise the tile shows the
+  video, as now. In the live tile, taps and clicks go to the page. Going
+  back to the grid becomes a button, since a tap or click on a focused tile
+  does that today.
+- **The layout.** The tile is focused when the share starts, as a screen
+  share is today (`refocus` on the Mac and iPhone, `screenTile` on
+  Android). On the Mac the app fills the window, with people in a column
+  beside it (`CallStage`). On the iPhone, people sit in a row at the top
+  and the app goes under them; today the row is under the tile
+  (`IOSCallStage`), so it moves up. Android does the same as the iPhone.
+- **Following, and looking around.** The page is the presenter view
+  (§6.3), so it follows the notes as the video does. Once the person
+  scrolls or opens a card, it stops moving to new cards and shows
+  **Follow** to go back to following. Nobody scrolls the video, so nothing
+  changes there.
+- **What the attribute shows.** Attributes go through LiveKit's server,
+  outside the call's encryption. The server sees the box's address, the
+  app's name and the job's id. It never sees what the canvas holds.
 
 ## 7. What leaves the box (amends group-calls.md §6)
 
@@ -282,6 +329,37 @@ the box's model. While a call is recorded, **everything said** reaches it,
 a chunk at a time. It is still the box's model, as for every strut turn,
 and a box on a private provider keeps it private. §6 and the notice (§4)
 must say so.
+
+## 8. What the package says (proposed)
+
+Voice names the canvas twice in its own code: the screen's app
+(`VOICE_SCREEN_APP`, `stadeum/canvas/canvas` unless set, `member-config.ts`)
+and the scribe's kind (`CALL_CANVAS_KIND`, "Call Canvas", `strut/jobs.ts`).
+On a box without the canvas package, a recording would run a job with no
+page, and Jamie's screen would show "The app could not be loaded".
+
+The package says it instead, in its `strut.yaml`:
+
+```yaml
+calls:
+  kind: Call Canvas   # the scribe's job kind: a page this package ships
+  app: canvas         # what Jamie shows: one of this package's apps
+```
+
+- **Strut** checks `calls` at install: the kind must be a Concept page the
+  package ships and the app one of its apps, or the install fails with
+  `bad_package`. `GET /packages` lists `calls` with the package, the app by
+  its full name (`stadeum/canvas/canvas`). Strut's `/voice/calls` routes
+  stay as they are: they forward the body as it came.
+- **Voice** reads `GET /packages` when it is asked to record and takes
+  every package that has `calls`. With none, there is nothing to record
+  onto. Its `GET /calls` answers `record: false`, so Peel does not offer
+  "Record on the canvas", and the start phrase is answered that it cannot.
+  `VOICE_SCREEN_APP=off` still turns the screen off.
+- **Two packages** are fine. Each gets a job of its own kind, sent the same
+  chunks, and writes in its own way. That costs a turn per package for
+  each chunk, which is the box owner's choice when installing. Jamie's
+  screen shows the first package's app, by package name.
 
 ## Work items
 
@@ -294,11 +372,20 @@ must say so.
 | 5 | stadeum/canvas | The Call Canvas page (§3) and the presenter view (§6.3) | — |
 | 6 | peel, peel-android | "Record on the canvas" in the call menu, sent as `record: true` | 2 |
 | 7 | stadeum | `group-calls.md` §6 amended (§7); docs with the release that carries 2 and 4 | 2, 4 |
+| 8 | strut | `calls { kind, app }` in `strut.yaml` (§8): checked at install, listed on `GET /packages`; `specs/API.md`, `docs/packages.md` | — |
+| 9 | stadeum/canvas | `calls` in its `strut.yaml` (§8); the presenter view stops following when a person scrolls or opens a card, with **Follow** to go back (§6.5) | 8 |
+| 10 | stadeum | `STRUT_PUBLIC_URL` for voice in `stack/stadeum.yml` and `stack/dev.yml` (§6.5) | — |
+| 11 | sphinx-voice | The `screen` attribute (§6.5); the kind and the app from `GET /packages`, and `record` on `GET /calls` (§8) | 8, 10 |
+| 12 | peel | The live app in Jamie's screen tile when the box is linked, taps to the page and a button back to the grid; on the iPhone, the row of people above the tile; "Record on the canvas" only with `record` (§6.5, §8) | 11 |
+| 13 | peel-android | The same as 12 | 11 |
 
 ## Open
 
 - **1:1 calls.** The same chunker could record a 1:1 call. Not in this
   plan.
+- **More than one screen.** With two packages recording, only the first's
+  app is Jamie's screen (§8). Whether the others get a tile of their own
+  can wait until a second package declares `calls`.
 
 ## Rejected
 
@@ -313,6 +400,13 @@ must say so.
   belong.
 - **The gate deciding when recording starts.** Sending the whole call to a
   model starts only on a fixed phrase or Peel's menu (§4).
-- **The canvas app opened in each client** in place of a video (§6.4).
+- **The canvas app in place of the video for everyone** (§6.4): only
+  people on the box can open it. They get it in the same tile (§6.5).
+- **A link to the canvas in the call's chat, or a button beside the call**
+  (§6.5). Peel on the iPhone has no call chat, and on the Mac a link opens
+  the canvas in the main window, away from the call.
+- **Jamie moving around the canvas on request** ("Jamie, scroll down"). Each
+  move is a wake word, a gate check and a turn: seconds per move, spoken
+  over the call. A person on the box scrolls the canvas themself (§6.5).
 - **A browser in voice's own image.** Every box already runs one, and strut
   already opens apps in it as a person (§6.2).
