@@ -70,7 +70,15 @@ checked".
   `SCHEME=https`, `HOST` and `ACME_EMAIL` in its environment.
 - **https:** Caddy fetches and renews the certificates (Let's Encrypt; also
   ZeroSSL when `ACME_EMAIL` is set) and redirects http to https. Ports 80
-  and 443 must reach the box from the internet; 443/udp carries HTTP/3.
+  and 443 must reach the box from the internet.
+- **No HTTP/3.** The Caddyfile serves HTTP/1.1 and HTTP/2 only, and 443/udp
+  is not published. Over QUIC, Caddy 2.11.8 sometimes could not deliver a
+  response to a browser. The write stalled until Caddy's one-minute write
+  idle timeout, and every later response on that connection failed the
+  same way (`writing: deadline exceeded`). Strut stayed healthy, and the
+  app frame showed "Request timed out". HTTP/2 never did this
+  (2026-11-26). A browser that cached the old `Alt-Svc: h3` falls back to
+  TCP by itself.
   Volume `caddy` at `/data` keeps the certificates and the ACME account.
 - **strut:** `flush_interval -1`, so run tails and the chat (SSE) pass every
   chunk on at once. WebSocket upgrades (`/rooms`, `/channels`,
