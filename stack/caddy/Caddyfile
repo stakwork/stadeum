@@ -4,6 +4,15 @@
 # certificates itself.
 {
 	email "{$ACME_EMAIL}"
+	# No HTTP/3. Over QUIC, Caddy 2.11.8 sometimes cannot deliver a
+	# response to a browser: the write stalls until its write idle timeout
+	# (a minute), then every later response on that connection fails the
+	# same way ("aborting with incomplete response ... writing: deadline
+	# exceeded"). The app frame then shows "Request timed out". HTTP/2
+	# never did this (2026-11-26).
+	servers {
+		protocols h1 h2
+	}
 }
 
 # stadeum-ui: sign-in, the person, calls, the members, the admin pages.
