@@ -21,13 +21,8 @@ export const SETTINGS: { you: SettingsItem[]; organisation: SettingsItem[] } = {
         { href: "/spending", label: "Spending" },
       ],
     },
-    {
-      label: "Apps",
-      pages: [
-        { href: "/apps", label: "Apps" },
-        { href: "/packages", label: "Packages" },
-      ],
-    },
+    { label: "Apps", pages: [{ href: "/apps", label: "Apps" }] },
+    { label: "Packages", pages: [{ href: "/packages", label: "Packages" }] },
     { label: "Branding", pages: [{ href: "/branding", label: "Branding" }] },
     {
       label: "Server",
