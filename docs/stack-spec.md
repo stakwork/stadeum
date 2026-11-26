@@ -440,15 +440,26 @@ checked".
   strut mode (stakwork/sphinx#440) refuses `strut` and does not start, and
   a strut from before linked places (stakwork/strut#787) has none, so
   Peel finds no host ready.
+- **A workflow's post in a tribe.** A strut workflow posts in a linked
+  tribe with its `place/post` step, run as any person linked to the box,
+  in any tribe linked there: strut hands the post to the treasury on the
+  places' hook (`{ "event": "post" }` on `/strut/places`), which posts it
+  as Jamie and answers the message's id, one post per id (strut
+  `plans/place-posts.md`; stakwork/sphinx `wasm/daemon/README.md`, "A
+  workflow's post"). Only a workflow's step: never an agent's tool. A
+  member's reply to such a post is a turn only with `@jamie`. A daemon
+  from before posts answers the post as a nudge, and the step fails with
+  `host_cannot_post:`, posting nothing.
 - **Money.** Every tribe charges its join price and its price per message,
-  and every reply costs at least 1 sat, from the treasury's balance, the
-  money paid runs earned. No cap (strut `plans/jamie-in-tribes.md` §9,
+  and every reply or workflow post costs at least 1 sat, from the
+  treasury's balance, the money paid runs earned. No cap (strut `plans/jamie-in-tribes.md` §9,
   decision 6).
 - **Who calls it.** strut alone, at `http://treasury:8095`, on the stack's
   network: no published port, no route in the Caddyfile. Besides the
   wallet and Support's sends, strut posts each turn's end there
-  (`/strut/end`) and nudges it when the linked tribes change
-  (`/strut/places`), both opened by the callback token alone
+  (`/strut/end`), and nudges it when the linked tribes change or hands it
+  a workflow's post in one (`/strut/places`), both opened by the callback
+  token alone
   (`DAEMON_CALLBACK_URL=http://treasury:8095`; the daemon makes the token
   once and keeps it in `/data`). It connects out to its LSP (the image's
   default, `broker.v2.sphinx.chat`), the tribes it joins, and strut.
