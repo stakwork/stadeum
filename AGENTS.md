@@ -104,7 +104,9 @@ work on it. Read the rules before adding anything.
      accepted the same way (strut `plans/support-chat.md`, ruling 3). It
      holds the treasury's callback token, so an agent could make Jamie
      post in a linked tribe: accepted, as Jamie's posts there are an
-     agent's words already. With
+     agent's words already. Posting there is a designed door too: a
+     workflow's `place/post` step, run as a person linked to the box, which
+     strut refuses as an agent's tool (strut `plans/place-posts.md`). With
      a run archive it holds that bucket's key, so an agent could read or
      delete the box's archived run logs: accepted, with the key scoped to
      the box's prefix on a versioned bucket. With pods it holds
