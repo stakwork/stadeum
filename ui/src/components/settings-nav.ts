@@ -28,6 +28,7 @@ export const SETTINGS: { you: SettingsItem[]; organisation: SettingsItem[] } = {
         { href: "/packages", label: "Packages" },
       ],
     },
+    { label: "API keys", pages: [{ href: "/api-keys", label: "API keys" }] },
     { label: "Branding", pages: [{ href: "/branding", label: "Branding" }] },
     {
       label: "Server",
