@@ -1233,16 +1233,25 @@ docker compose --env-file .env -f stack/stadeum.yml run --rm --no-deps ops verif
   other service.
 - **Turn it on.** In `.env`: `COMPOSE_PROFILES=cloudwatch`, `CLOUDWATCH_REGION`
   (e.g. `us-east-1`), and optionally `CLOUDWATCH_LOG_GROUP` (default
-  `stadeum`, created when missing) and `CLOUDWATCH_STREAM_PREFIX`. Then
+  `stadeum`, created when missing), `CLOUDWATCH_STREAM_PREFIX` and
+  `CLOUDWATCH_RETENTION_DAYS` (default `7`). Then
   `docker compose --env-file .env -f stack/stadeum.yml up -d`. ops reads the
   same `.env`, so it keeps the sidecar updated with the release's pin.
   Blank means off.
+- **Retention.** `CLOUDWATCH_RETENTION_DAYS` (default `7`) goes to the
+  output's `log_retention_days`. Fluent Bit 3.2 documents these values: 1, 3,
+  5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653 (it does
+  not check them: CloudWatch rejects others). It applies only to a group the
+  sidecar creates (`auto_create_group`). A group that already exists (e.g.
+  `stadeum`, made earlier on a box) keeps its retention, usually never expire;
+  change it once with `aws logs put-retention-policy --log-group-name <group>
+  --retention-in-days 7`.
 - **Credentials.** Blank `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
   use the EC2 instance role through the metadata service (recommended; set
   IMDSv2's hop limit to 2 so a container can reach it). Off AWS, give an IAM
   user's keys.
 - **IAM permissions**: `logs:CreateLogGroup`, `logs:CreateLogStream`,
-  `logs:PutLogEvents`, `logs:DescribeLogStreams`, on the log group's ARN
+  `logs:PutLogEvents`, `logs:DescribeLogStreams`, `logs:PutRetentionPolicy`, on the log group's ARN
   (`arn:aws:logs:REGION:ACCOUNT:log-group:stadeum:*`; CreateLogGroup on the
   group itself). Docker 20.10+ is not required.
 
