@@ -15,6 +15,12 @@
 > requires. §6.1 is answered: Bifrost sends the minted token as a bearer.
 > The `sub` is `mothership`, not `stadeum`.
 >
+> **2026-11-27:** read again against Anthropic's docs, with
+> `usage-cost-analytics-api` added. §6.6 is answered: a federated token's
+> usage is attributed to its service account, so each box keeps one (§5,
+> Spend per box). §6.3 and §6.5 are open and §6.7 (a host name used again)
+> is new: fleet's part waits for the three.
+>
 > Proposed 2026-11-21, read against stadeum `main` @4c2da09,
 > stakwork/stadeum-fleet `main` @aad11efc, the gateway's bifrost `core`
 > v1.10.1, and Anthropic's Workload Identity Federation docs
@@ -182,17 +188,24 @@ once this is agreed; it is here so the two are read together.
   and a rate-limit tier that starts low (tiers are per organization).
   Take it if the existing organization comes to hold what a fleet bug
   shouldn't touch.
-- **At claim**, the `models` step (`app/src/lib/jobs.ts`) makes, each
-  named `box-<id>`: a service account (`developer`, added to the boxes'
-  workspace: a service account acts only in workspaces it belongs to); an
-  issuer, the box's gateway at `https://mothership.<name>.<FLEET_DOMAIN>`
-  (fleet already makes that record), by discovery; and a rule joining
-  them (`subject_prefix` `mothership`, audience
-  `https://api.anthropic.com`, the boxes' workspace, scope
-  `workspace:inference`, 3600 seconds). The answers give the box
-  `federation` with the four IDs (`organization_id`,
+- **At claim**, the `models` step (`app/src/lib/jobs.ts`) makes, in four
+  calls: a service account (`developer`); its membership in the boxes'
+  workspace (`POST /v1/organizations/service_accounts/{id}/workspaces`: a
+  service account acts only in the default workspace and those it is
+  added to); an issuer, the box's gateway at
+  `https://mothership.<name>.<FLEET_DOMAIN>` (fleet already makes that
+  record), by discovery; and a rule joining them (`subject_prefix`
+  `mothership`, audience `https://api.anthropic.com`, the boxes'
+  workspace, scope `workspace:inference`, 3600 seconds). The answers give
+  the box `federation` with the four IDs (`organization_id`,
   `federation_rule_id`, `service_account_id`, `workspace_id`;
   `docs/models.md`). No model secret passes through Parameter Store.
+- **Named `box-<id>`**, each of the three. Anthropic takes lowercase
+  letters, digits and hyphens, 1 to 255 characters, unique in the
+  organization for each kind. A box's id (eight lowercase letters and
+  digits) is never another box's; its host name can be a later box's
+  (§6, 7), so no name carries it. A retried step finds what it made by
+  name.
 - **Only to a stadeum that takes it.** A stadeum before
   stakwork/stadeum#88 leaves a `federation` entry out ("it has no key"),
   and the box gets no Anthropic. Fleet gives `federation` once `stable`
@@ -208,16 +221,18 @@ once this is agreed; it is here so the two are read together.
 - **Fleet's rule 3 holds:** the box's gateway trades its identity token
   with Anthropic, never with fleet, and its signing key never leaves the
   box.
-- **Spend per box** is a gate (§6, 6). We pay for the models, and fleet's
-  only view of one box's spend today is Anthropic's usage report grouped
-  by key (fleet's `PLAN.md`, Q7), which goes with the key pool. The
-  federation pages say only that a token's usage is attributed to its
-  workspace, as an API key's is. If usage and cost group by service
-  account, each box keeps its own, as above. If they don't, a service
-  account per box buys nothing: the boxes share one, a claim makes and a
-  destroy archives an issuer and a rule alone, and fleet needs another
-  view of a box's spend before the key pool goes. A cap per box stays
-  what it is today: none.
+- **Spend per box** is its service account's (§6, 6). We pay for the
+  models, and fleet's only view of one box's spend today is Anthropic's
+  usage report grouped by key (fleet's `PLAN.md`, Q7), which goes with the
+  key pool. A federated token's usage and cost are attributed to the
+  service account it acts as, so a service account per box keeps each
+  box's spend apart. Fleet reads `GET /v1/organizations/analytics/cost`
+  (and `/usage`) grouped by `actor`: a box's row is the one whose
+  `actor.service_account_id` is its own. Fleet's federated `org:admin`
+  token reads it, so no Admin API key stays for this. The endpoint is in
+  beta (`anthropic-beta: analytics-usage-cost-2026-08-24`), and its data
+  is hours behind: 4 as a rule, up to 24. A cap per box stays what it is
+  today: none.
 
 ## 6. To check before building
 
@@ -241,19 +256,27 @@ once this is agreed; it is here so the two are read together.
    once. The docs don't say. They hint at the exchange: verifying an
    issuer is an optional step in the console, and a failed fetch is among
    the exchange's errors.
-6. **Spend by box.** Whether usage and cost analytics group by service
-   account (the `actor` dimension). It decides whether a box has a
-   service account of its own, and whether fleet still sees one box's
-   spend (§5, Spend per box).
+6. **Spend by box.** Answered 2026-11-27, from Anthropic's docs
+   (`usage-cost-analytics-api`, "Actors"): with a federated token, a
+   request's `actor` is the service account the token acts as, and usage
+   and cost group by `actor`. So a box has a service account of its own,
+   and fleet still sees one box's spend (§5, Spend per box). The first
+   real box confirms it: its row in the report.
+7. **A host name used again.** A box that takes a destroyed box's name is
+   a second issuer with the same `issuer_url` as an archived one. The
+   docs say a name is unique for each kind; they don't say whether an
+   issuer's URL is, or whether an archived one counts. If it is refused,
+   the claim's `models` step needs another way for such a box.
 
 1 and 2 take one rule on a test box and a few curls: the exchange, a
 message with the token in each header, a long stream across a renewal.
 
-3, 5 and 6 decide the shape of fleet's part, so they are answered before
-§5 goes into fleet's `PLAN.md`, not while it is built. 5 and 6 take a few
-more curls: an issuer made for a name that doesn't answer yet; two
-service accounts with a rule each, a message as each, and the usage
-report read by service account. 3 is a question to Anthropic.
+3, 5 and 7 decide the shape of fleet's part, so they are answered before
+§5 goes into fleet's `PLAN.md`, not while it is built. 5 and 7 take three
+calls with an `org:admin` token: an issuer made for a name that doesn't
+answer yet, that issuer archived, and a second made with the same URL. 3
+is a question to Anthropic, and with it whether archived ones count
+toward a limit: archiving is a soft delete.
 
 ## 7. What changes elsewhere, when built
 
@@ -270,12 +293,12 @@ report read by service account. 3 is a question to Anthropic.
 
 Each step its own PR:
 
-1. The checks in §6, all but 4, by hand. 1 is answered (the status,
-   above). 3, 5 and 6 are open, and step 4 waits for them.
+1. The checks in §6, all but 4, by hand. 1 and 6 are answered (the
+   status, above). 3, 5 and 7 are open, and step 4 waits for them.
 2. stadeum: the key, the two `/.well-known` routes, the renewal, and
    `federation` in `STADEUM_MODEL_PROVIDERS`. The fake stack answers
    `/v1/oauth/token`, and a test checks that a renewed token reaches the
    gateway.
 3. stadeum: "Connect without a key" on the Models page.
-4. stadeum-fleet, once §6's 3, 5 and 6 are answered: its own federation,
+4. stadeum-fleet, once §6's 3, 5 and 7 are answered: its own federation,
    the claim's and destroy's `models` steps, the key pool deleted.
