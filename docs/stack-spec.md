@@ -1220,7 +1220,8 @@ docker compose --env-file .env -f stack/stadeum.yml run --rm --no-deps ops verif
   it carries the `cloudwatch_logs` output) is a sidecar under the compose
   profile `cloudwatch`. It tails `/var/lib/docker/containers/*/*-json.log`,
   mounted read-only, and sends each line to CloudWatch Logs, one stream per
-  compose service (`CLOUDWATCH_STREAM_PREFIX` + the service). Its config is
+  compose service (`CLOUDWATCH_STREAM_PREFIX` + the service; the prefix is never
+  blank: blank defaults to `<HOST>-`). Its config is
   `stack/fluent-bit/`. No published port, no Docker socket, no volume of its
   own (so it is not in the backup, and holds nothing to restore). It starts
   at the end of each file: a restart ships only the lines after it.
