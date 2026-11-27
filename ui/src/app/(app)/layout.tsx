@@ -7,16 +7,18 @@ import { adminApps, listApps, railApps } from "@/lib/apps";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { isAdmin, isRole, roleLabel } from "@/lib/roles";
+import { auth } from "@/auth";
 import { requireUser } from "@/lib/session";
 import { HomeFrame } from "./apps/home-frame";
 import { strutOrigin } from "./apps/app-frame";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const [apps, admins, mothership] = await Promise.all([
+  const [apps, admins, mothership, session] = await Promise.all([
     listApps(),
     adminApps(user.role),
     db.mothershipUser.findUnique({ where: { userId: user.id } }),
+    auth(),
   ]);
   const access = describeDelegation(mothership);
   const home = apps?.find((a) => a.assistant);
@@ -37,6 +39,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             role: isRole(user.role) ? roleLabel[user.role] : user.role,
             tone: access.tone,
             state: access.label,
+            image: session?.user?.image ?? null,
           }}
         />
         <div className="flex min-w-0 flex-1 flex-col">
