@@ -34,12 +34,30 @@ describe("a backup destination", () => {
   });
 
   it("asks for what it needs, and keeps secrets apart from the rest", () => {
-    expect(validate("s3", { bucket: "b" })).toEqual({ ok: false, error: "Access key ID is needed." });
+    expect(validate("s3", { region: "eu-west-1" })).toEqual({ ok: false, error: "Bucket is needed." });
     expect(validate("s3", { bucket: "b", accessKeyId: " id ", secretAccessKey: "k", region: "" })).toEqual({
       ok: true,
       fields: { bucket: "b" },
       secrets: { accessKeyId: "id", secretAccessKey: "k" },
     });
+  });
+
+  it("takes S3 with no key pair: restic then reads the server's own AWS credentials", () => {
+    expect(validate("s3", { bucket: "b", path: "boxes/i-0abc", region: "us-east-1" })).toEqual({
+      ok: true,
+      fields: { bucket: "b", path: "boxes/i-0abc", region: "us-east-1" },
+      secrets: {},
+    });
+    // No AWS_ACCESS_KEY_ID at all, not a blank one: restic goes on to ~/.aws/credentials and the role.
+    expect(build("s3", { bucket: "b", path: "boxes/i-0abc", region: "us-east-1" }, {})).toEqual({
+      repository: "s3:s3.amazonaws.com/b/boxes/i-0abc",
+      env: { AWS_DEFAULT_REGION: "us-east-1" },
+    });
+    expect(build("s3", { bucket: "b" }, {}).env).toEqual({});
+    // Half a pair is a mistake, either half.
+    const half = { ok: false, error: "An access key ID and its secret access key go together: give both, or neither." };
+    expect(validate("s3", { bucket: "b", accessKeyId: "id" })).toEqual(half);
+    expect(validate("s3", { bucket: "b", secretAccessKey: "k" })).toEqual(half);
   });
 
   it("refuses an endpoint with a path, a bad bucket name, a key that is not JSON", () => {
@@ -66,5 +84,13 @@ describe("a backup destination", () => {
     expect(kit).not.toContain("s3cr3t");
     expect(kit).toMatch(/STADEUM_RESTORE=\/root\/restore\.env bash/);
     expect(kit).not.toContain("init-env");
+    expect(kit).not.toContain("AWS_SESSION_TOKEN");
+  });
+
+  it("names the credentials another server needs when this one has no key pair", () => {
+    const kit = restoreKit("s3", build("s3", { bucket: "b", path: "boxes/i-0abc", region: "us-east-1" }, {}), "pw");
+    expect(kit).toContain("RESTIC_REPOSITORY=s3:s3.amazonaws.com/b/boxes/i-0abc\n");
+    expect(kit).toContain("AWS_DEFAULT_REGION=us-east-1\n");
+    expect(kit).toContain("AWS_ACCESS_KEY_ID=<yours>\nAWS_SECRET_ACCESS_KEY=<yours>\nAWS_SESSION_TOKEN=<yours, when they are temporary>\n");
   });
 });
