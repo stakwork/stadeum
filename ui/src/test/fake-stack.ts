@@ -343,6 +343,8 @@ export interface FakeState {
   clientConfig: Record<string, unknown>;
   /** The issuer a mothership gateway publishes (`BIFROST_IDENTITY_ISSUER`); null: an older gateway, which publishes none (404). */
   issuer: string | null;
+  /** Anthropic has not read the gateway's key set yet, as for a new box's first minute: it refuses a federated key's exchange. */
+  keySetUnread: boolean;
   /** strut's deployment secret store (`PUT /secrets/:name`). */
   deploymentSecrets: Map<string, string>;
   /** Names strut has a value for in its environment, which `GET /secrets` never lists: what compose hands it, as a box's `PODS_URL` and `PODS_TOKEN`. */
@@ -553,6 +555,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
     pricing: {},
     clientConfig: { log_retention_days: 365, enable_logging: true, disable_content_logging: false, drop_excess_requests: false },
     issuer: "http://mothership.fake.localhost",
+    keySetUnread: false,
     deploymentSecrets: new Map(),
     strutEnv: new Set(),
     packagesOmitMissing: false,
@@ -866,7 +869,7 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
       const value = typeof key.value === "string" ? key.value : key.value.value;
       const rule = key.anthropic_key_config?.workload_identity?.federation_rule_id;
       // A value wins over the federation (core providers/anthropic, resolveKey).
-      const works = value ? value.startsWith("sk-good") : typeof rule === "string" && rule.startsWith("fdrl_good");
+      const works = value ? value.startsWith("sk-good") : typeof rule === "string" && rule.startsWith("fdrl_good") && !state.keySetUnread;
       Object.assign(
         key,
         works
@@ -875,7 +878,9 @@ export async function startFakeStack(opts: FakeStackOptions = {}, port = 0) {
             ? { status: "list_models_failed", description: 'provider API error: {"code":"invalid-argument","error":"Incorrect API key provided."}' }
             : {
                 status: "list_models_failed",
-                description: "anthropic workload identity token exchange failed (401): the assertion was not accepted by any federation rule (request_id req_fake)",
+                description: state.keySetUnread
+                  ? "anthropic workload identity token exchange failed (401): Authentication failed (request_id req_fake)"
+                  : "anthropic workload identity token exchange failed (401): the assertion was not accepted by any federation rule (request_id req_fake)",
               },
       );
       return send(res, 200, redactKey(key));

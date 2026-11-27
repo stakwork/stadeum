@@ -1,5 +1,5 @@
 import { applyModels } from "@/lib/models/apply";
-import { applyGivenProviders } from "@/lib/models/providers";
+import { applyGivenProviders, recheckGivenFederation } from "@/lib/models/providers";
 import { ensureGatewayLogRetention } from "@/lib/mothership/gateway-settings";
 import { sweepGrantKeys } from "@/lib/mothership/grant-key";
 import { renewAllDelegations } from "@/lib/mothership/renew";
@@ -12,7 +12,10 @@ import { applyLimits } from "@/lib/spend/limits";
  *   (Hive's `strut-delegations` cron);
  * - the gateway's log retention;
  * - the providers the box's host gives (STADEUM_MODEL_PROVIDERS), so a
- *   gateway that lost them gets them back before the models are applied;
+ *   gateway that lost them gets them back before the models are applied.
+ *   A given federation Anthropic refuses at the first of these is checked
+ *   again each minute, for a quarter of an hour: a new box's first check
+ *   comes before Anthropic has read its gateway's key set;
  * - the org's models: each virtual key and strut's list and default
  *   (a wiped strut or a new person's key is put right here);
  * - spending limits: every person's budget, so a limit the gateway missed
@@ -24,6 +27,8 @@ import { applyLimits } from "@/lib/spend/limits";
  * `STADEUM_RENEWAL=0` turns it off.
  */
 const EVERY_MS = 6 * 60 * 60 * 1000;
+const RECHECK_MS = 60_000;
+const RECHECKS = 15;
 
 const warn = (what: string) => (err: unknown) =>
   console.warn(`[upkeep] ${what} failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -38,6 +43,12 @@ if (process.env.STADEUM_RENEWAL !== "0") {
     await applyGivenBackup().catch(warn("given backup destination"));
     await sweepGrantKeys().catch(warn("expired grant keys"));
   };
-  setTimeout(tick, 60_000).unref?.();
+  const recheck = (left: number) => {
+    setTimeout(async () => {
+      const settled = await recheckGivenFederation().catch((err) => (warn("given federation")(err), false));
+      if (!settled && left > 1) recheck(left - 1);
+    }, RECHECK_MS).unref?.();
+  };
+  setTimeout(() => tick().then(() => recheck(RECHECKS)), 60_000).unref?.();
   setInterval(tick, EVERY_MS).unref?.();
 }
