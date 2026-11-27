@@ -10,6 +10,10 @@ import { isKind, KINDS, validate, type Kind, type Values } from "./destination";
  *
  *   STADEUM_BACKUP_DESTINATION='{"kind":"s3","bucket":"…","path":"boxes/acme","region":"us-east-1","accessKeyId":"…","secretAccessKey":"…"}'
  *
+ * S3 may come with no key pair, from a host that keeps the box's AWS
+ * credentials fresh itself: restic reads them from ops's `~/.aws`, which
+ * the host mounts (destination.ts, build).
+ *
  * The password, when given, is the backups' restic password from the start,
  * so the host can keep a copy; blank, the box makes its own, as it does for
  * a destination an admin picks. Upkeep writes it all into the ops settings

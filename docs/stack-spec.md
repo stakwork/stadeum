@@ -1145,6 +1145,16 @@ the page's own fields with the kind, as JSON:
 STADEUM_BACKUP_DESTINATION='{"kind":"s3","bucket":"…","path":"boxes/acme","region":"us-east-1","accessKeyId":"…","secretAccessKey":"…"}'
 ```
 
+- **S3 with no key pair.** Leave `accessKeyId` and `secretAccessKey` out
+  (both, or it is refused) and restic is given no key: it reads AWS's own
+  places instead, `~/.aws/credentials` in the `ops` container and then the
+  machine's role. So a host can keep short-lived credentials fresh in a
+  directory it mounts there (in `stack/local.yml`, the box's own override)
+  and no long-lived key is on the box. A `credential_process` in that file
+  is run again as the credentials near their end, so a backup longer than
+  they last goes on. The Backups page takes the same: the two key fields
+  blank use the server's own AWS credentials. The restore kit then names
+  the credentials another server needs, a session token among them.
 - **Written by upkeep.** stadeum-ui writes it into the backup settings, its
   secrets encrypted as an admin's are, with backups on, a minute after it
   starts and every six hours. An edit to them is put right. ops reads them

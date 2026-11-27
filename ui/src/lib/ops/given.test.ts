@@ -20,6 +20,14 @@ describe("a backup destination given at install", () => {
     });
   });
 
+  it("takes S3 with no key pair, for a host that keeps the box's AWS credentials fresh itself", () => {
+    expect(givenBackup(JSON.stringify({ kind: "s3", bucket: "fleet-backups", path: "boxes/i-0abc123", region: "us-east-1" }))).toEqual({
+      kind: "s3",
+      fields: { bucket: "fleet-backups", path: "boxes/i-0abc123", region: "us-east-1" },
+      secrets: {},
+    });
+  });
+
   it("takes the password with it, when given", () => {
     expect(givenBackup(JSON.stringify(s3), " a-long-enough-password-0123 ")?.password).toBe("a-long-enough-password-0123");
     expect(givenBackup(JSON.stringify(s3), "")?.password).toBeUndefined();
@@ -36,7 +44,7 @@ describe("a backup destination given at install", () => {
       expect.stringContaining("it is not JSON"),
       expect.stringContaining("it is not a JSON object"),
       expect.stringContaining("its kind is one of s3, azure, gcs, b2, local"),
-      expect.stringContaining("Secret access key is needed"),
+      expect.stringContaining("An access key ID and its secret access key go together"),
       expect.stringContaining("STADEUM_BACKUP_PASSWORD is shorter than 16 characters"),
     ]);
   });

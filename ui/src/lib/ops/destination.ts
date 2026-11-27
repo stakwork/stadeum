@@ -44,8 +44,8 @@ export const DESTINATIONS: Record<Kind, DestinationKind> = {
       { name: "bucket", label: "Bucket" },
       folder,
       { name: "region", label: "Region", optional: true, placeholder: "us-east-1" },
-      { name: "accessKeyId", label: "Access key ID", secret: true },
-      { name: "secretAccessKey", label: "Secret access key", secret: true },
+      { name: "accessKeyId", label: "Access key ID", secret: true, optional: true, hint: "Blank to use this server’s own AWS credentials" },
+      { name: "secretAccessKey", label: "Secret access key", secret: true, optional: true },
     ],
   },
   azure: {
@@ -106,6 +106,11 @@ export function validate(kind: Kind, values: Values): { ok: true; fields: Values
   if (kind === "s3" && fields.endpoint && !/^https?:\/\/[^/\s]+\/?$/.test(fields.endpoint)) {
     return { ok: false, error: "Endpoint is an origin, like https://s3.example.com (no path)." };
   }
+  // With neither, restic finds the server's own: a role, or what its host
+  // keeps fresh in ops's ~/.aws (see build).
+  if (kind === "s3" && !secrets.accessKeyId !== !secrets.secretAccessKey) {
+    return { ok: false, error: "An access key ID and its secret access key go together: give both, or neither." };
+  }
   if (kind === "local") {
     const p = `/${slashes(fields.path)}`;
     if (!/^\/backups\/[A-Za-z0-9._-][A-Za-z0-9._/-]*$/.test(p) || p.split("/").includes("..")) {
@@ -126,7 +131,12 @@ export function validate(kind: Kind, values: Values): { ok: true; fields: Values
   return { ok: true, fields, secrets };
 }
 
-/** restic's repository and variables for a destination. */
+/**
+ * restic's repository and variables for a destination. S3 with no key pair
+ * names none: restic then looks where AWS's own tools do, ops's
+ * `~/.aws/credentials` (a `credential_process` there is run again as its
+ * credentials near their end) and then the machine's role.
+ */
 export function build(kind: Kind, fields: Values, secrets: Values): Built {
   const path = slashes(fields.path);
   switch (kind) {
@@ -135,8 +145,7 @@ export function build(kind: Kind, fields: Values, secrets: Values): Built {
       return {
         repository: `s3:${endpoint}/${fields.bucket}${path ? `/${path}` : ""}`,
         env: {
-          AWS_ACCESS_KEY_ID: secrets.accessKeyId ?? "",
-          AWS_SECRET_ACCESS_KEY: secrets.secretAccessKey ?? "",
+          ...(secrets.accessKeyId ? { AWS_ACCESS_KEY_ID: secrets.accessKeyId, AWS_SECRET_ACCESS_KEY: secrets.secretAccessKey ?? "" } : {}),
           ...(fields.region ? { AWS_DEFAULT_REGION: fields.region } : {}),
         },
       };
@@ -165,12 +174,17 @@ export function build(kind: Kind, fields: Values, secrets: Values): Built {
  * The restore kit: what a fresh box needs to read the backups, as an env
  * file for `docker compose run --env-from-file`. The password is in it;
  * the storage credentials are named for the admin to fill in, since they
- * have them already and they need not be copied again.
+ * have them already and they need not be copied again. S3 with no key
+ * pair has none of its own to name: another server reads it with
+ * whatever can, a session token too when those are temporary.
  */
 export function restoreKit(kind: Kind, built: Built, password: string): string {
-  const credentials = Object.keys(built.env)
+  const keyless = kind === "s3" && !built.env.AWS_ACCESS_KEY_ID;
+  const credentials = (keyless ? ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"] : Object.keys(built.env))
     .filter((k) => !["AWS_DEFAULT_REGION", "AZURE_ACCOUNT_NAME", "GOOGLE_PROJECT_ID"].includes(k))
-    .map((k) => (k === "GOOGLE_APPLICATION_CREDENTIALS_JSON" ? `${k}=<the key file, as: base64 < key.json>` : `${k}=<yours>`));
+    .map((k) =>
+      k === "GOOGLE_APPLICATION_CREDENTIALS_JSON" ? `${k}=<the key file, as: base64 < key.json>` : k === "AWS_SESSION_TOKEN" ? `${k}=<yours, when they are temporary>` : `${k}=<yours>`,
+    );
   const plain = Object.entries(built.env)
     .filter(([k]) => ["AWS_DEFAULT_REGION", "AZURE_ACCOUNT_NAME", "GOOGLE_PROJECT_ID"].includes(k))
     .map(([k, v]) => `${k}=${v}`);
