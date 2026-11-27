@@ -36,6 +36,7 @@ checked".
   `bolt://neo4j:7687`. strut and strut-browser also share `stadeum_browser`.
 - Only caddy publishes host ports (`HTTP_PORT`, `HTTPS_PORT`).
 - `restart: unless-stopped` on every long-running service.
+- Logs rotate locally; shipping them to CloudWatch is opt-in ("Logging").
 - One named volume per service that keeps state, named after it.
 - Every image is pinned to a version or follows a channel, never `latest`.
   ops moves a service whose `stadeum.ops.update` label names a group, on the
@@ -1207,6 +1208,42 @@ exits 3 then; otherwise 0 when the backups read back, 1 when they don't.
 ```bash
 docker compose --env-file .env -f stack/stadeum.yml run --rm --no-deps ops verify
 ```
+
+## Logging
+
+- **Local, rotated.** Every service logs with Docker's `json-file` driver
+  (`x-common` in `stack/stadeum.yml`, and `bootstrap`), each file up to
+  `LOG_MAX_SIZE` (default `10m`), `LOG_MAX_FILE` of them (default `5`). The
+  driver also writes each line's compose service and project, for the
+  shipper below. `docker compose logs` works as before, on or off.
+- **CloudWatch, opt-in.** `fluent-bit` (`fluent/fluent-bit:3.2.10`, pinned;
+  it carries the `cloudwatch_logs` output) is a sidecar under the compose
+  profile `cloudwatch`. It tails `/var/lib/docker/containers/*/*-json.log`,
+  mounted read-only, and sends each line to CloudWatch Logs, one stream per
+  compose service (`CLOUDWATCH_STREAM_PREFIX` + the service). Its config is
+  `stack/fluent-bit/`. No published port, no Docker socket, no volume of its
+  own (so it is not in the backup, and holds nothing to restore). It starts
+  at the end of each file: a restart ships only the lines after it.
+- **Why a sidecar, not the `awslogs` driver.** A logging driver is chosen
+  per container in the compose file, so `.env` could turn it on only by
+  changing every service's logging, and `docker compose logs` does not read
+  from it. With `json-file` as the default and a sidecar in a profile, off
+  means no change at all, local logs stay, and no cloud is assumed of any
+  other service.
+- **Turn it on.** In `.env`: `COMPOSE_PROFILES=cloudwatch`, `CLOUDWATCH_REGION`
+  (e.g. `us-east-1`), and optionally `CLOUDWATCH_LOG_GROUP` (default
+  `stadeum`, created when missing) and `CLOUDWATCH_STREAM_PREFIX`. Then
+  `docker compose --env-file .env -f stack/stadeum.yml up -d`. ops reads the
+  same `.env`, so it keeps the sidecar updated with the release's pin.
+  Blank means off.
+- **Credentials.** Blank `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+  use the EC2 instance role through the metadata service (recommended; set
+  IMDSv2's hop limit to 2 so a container can reach it). Off AWS, give an IAM
+  user's keys.
+- **IAM permissions**: `logs:CreateLogGroup`, `logs:CreateLogStream`,
+  `logs:PutLogEvents`, `logs:DescribeLogStreams`, on the log group's ARN
+  (`arn:aws:logs:REGION:ACCOUNT:log-group:stadeum:*`; CreateLogGroup on the
+  group itself). Docker 20.10+ is not required.
 
 ## The shared token
 

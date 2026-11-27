@@ -109,6 +109,7 @@ docker compose --env-file .env -f stack/stadeum.yml -f stack/dev.yml up -d --wai
 - Production: drop `-f stack/dev.yml` and set `HOST` and `ACME_EMAIL`. Caddy then serves `$HOST` (stadeum-ui) and `strut.$HOST` (strut) with certificates it fetches itself.
 - strut must stay at `strut.$HOST`: the same site as stadeum-ui, so the strut frame's session cookie reaches it.
 - bifrost, Neo4j and redis are internal: no port, no route.
+- Logs: local ones rotate (`LOG_MAX_SIZE`, `LOG_MAX_FILE` in `.env`). To also ship them to AWS CloudWatch Logs, set `COMPOSE_PROFILES=cloudwatch` and `CLOUDWATCH_REGION` in `.env`; off by default (`docs/stack-spec.md`, "Logging").
 - `bootstrap` (a one-shot service) makes the org's macaroon signing key in the `org` volume and registers it with bifrost. Re-run it any time: `docker compose ... run --rm bootstrap`.
 - The mothership is mandatory: bifrost rejects any model call without a valid macaroon (401) or over a cap (402), and strut refuses an LLM step with no person or no delegation. These are fixed on in `stack/stadeum.yml`.
 - An admin sets each provider's key on the Models page, which writes it to bifrost only, and picks the models people may use and the default (`docs/models.md`). strut has no key: it calls a model only through bifrost, on each person's delegation.
