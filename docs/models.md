@@ -291,6 +291,14 @@ federation trusts it and no `sk-ant-…` key is stored on the box
 - **A host can give it instead** (`federation` in
   `STADEUM_MODEL_PROVIDERS`, above): fleet makes each box's issuer,
   service account and rule (`plans/anthropic-federation.md`, §5).
+- **A new box's first check is refused.** Anthropic refuses the gateway's
+  token until it has read the gateway's key set (`jwks_unavailable`),
+  which it does within a minute or so of the box first answering: 45
+  seconds for the second such box (2026-11-27). Upkeep's first write comes
+  a minute after stadeum-ui starts, before that. So a given federation
+  that is refused then is checked again each minute, for a quarter of an
+  hour (`recheckGivenFederation`), and the Models page says Working once
+  Anthropic has the key set, not six hours on at upkeep's next pass.
 - **What counts.** A federated key is a key everywhere a pasted one is:
   strut is told Anthropic's models are there, people's keys allow them.
   Pasting a key over it wins (the gateway keeps the federation beside it,

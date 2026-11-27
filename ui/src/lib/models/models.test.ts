@@ -11,6 +11,7 @@ import {
   addOtherProvider,
   applyGivenProviders,
   checkProviderKey,
+  recheckGivenFederation,
   keyedProviders,
   otherNameProblem,
   providerSays,
@@ -426,6 +427,39 @@ describe("Anthropic without a key", () => {
     expect(anthropic).toMatchObject({ given: true, federation: { ruleId: "fdrl_good2", serviceAccountId: "svac_box2" }, check: { ok: true } });
     await expect(setProviderFederation("anthropic", good)).rejects.toThrow(GIVEN_REFUSAL);
     await expect(setProviderKey("anthropic", "sk-good-mine")).rejects.toThrow(GIVEN_REFUSAL);
+    delete process.env.STADEUM_MODEL_PROVIDERS;
+  });
+
+  it("given to a new box, is refused until Anthropic has read the gateway's key set, then checked again and found working", async () => {
+    process.env.STADEUM_MODEL_PROVIDERS = JSON.stringify([
+      { provider: "anthropic", federation: { organization_id: ORG, federation_rule_id: "fdrl_good3", service_account_id: "svac_box3" } },
+    ]);
+    const anthropic = async () => (await providerStates()).find((p) => p.id === "anthropic")!;
+    fake.state.keySetUnread = true;
+    try {
+      // Upkeep's first write, a minute after the box starts: too early.
+      expect(await applyGivenProviders()).toBe(1);
+      expect((await anthropic()).check).toEqual({ ok: false, detail: expect.stringContaining("Authentication failed") });
+      // Still unread a minute on: still refused, to be looked at again.
+      expect(await recheckGivenFederation()).toBe(false);
+      fake.state.keySetUnread = false;
+      expect(await recheckGivenFederation()).toBe(true);
+      expect((await anthropic()).check).toEqual({ ok: true });
+      // Working: nothing more is asked of the gateway.
+      const checked = slot("anthropic");
+      expect(await recheckGivenFederation()).toBe(true);
+      expect(slot("anthropic")).toEqual(checked);
+    } finally {
+      fake.state.keySetUnread = false;
+      delete process.env.STADEUM_MODEL_PROVIDERS;
+    }
+  });
+
+  it("has nothing to check again for a box given a key, or nothing", async () => {
+    delete process.env.STADEUM_MODEL_PROVIDERS;
+    expect(await recheckGivenFederation()).toBe(true);
+    process.env.STADEUM_MODEL_PROVIDERS = JSON.stringify([{ provider: "openai", key: "sk-wrong-given" }]);
+    expect(await recheckGivenFederation()).toBe(true);
     delete process.env.STADEUM_MODEL_PROVIDERS;
   });
 

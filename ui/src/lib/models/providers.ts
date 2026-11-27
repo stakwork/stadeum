@@ -279,6 +279,27 @@ export async function checkProviderKey(id: string, client?: BifrostClient): Prom
 }
 
 /**
+ * A given federation Anthropic refuses, checked again. A new box's first
+ * check comes before Anthropic has read its gateway's key set, which it
+ * does within a minute or so of the box first answering, and until then
+ * Anthropic refuses the gateway's token (`jwks_unavailable`). Upkeep's
+ * next check is six hours on, so the Models page would say Refused all
+ * that time, of a key that works. True once none is refused.
+ */
+export async function recheckGivenFederation(client?: BifrostClient): Promise<boolean> {
+  const federated = givenProviders().filter((g) => g.federation);
+  if (!federated.length) return true;
+  const c = client ?? (await governanceClient());
+  let settled = true;
+  for (const g of federated) {
+    if (stateOf(builtinShape(g.id)!, await keysOf(c, g.id)).check?.ok) continue;
+    const again = await checkProviderKey(g.id, c).catch(() => undefined);
+    if (!again?.check?.ok) settled = false;
+  }
+  return settled;
+}
+
+/**
  * Remove a provider's key. A built-in keeps its slot (its empty env slot
  * comes back at the gateway's next start); a custom provider goes whole.
  */
