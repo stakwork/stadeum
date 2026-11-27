@@ -18,8 +18,10 @@
 > **2026-11-27:** read again against Anthropic's docs, with
 > `usage-cost-analytics-api` added. §6.6 is answered: a federated token's
 > usage is attributed to its service account, so each box keeps one (§5,
-> Spend per box). §6.3 and §6.5 are open and §6.7 (a host name used again)
-> is new: fleet's part waits for the three.
+> Spend per box). §6.5 and §6.7 (a host name used again, new) are answered
+> by three calls on our organization: an issuer is made before its name
+> answers, and an archived issuer's URL is free again. §6.3, the limits,
+> is the one still open.
 >
 > Proposed 2026-11-21, read against stadeum `main` @4c2da09,
 > stakwork/stadeum-fleet `main` @aad11efc, the gateway's bifrost `core`
@@ -206,6 +208,9 @@ once this is agreed; it is here so the two are read together.
   digits) is never another box's; its host name can be a later box's
   (§6, 7), so no name carries it. A retried step finds what it made by
   name.
+- **Once the box answers**, the claim's check from outside reads the
+  box's issuer and turns its key-set polling back on if Anthropic paused
+  it while the name didn't answer (§6, 5).
 - **Only to a stadeum that takes it.** A stadeum before
   stakwork/stadeum#88 leaves a `federation` entry out ("it has no key"),
   and the box gets no Anthropic. Fleet gives `federation` once `stable`
@@ -250,33 +255,33 @@ once this is agreed; it is here so the two are read together.
    Anthropic.
 4. **Revocation.** Whether archiving a rule stops tokens already minted,
    or they run to their expiry. An hour bounds it either way.
-5. **When Anthropic first fetches a key set.** If making an issuer by
-   discovery fetches it at once, fleet makes the issuer after the box is
-   up, and the IDs can't ride in the claim's answers, which a box reads
-   once. The docs don't say. They hint at the exchange: verifying an
-   issuer is an optional step in the console, and a failed fetch is among
-   the exchange's errors.
+5. **When Anthropic first fetches a key set.** Answered 2026-11-27, by a
+   call on our organization: an issuer made by discovery for a name that
+   doesn't resolve is made (200). So the claim's `models` step makes it
+   before the box is up, and the IDs ride in the claim's answers.
+   Anthropic then polls the key set, and pauses its polling after
+   repeated failures (`jwks_polling_disabled_at`; the reference doesn't
+   say how many). So once the box answers, the claim turns polling back
+   on if it was paused (`jwks_polling_disabled: false`, which a federated
+   token may send for the issuer of a `workspace:inference` rule).
 6. **Spend by box.** Answered 2026-11-27, from Anthropic's docs
    (`usage-cost-analytics-api`, "Actors"): with a federated token, a
    request's `actor` is the service account the token acts as, and usage
    and cost group by `actor`. So a box has a service account of its own,
    and fleet still sees one box's spend (§5, Spend per box). The first
    real box confirms it: its row in the report.
-7. **A host name used again.** A box that takes a destroyed box's name is
-   a second issuer with the same `issuer_url` as an archived one. The
-   docs say a name is unique for each kind; they don't say whether an
-   issuer's URL is, or whether an archived one counts. If it is refused,
-   the claim's `models` step needs another way for such a box.
+7. **A host name used again.** Answered 2026-11-27, by the same calls:
+   with the first issuer archived, a second with the same `issuer_url`
+   is made (200). So a box may take a destroyed box's name, whose issuer
+   destroy has archived.
 
 1 and 2 take one rule on a test box and a few curls: the exchange, a
 message with the token in each header, a long stream across a renewal.
 
-3, 5 and 7 decide the shape of fleet's part, so they are answered before
-§5 goes into fleet's `PLAN.md`, not while it is built. 5 and 7 take three
-calls with an `org:admin` token: an issuer made for a name that doesn't
-answer yet, that issuer archived, and a second made with the same URL. 3
-is a question to Anthropic, and with it whether archived ones count
-toward a limit: archiving is a soft delete.
+3 is the one still open, and it can change the shape of fleet's part: a
+low limit on issuers rules out one for each box. It is a question to
+Anthropic, and with it whether archived ones count toward a limit:
+archiving is a soft delete.
 
 ## 7. What changes elsewhere, when built
 
@@ -293,12 +298,15 @@ toward a limit: archiving is a soft delete.
 
 Each step its own PR:
 
-1. The checks in §6, all but 4, by hand. 1 and 6 are answered (the
-   status, above). 3, 5 and 7 are open, and step 4 waits for them.
+1. The checks in §6, all but 4, by hand. 1, 5, 6 and 7 are answered (the
+   status, above). 3 is open.
 2. stadeum: the key, the two `/.well-known` routes, the renewal, and
    `federation` in `STADEUM_MODEL_PROVIDERS`. The fake stack answers
    `/v1/oauth/token`, and a test checks that a renewed token reaches the
    gateway.
 3. stadeum: "Connect without a key" on the Models page.
-4. stadeum-fleet, once §6's 3, 5 and 7 are answered: its own federation,
-   the claim's and destroy's `models` steps, the key pool deleted.
+4. stadeum-fleet: its own federation and the claim's and destroy's
+   `models` steps, beside the key pool, which a fleet without the
+   federation settings still uses.
+5. stadeum-fleet, once §6's 3 is answered and a real claim has used
+   federation: the key pool deleted.
