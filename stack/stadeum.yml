@@ -637,6 +637,8 @@ services:
       CLOUDWATCH_LOG_GROUP: ${CLOUDWATCH_LOG_GROUP:-stadeum}
       CLOUDWATCH_STREAM_PREFIX: ${CLOUDWATCH_STREAM_PREFIX:-${HOST}-}
       CLOUDWATCH_RETENTION_DAYS: ${CLOUDWATCH_RETENTION_DAYS:-7}
+      # Added to every record as `host` (fluent-bit.conf).
+      LOG_HOST: ${HOST:-unknown}
       # Blank: the instance role, through the metadata service.
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}

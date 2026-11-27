@@ -1219,12 +1219,32 @@ docker compose --env-file .env -f stack/stadeum.yml run --rm --no-deps ops verif
 - **CloudWatch, opt-in.** `fluent-bit` (`fluent/fluent-bit:3.2.10`, pinned;
   it carries the `cloudwatch_logs` output) is a sidecar under the compose
   profile `cloudwatch`. It tails `/var/lib/docker/containers/*/*-json.log`,
-  mounted read-only, and sends each line to CloudWatch Logs, one stream per
+  mounted read-only, and sends each line to CloudWatch Logs as a JSON record
+  (see below), one stream per
   compose service (`CLOUDWATCH_STREAM_PREFIX` + the service; the prefix is never
   blank: blank defaults to `<HOST>-`). Its config is
   `stack/fluent-bit/`. No published port, no Docker socket, no volume of its
   own (so it is not in the backup, and holds nothing to restore). It starts
   at the end of each file: a restart ships only the lines after it.
+- **Record shape.** Each CloudWatch event is the whole JSON record, not the
+  raw line (the output has no `log_key`). A `record_modifier` filter adds
+  `source` (`stadeum`), `log_group` (`CLOUDWATCH_LOG_GROUP`) and `host`
+  (`LOG_HOST`, set in `stack/stadeum.yml` from `HOST`, else `unknown`) to the
+  `service` and `project` the compose labels give. Example:
+
+  ```json
+  {"log":"GET /health 200\n","stream":"stdout","time":"2025-01-01T12:00:00.123456789Z","service":"org","project":"stadeum","source":"stadeum","log_group":"stadeum","host":"box1"}
+  ```
+
+  `log` is the original line, unchanged (ANSI colour codes kept). No field
+  is dropped. Consequences: CloudWatch console lines are now JSON (the
+  original line is in `log`); in Athena use
+  `json_extract_scalar(line, '$.service')`, `'$.log_group'`, `'$.source'`
+  (and `'$.log'` for the line); text searches that matched quotes must
+  account for JSON escaping (`\"`). Firehose message extraction passes the
+  JSON through unchanged. Stream names, group and retention are as before.
+  A restart of the sidecar (`docker compose --profile cloudwatch up -d
+  fluent-bit`) applies a changed config.
 - **Why a sidecar, not the `awslogs` driver.** A logging driver is chosen
   per container in the compose file, so `.env` could turn it on only by
   changing every service's logging, and `docker compose logs` does not read
