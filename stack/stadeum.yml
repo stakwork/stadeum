@@ -633,7 +633,11 @@ services:
     profiles: [cloudwatch]
     image: fluent/fluent-bit:3.2.10
     environment:
-      CLOUDWATCH_REGION: ${CLOUDWATCH_REGION:?set CLOUDWATCH_REGION in .env}
+      # Not required here (`:?`): compose reads every service's settings,
+      # whatever its profile, so a required one keeps a box that has not
+      # turned this on from reading the stack at all, and so from taking a
+      # release (2026-11-27). Blank, fluent-bit's output fails and says so.
+      CLOUDWATCH_REGION: ${CLOUDWATCH_REGION:-}
       CLOUDWATCH_LOG_GROUP: ${CLOUDWATCH_LOG_GROUP:-stadeum}
       CLOUDWATCH_STREAM_PREFIX: ${CLOUDWATCH_STREAM_PREFIX:-${HOST}-}
       CLOUDWATCH_RETENTION_DAYS: ${CLOUDWATCH_RETENTION_DAYS:-7}
