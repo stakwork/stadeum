@@ -239,3 +239,23 @@ made=$(grep '^CONNECT_TOKEN=' "$WORK/init.env" | cut -d= -f2-)
 "$ROOT/scripts/init-env.sh" "$WORK/init.env" >/dev/null
 grep -qxF "CONNECT_TOKEN=$made" "$WORK/init.env" || fail "init-env.sh replaced CONNECT_TOKEN"
 echo "ok - init-env.sh makes CONNECT_TOKEN, and keeps it"
+
+# 12. The stack file reads on a box that has turned nothing on: with a new
+# .env, as init-env.sh makes one, and with one made before the stack's
+# CloudWatch settings, as a box that takes a release keeps the .env it has.
+# Compose reads every service's settings, whatever its profile, so one
+# required there (`${NAME:?…}`) stops both: no such box could read the stack
+# or take a release (2026-11-27, fluent-bit's CLOUDWATCH_REGION).
+if docker compose version >/dev/null 2>&1; then
+  "$ROOT/scripts/init-env.sh" "$WORK/new.env" >/dev/null
+  grep -vE '^(COMPOSE_PROFILES|CLOUDWATCH_[A-Z_]+)=' "$WORK/new.env" >"$WORK/older.env"
+  for env in new older; do
+    docker compose --env-file "$WORK/$env.env" -f "$ROOT/stack/stadeum.yml" config --quiet 2>"$WORK/compose.err" ||
+      fail "the stack file doesn't read with a box's $env .env: $(cat "$WORK/compose.err")"
+  done
+  echo "ok - the stack file reads with a new .env, and with one from before its CloudWatch settings"
+elif [ -n "${CI:-}" ]; then
+  fail "docker compose is not here to read the stack file with"
+else
+  echo "skipped - no docker compose to read the stack file with"
+fi
