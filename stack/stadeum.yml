@@ -30,6 +30,15 @@ name: stadeum
 
 x-common: &common
   restart: unless-stopped
+  # Local logs rotate (LOG_MAX_SIZE, LOG_MAX_FILE). The compose service and
+  # project go in each line, so the optional CloudWatch shipper can name a
+  # stream by service (docs/stack-spec.md, "Logging").
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: ${LOG_MAX_SIZE:-10m}
+      max-file: "${LOG_MAX_FILE:-5}"
+      labels: com.docker.compose.service,com.docker.compose.project
 
 networks:
   # strut-browser's own network, which strut joins: a page the browser loads
@@ -486,6 +495,7 @@ services:
   bootstrap:
     image: node:22.20.0-alpine
     restart: "no"
+    logging: *logging
     depends_on:
       bifrost: { condition: service_healthy }
     environment:
@@ -612,3 +622,23 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  # Opt-in: ships every container's log to AWS CloudWatch Logs, in addition
+  # to the local ones. Starts only when COMPOSE_PROFILES in .env includes
+  # `cloudwatch`; off, nothing changes. docs/stack-spec.md, "Logging".
+  # No published port, no Docker socket: it reads the json-file logs
+  # read-only. No ops labels: it holds no data, and moves with a release's pin.
+  fluent-bit:
+    <<: *common
+    profiles: [cloudwatch]
+    image: fluent/fluent-bit:3.2.10
+    environment:
+      CLOUDWATCH_REGION: ${CLOUDWATCH_REGION:?set CLOUDWATCH_REGION in .env}
+      CLOUDWATCH_LOG_GROUP: ${CLOUDWATCH_LOG_GROUP:-stadeum}
+      CLOUDWATCH_STREAM_PREFIX: ${CLOUDWATCH_STREAM_PREFIX:-}
+      # Blank: the instance role, through the metadata service.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    volumes:
+      - ./fluent-bit:/fluent-bit/etc:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro

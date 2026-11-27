@@ -29,6 +29,12 @@ set_if_empty() {
   fi
 }
 
+# ensure KEY VALUE: add KEY with VALUE when .env has no line for it, so a box
+# made before a setting existed gets it. Never touches a line that is there.
+ensure() {
+  grep -qE "^$1=" "$ENV_FILE" || printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"
+}
+
 set_if_empty NEO4J_PASSWORD "$(openssl rand -hex 16)"
 set_if_empty BIFROST_ADMIN_PASS "$(openssl rand -hex 16)"
 set_if_empty SHARED_API_TOKEN "$(openssl rand -hex 16)"
@@ -46,6 +52,15 @@ set_if_empty DAEMON_MESSAGE_TOKEN "$(openssl rand -hex 32)"
 # The treasury's key to strut (strut's `sphinx` host).
 set_if_empty STRUT_HOST_KEY "$(openssl rand -hex 32)"
 set_if_empty AUTH_SECRET "$(openssl rand -base64 32)"
+# Logs: rotation, and the optional CloudWatch shipper (off while blank).
+ensure LOG_MAX_SIZE 10m
+ensure LOG_MAX_FILE 5
+ensure COMPOSE_PROFILES ""
+ensure CLOUDWATCH_REGION ""
+ensure CLOUDWATCH_LOG_GROUP stadeum
+ensure CLOUDWATCH_STREAM_PREFIX ""
+ensure AWS_ACCESS_KEY_ID ""
+ensure AWS_SECRET_ACCESS_KEY ""
 chmod 600 "$ENV_FILE"
 
 echo "wrote $ENV_FILE: once the stack is up, an admin sets the provider keys on the Models page"
